@@ -13,7 +13,7 @@ EOF
 }
 
 state_cmd() {
-  printf '%s %s' "$(shell_quote "$DIR/state.sh")" "$1"
+  printf 'bash %s %s' "$(shell_quote "$DIR/state.sh")" "$1"
 }
 
 cmd_idle="$(json_escape "$(state_cmd idle)")"
