@@ -29,6 +29,8 @@ tmux window in place.
 - Launcher (`prefix` + `y`) that opens or re-attaches a Codex session for the
   current directory.
 - Live preview of each session's screen in the picker.
+- Existing Codex panes are discovered too, so `prefix` + `u` can jump to Codex
+  sessions you started outside the launcher.
 - Status per session: `WORK`, `WAIT`, `IDLE`, or `????`.
 - Smart jump: selecting a session switches your outer tmux client to the window
   where it was launched, then resumes the Codex popup over it.
@@ -78,10 +80,11 @@ Inside the picker:
 | Key                       | Action                                                                    |
 | ------------------------- | ------------------------------------------------------------------------- |
 | `enter`                   | Jump to the session and resume it in the popup                            |
-| `ctrl-x`                  | Kill the highlighted session                                              |
+| `ctrl-x`                  | Kill the highlighted managed `codex-*` session                            |
 | `up` / `down`, type       | fzf navigation and filtering                                              |
 
 Sessions needing attention (`WAIT`, then `IDLE`) sort to the top.
+Existing Codex panes show as `PANE`; `ctrl-x` intentionally does not kill them.
 
 ## Status setup
 
@@ -122,6 +125,7 @@ set -g @codex_command        'codex'    # command run in new sessions
 set -g @codex_session_prefix 'codex-'   # tmux session name prefix
 set -g @codex_popup_width    '90%'      # popup width
 set -g @codex_popup_height   '90%'      # popup height
+set -g @codex_include_existing_panes 'on' # show Codex already running in tmux panes
 ```
 
 For example, to launch Codex with web search enabled:

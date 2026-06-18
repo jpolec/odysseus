@@ -11,9 +11,43 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR/helpers.sh"
 
 prefix="$(get_tmux_option @codex_session_prefix 'codex-')"
+include_existing="$(get_tmux_option @codex_include_existing_panes 'on')"
+
+pane_has_codex() {
+  local root="$1"
+  [ -n "$root" ] || return 1
+
+  ps -axo pid=,ppid=,command= 2>/dev/null |
+    awk -v root="$root" '
+      {
+        pid = $1
+        ppid = $2
+        $1 = ""
+        $2 = ""
+        sub(/^[[:space:]]+/, "", $0)
+        parent[pid] = ppid
+        cmd[pid] = $0
+      }
+      END {
+        for (pid in parent) {
+          is_codex = (cmd[pid] ~ /(^|[[:space:]\/])codex([[:space:]]|$)/ || cmd[pid] ~ /@openai\/codex/ || cmd[pid] ~ /codex-[^[:space:]]*\/bin\/codex/)
+          if (is_codex) {
+            cur = pid
+            while (cur in parent) {
+              if (cur == root) {
+                exit 0
+              }
+              cur = parent[cur]
+            }
+          }
+        }
+        exit 1
+      }
+    '
+}
 
 emit_rows() {
-  local now s state at path label rank ago
+  local now s state at path label rank ago pane pane_pid session window pane_index locator
   now="$(date +%s)"
   tmux list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r s; do
     case "$s" in
@@ -38,9 +72,26 @@ emit_rows() {
       ago='-'
     fi
 
-    printf '%s\t%s\t%s\t%5s\t%s\n' \
-      "$rank" "$s" "$label" "$ago" "${path/#$HOME/~}"
-  done | sort -t$'\t' -k1,1n -k4,4n
+    printf '%s\tsession\t%s\t%s\t%s\t%5s\t%s\t%s\n' \
+      "$rank" "$s" "$s" "$label" "$ago" "${path/#$HOME/~}" "$s"
+  done
+
+  case "$include_existing" in
+  off | false | no | 0) return 0 ;;
+  esac
+
+  tmux list-panes -a -F '#{pane_id}	#{pane_pid}	#{session_name}	#{window_index}	#{pane_index}	#{pane_current_path}' 2>/dev/null |
+    while IFS=$'\t' read -r pane pane_pid session window pane_index path; do
+      case "$session" in
+      "$prefix"*) continue ;;
+      esac
+
+      if pane_has_codex "$pane_pid"; then
+        locator="${session}:${window}.${pane_index}"
+        printf '2\tpane\t%s\t%s\t%s\t%5s\t%s\t%s\n' \
+          "$pane" "$pane" $'\033[36mPANE\033[0m' '-' "${path/#$HOME/~}" "$locator"
+      fi
+    done
 }
 
 [ "${1:-}" = '--list' ] && {
@@ -61,20 +112,36 @@ fi
 
 self="${BASH_SOURCE[0]}"
 self_quoted="$(shell_quote "$self")"
+kill_target_quoted="$(shell_quote "$DIR/kill-target.sh")"
 export FZF_DEFAULT_OPTS=''
-sel=$(printf '%s\n' "$rows" | fzf --ansi --delimiter='\t' --with-nth=3,4,5 \
+sel=$(printf '%s\n' "$rows" | sort -t$'\t' -k1,1n -k6,6n | fzf --ansi --delimiter='\t' --with-nth=5,6,7,8 \
   --reverse --cycle --header='Codex sessions - enter: jump - ctrl-x: kill' \
-  --preview='tmux capture-pane -ept {2}' --preview-window='right,62%,wrap' \
-  --bind="ctrl-x:execute-silent(tmux kill-session -t {2})+reload($self_quoted --list)")
+  --preview='tmux capture-pane -ept {4}' --preview-window='right,62%,wrap' \
+  --bind="ctrl-x:execute-silent($kill_target_quoted {2} {3})+reload($self_quoted --list)")
 
 [ -z "$sel" ] && exit 0
-target="$(printf '%s' "$sel" | cut -f2)"
+kind="$(printf '%s' "$sel" | cut -f2)"
+target="$(printf '%s' "$sel" | cut -f3)"
 
-# Move the underlying parent client to the session's origin window, then resume
-# the session in this popup over it. Falls back to the current window.
-origin="$(tmux show-options -qv -t "$target" @codex_origin 2>/dev/null || true)"
 parent="$(tmux show-options -gqv @codex_parent 2>/dev/null || true)"
-[ -n "$origin" ] && [ -n "$parent" ] &&
-  tmux switch-client -c "$parent" -t "$origin" 2>/dev/null
 
-tmux attach-session -t "$target"
+case "$kind" in
+session)
+  # Move the underlying parent client to the session's origin window, then
+  # resume the session in this popup over it. Falls back to the current window.
+  origin="$(tmux show-options -qv -t "$target" @codex_origin 2>/dev/null || true)"
+  [ -n "$origin" ] && [ -n "$parent" ] &&
+    tmux switch-client -c "$parent" -t "$origin" 2>/dev/null
+
+  tmux attach-session -t "$target"
+  ;;
+pane)
+  pane_session="$(tmux display-message -p -t "$target" '#{session_name}' 2>/dev/null || true)"
+  pane_window="$(tmux display-message -p -t "$target" '#{window_id}' 2>/dev/null || true)"
+  [ -n "$pane_window" ] && tmux select-window -t "$pane_window" 2>/dev/null
+  tmux select-pane -t "$target" 2>/dev/null
+  if [ -n "$parent" ] && [ -n "$pane_session" ]; then
+    tmux switch-client -c "$parent" -t "$pane_session" 2>/dev/null
+  fi
+  ;;
+esac
