@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Record a Codex CLI session's state on its tmux session, for the picker.
+# Record a Codex CLI session's state on its tmux session and pane, for the picker.
 # Wire this into Codex hooks (see README): state.sh <working|waiting|idle>
 #
 # Codex hooks inherit the Codex process environment, so $TMUX_PANE is set
@@ -18,4 +18,6 @@ esac
 
 tmux set-option -t "$session" @codex_state "$state" >/dev/null
 tmux set-option -t "$session" @codex_state_at "$(date +%s)" >/dev/null
+tmux set-option -pt "$TMUX_PANE" @codex_state "$state" >/dev/null 2>&1 || true
+tmux set-option -pt "$TMUX_PANE" @codex_state_at "$(date +%s)" >/dev/null 2>&1 || true
 exit 0

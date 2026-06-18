@@ -30,6 +30,7 @@ cat <<EOF
           {
             "type": "command",
             "command": "$cmd_idle",
+            "timeout": 10,
             "statusMessage": "Marking Codex session idle"
           }
         ]
@@ -42,6 +43,7 @@ cat <<EOF
           {
             "type": "command",
             "command": "$cmd_working",
+            "timeout": 10,
             "statusMessage": "Marking Codex session working"
           }
         ]
@@ -54,6 +56,7 @@ cat <<EOF
           {
             "type": "command",
             "command": "$cmd_waiting",
+            "timeout": 10,
             "statusMessage": "Marking Codex session waiting"
           }
         ]
@@ -66,6 +69,7 @@ cat <<EOF
           {
             "type": "command",
             "command": "$cmd_working",
+            "timeout": 10,
             "statusMessage": "Marking Codex session working"
           }
         ]
@@ -78,6 +82,7 @@ cat <<EOF
           {
             "type": "command",
             "command": "$cmd_idle",
+            "timeout": 10,
             "statusMessage": "Marking Codex session idle"
           }
         ]

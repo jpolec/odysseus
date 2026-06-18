@@ -1,52 +1,63 @@
 # tmux-codex-session-manager
 
-Run many [Codex CLI](https://developers.openai.com/codex/cli) sessions across
-your projects, each in its own tmux session. List them, see which sessions are
-working or waiting, preview their screens, and jump back into one from a single
-popup.
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Shell: Bash](https://img.shields.io/badge/shell-bash-4EAA25)
+![Python: 3.x stdlib](https://img.shields.io/badge/python-3.x%20stdlib-3776AB)
+![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
+![TPM ready](https://img.shields.io/badge/tpm-ready-blue)
+![GitHub Repo stars](https://img.shields.io/github/stars/jpolec/tmux-codex-session-manager?style=social)
 
-It is meant for the everyday workflow where you have Codex open in several
-repositories at once and need one place to see what needs attention. Use
-`prefix` + `y` to open the current project's Codex session, and `prefix` + `u`
-to pick from all running Codex sessions with status, preview, jump, and kill
-actions.
+A tmux popup manager for [Codex CLI](https://developers.openai.com/codex/cli).
+
+Keep many Codex sessions running in tmux, but manage them from one popup:
+
+- `prefix` + `y` opens the current project's Codex session in a tmux popup.
+- `prefix` + `u` opens a global picker for every managed Codex session and
+  every existing Codex pane it can discover.
+
+The picker shows live preview, status, source (`MGR` or `PANE`), age, estimated
+remaining context, project path, and the latest prompt/title from
+`~/.codex/sessions`.
 
 ## Screenshots
 
-![Codex session picker showing status, age, project path, and live preview](docs/picker.png)
+![Codex session picker with status, source, context, project path, prompt title, and live preview](docs/picker.png)
 
-The picker shows every managed Codex session, sorted so sessions waiting for you
-rise to the top.
+The picker is the control surface: jump into a managed popup, switch to an
+existing Codex pane, preview output, or kill only plugin-managed sessions.
 
 ![Codex session running inside a tmux popup over the project window](docs/popup.png)
 
-Launching a project opens Codex in a large popup, while keeping the underlying
-tmux window in place.
+Managed sessions are normal tmux sessions named with the configured prefix. They
+survive detach, terminal restarts, SSH disconnects, and laptop sleep.
 
 ## Features
 
-- Central picker (`prefix` + `u`) listing every running Codex session.
-- Launcher (`prefix` + `y`) that opens or re-attaches a Codex session for the
-  current directory.
-- Live preview of each session's screen in the picker.
-- Existing Codex panes are discovered too, so `prefix` + `u` can jump to Codex
-  sessions you started outside the launcher.
-- Status per session: `WORK`, `WAIT`, `IDLE`, or `????`.
-- Smart jump: selecting a session switches your outer tmux client to the window
-  where it was launched, then resumes the Codex popup over it.
-- Quick kill (`ctrl-x`) from the picker.
+- Popup launcher for the current project (`prefix` + `y`).
+- Global picker for managed Codex sessions and already-running Codex panes
+  (`prefix` + `u`).
+- Per-session and per-pane status: `WORK`, `WAIT`, `IDLE`, or `????`.
+- Metadata from Codex JSONL session logs: last prompt/title and approximate
+  remaining context.
+- Live `capture-pane` preview inside the picker.
+- Safe navigation to existing panes without killing the user's normal tmux
+  windows.
+- `ctrl-x` kill action for managed `codex-*` sessions only.
+- Hook installer and uninstaller that merge into an existing Codex hooks file
+  with backups.
+- TPM-compatible plugin, implemented with Bash plus Python 3 standard library
+  helpers.
 
-Status is optional. Without Codex hooks, the picker still lists, previews, jumps,
-and kills sessions; status may show `????` or the launch-time `IDLE`.
-
-## Prerequisites
+## Requirements
 
 - tmux >= 3.2, for `display-popup`
 - [fzf](https://github.com/junegunn/fzf)
 - [Codex CLI](https://developers.openai.com/codex/cli), available as `codex`
-- bash; macOS or Linux
+- Bash
+- Python 3, standard library only
+- macOS or Linux
 
-## Install with tpm
+## Install With TPM
 
 Add this to `~/.tmux.conf` or `~/.config/tmux/tmux.conf`:
 
@@ -54,9 +65,18 @@ Add this to `~/.tmux.conf` or `~/.config/tmux/tmux.conf`:
 set -g @plugin 'jpolec/tmux-codex-session-manager'
 ```
 
-Then press `prefix` + `I` to install.
+Then press `prefix` + `I`.
 
-## Manual install
+Recommended: install the Codex hooks so status and metadata update naturally:
+
+```sh
+~/.tmux/plugins/tmux-codex-session-manager/scripts/install-hooks.sh
+```
+
+Start Codex and run `/hooks` if Codex asks you to review and trust the new hook
+commands.
+
+## Manual Install
 
 ```sh
 git clone https://github.com/jpolec/tmux-codex-session-manager ~/clone/path
@@ -68,51 +88,77 @@ Add this to your tmux config, then reload tmux:
 run-shell ~/clone/path/codex_session_manager.tmux
 ```
 
+Install hooks from that checkout:
+
+```sh
+~/clone/path/scripts/install-hooks.sh
+```
+
 ## Usage
 
-| Key            | Action                                                                         |
-| -------------- | ------------------------------------------------------------------------------ |
-| `prefix` + `y` | Launch or re-attach to a Codex session for the current directory, in a popup   |
-| `prefix` + `u` | Open the session picker                                                        |
+| Key            | Action                                                                       |
+| -------------- | ---------------------------------------------------------------------------- |
+| `prefix` + `y` | Launch or re-attach the current project's managed Codex popup                |
+| `prefix` + `u` | Open the global Codex picker                                                 |
 
 Inside the picker:
 
-| Key                       | Action                                                                    |
-| ------------------------- | ------------------------------------------------------------------------- |
-| `enter`                   | Jump to the session and resume it in the popup                            |
-| `ctrl-x`                  | Kill the highlighted managed `codex-*` session                            |
-| `up` / `down`, type       | fzf navigation and filtering                                              |
+| Key                 | Action                                                                          |
+| ------------------- | -------------------------------------------------------------------------------- |
+| `enter`             | Jump to the selected managed session or existing Codex pane                      |
+| `ctrl-x`            | Kill the highlighted managed `codex-*` session                                   |
+| `up` / `down`, type | fzf navigation and filtering                                                     |
 
-Sessions needing attention (`WAIT`, then `IDLE`) sort to the top.
-Existing Codex panes show as `PANE`; `ctrl-x` intentionally does not kill them.
+Picker columns:
 
-## Status setup
+| Column | Meaning                                                            |
+| ------ | ------------------------------------------------------------------ |
+| state  | `WAIT`, `IDLE`, `WORK`, or `????`                                  |
+| kind   | `MGR` for plugin-managed popup sessions, `PANE` for existing panes |
+| age    | Time since the last hook event or matching Codex session event     |
+| ctx    | Approximate remaining context from recent Codex token events       |
+| path   | Current working directory                                          |
+| title  | Latest prompt/title recovered from `~/.codex/sessions`             |
+| target | tmux session name or `session:window.pane` locator                  |
 
-Codex hooks are enabled by default in current Codex CLI releases. This plugin can
-use them to stamp the active tmux session with state:
+## Status And Metadata
 
-| Codex hook         | State     | Meaning                                      |
-| ------------------ | --------- | -------------------------------------------- |
-| `UserPromptSubmit` | `WORK`    | Codex started a turn                         |
-| `PermissionRequest`| `WAIT`    | Codex is asking for an approval              |
-| `PostToolUse`      | `WORK`    | Codex resumed work after a tool completed    |
-| `Stop`             | `IDLE`    | The turn finished                            |
-| `SessionStart`     | `IDLE`    | A Codex TUI session started or resumed       |
+The plugin uses two sources of information.
 
-Generate a ready-to-use `hooks.json` snippet from the installed plugin path:
+Codex hooks update tmux options in real time:
+
+| Codex hook          | State  | Meaning                                   |
+| ------------------- | ------ | ----------------------------------------- |
+| `UserPromptSubmit`  | `WORK` | Codex started a turn                      |
+| `PermissionRequest` | `WAIT` | Codex is asking for approval              |
+| `PostToolUse`       | `WORK` | Codex resumed work after a tool completed |
+| `Stop`              | `IDLE` | The turn finished                         |
+| `SessionStart`      | `IDLE` | A Codex TUI session started or resumed    |
+
+Codex JSONL logs under `~/.codex/sessions` provide a fallback and richer picker
+metadata: latest prompt/title, last activity age, inferred state, and estimated
+remaining context.
+
+Install or refresh hooks:
+
+```sh
+~/.tmux/plugins/tmux-codex-session-manager/scripts/install-hooks.sh
+```
+
+Remove only this plugin's hooks:
+
+```sh
+~/.tmux/plugins/tmux-codex-session-manager/scripts/uninstall-hooks.sh
+```
+
+Both scripts preserve unrelated Codex hooks and create timestamped backups
+before changing the hooks file.
+
+To print the raw hook snippet instead:
 
 ```sh
 ~/.tmux/plugins/tmux-codex-session-manager/scripts/print-hooks.sh
 ```
-
-Put the generated JSON in one of the locations Codex reads, for example:
-
-- `~/.codex/hooks.json` for all projects
-- `<repo>/.codex/hooks.json` for a trusted project
-
-Then start Codex and use `/hooks` to review and trust the new hook commands if
-Codex asks for that. Existing sessions begin reporting status on the next
-matching hook event.
 
 ## Options
 
@@ -128,26 +174,47 @@ set -g @codex_popup_height   '90%'      # popup height
 set -g @codex_include_existing_panes 'on' # show Codex already running in tmux panes
 ```
 
-For example, to launch Codex with web search enabled:
+Example:
 
 ```tmux
 set -g @codex_command 'codex --search'
 ```
 
-## How it works
+## How It Works
 
-- The launcher creates a detached `codex-<hash-of-dir>` tmux session running
-  `codex`, records the origin window in `@codex_origin`, and attaches to it in a
-  popup.
-- Codex hooks call `scripts/state.sh`, which sets `@codex_state` and
-  `@codex_state_at` on the tmux session that is running Codex.
-- The picker lists sessions matching `@codex_session_prefix`, reads state, shows
-  a live `capture-pane` preview, and attaches to the selected session.
-- Pressing `prefix` + `u` from inside a Codex popup detaches that popup first,
-  then opens the picker on the outer tmux client.
+The launcher creates a detached `codex-<hash-of-dir>` tmux session running
+`codex`, records the origin window, and attaches to it in a popup.
+
+The picker lists all managed sessions plus existing tmux panes that have a Codex
+process below the pane PID. For each row, it reads tmux hook state and recent
+Codex JSONL metadata, then opens a live `capture-pane` preview.
+
+When you press `prefix` + `u` from inside a managed Codex popup, the plugin
+detaches that popup first and opens the picker on the outer tmux client.
+
+## Development
+
+Useful local checks:
+
+```sh
+scripts/picker.sh --list
+scripts/session-meta.py --path "$PWD"
+scripts/print-hooks.sh | jq empty
+```
 
 ## License
 
 MIT. This project is adapted from
 [craftzdog/tmux-claude-session-manager](https://github.com/craftzdog/tmux-claude-session-manager),
 also MIT licensed.
+
+## GitHub Signals
+
+GitHub does not expose a public share counter for repositories. The public
+signals closest to that are stars, forks, watchers, issues, and recent activity:
+
+![GitHub Repo stars](https://img.shields.io/github/stars/jpolec/tmux-codex-session-manager?style=social)
+![GitHub forks](https://img.shields.io/github/forks/jpolec/tmux-codex-session-manager?style=social)
+![GitHub watchers](https://img.shields.io/github/watchers/jpolec/tmux-codex-session-manager?style=social)
+![GitHub issues](https://img.shields.io/github/issues/jpolec/tmux-codex-session-manager)
+![GitHub last commit](https://img.shields.io/github/last-commit/jpolec/tmux-codex-session-manager)
