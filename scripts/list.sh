@@ -20,9 +20,16 @@ nested_session() {
 
 # A client NOT attached to a prefixed session, preferring the invoking client.
 host_client() {
+  local found
   if [ -n "$client" ]; then
-    tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null |
-      awk -v c="$client" -v p="$prefix" '$1 == c && index($2, p) != 1 { print $1; exit }'
+    found="$(
+      tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null |
+        awk -v c="$client" -v p="$prefix" '$1 == c && index($2, p) != 1 { print $1; exit }'
+    )"
+    if [ -n "$found" ]; then
+      printf '%s\n' "$found"
+      return 0
+    fi
   fi
   tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null |
     awk -v p="$prefix" 'index($2, p) != 1 { print $1; exit }'
