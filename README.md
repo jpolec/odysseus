@@ -5,8 +5,23 @@ your projects, each in its own tmux session. List them, see which sessions are
 working or waiting, preview their screens, and jump back into one from a single
 popup.
 
-This is a Codex-focused adaptation of
-[craftzdog/tmux-claude-session-manager](https://github.com/craftzdog/tmux-claude-session-manager).
+It is meant for the everyday workflow where you have Codex open in several
+repositories at once and need one place to see what needs attention. Use
+`prefix` + `y` to open the current project's Codex session, and `prefix` + `u`
+to pick from all running Codex sessions with status, preview, jump, and kill
+actions.
+
+## Screenshots
+
+![Codex session picker showing status, age, project path, and live preview](docs/picker.png)
+
+The picker shows every managed Codex session, sorted so sessions waiting for you
+rise to the top.
+
+![Codex session running inside a tmux popup over the project window](docs/popup.png)
+
+Launching a project opens Codex in a large popup, while keeping the underlying
+tmux window in place.
 
 ## Features
 
