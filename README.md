@@ -21,28 +21,15 @@ remaining context, project path, and the latest prompt/title from
 
 ## Screenshots
 
-The screenshots below are rendered from real tmux/fzf captures with sanitized
-demo paths and prompts.
-
 ![Codex switcher with status, source, context, path, title, target, and live preview](docs/picker.png)
 
 The switcher is the control surface: jump into a managed popup, switch to an
 existing Codex pane, preview output, or kill only plugin-managed sessions.
 
-![Switcher row for an existing Codex pane, with preview on the right](docs/existing-pane.png)
-
-Existing Codex panes are first-class rows. They show as `PANE`, can be previewed,
-and `enter` switches tmux to that pane.
-
 ![Managed Codex session running in the tmux popup](docs/popup.png)
 
 Managed sessions are normal tmux sessions named with the configured prefix. They
 survive detach, terminal restarts, SSH disconnects, and laptop sleep.
-
-![Hook installer showing idempotent merge behavior](docs/hooks.png)
-
-The hook installer merges this plugin's Codex hooks into an existing hooks file,
-creates backups, and skips commands that are already present.
 
 ## Features
 
