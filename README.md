@@ -9,15 +9,28 @@
 
 A tmux popup manager for [Codex CLI](https://developers.openai.com/codex/cli).
 
-Keep many Codex sessions running in tmux, but manage them from one popup:
+If you launch Codex per directory, or keep several Codex panes open while
+working across projects, you quickly end up with a stack of sessions and no
+single place to see which one is working, waiting, or finished. This plugin gives
+you one tmux-native control surface for them.
 
-- `prefix` + `y` opens the current project's Codex session in a tmux popup.
-- `prefix` + `u` opens a global picker for every managed Codex session and
-  every existing Codex pane it can discover.
+What you get:
 
-The picker shows live preview, status, source (`MGR` or `PANE`), age, estimated
-remaining context, project path, and the latest prompt/title from
-`~/.codex/sessions`.
+- Central switcher (`prefix` + `u`) listing managed Codex popups and existing
+  Codex panes.
+- Live status per session or pane: `WORK`, `WAIT`, `IDLE`, or `????`.
+- Live preview of the selected Codex screen inside the switcher.
+- Smart jump: selecting a managed session resumes it in a popup; selecting an
+  existing pane switches tmux directly to it.
+- Per-directory launcher (`prefix` + `y`) that opens or attaches a managed
+  Codex session for the current project.
+- Quick kill (`ctrl-x`) for plugin-managed `codex-*` sessions only.
+- Codex metadata in the picker: latest prompt/title and approximate remaining
+  context from `~/.codex/sessions`.
+
+Status is optional. Without hooks, the switcher still lists, previews, jumps,
+and kills managed sessions; rows just fall back to `????` or metadata-inferred
+state where available.
 
 ## Screenshots
 
@@ -33,18 +46,15 @@ survive detach, terminal restarts, SSH disconnects, and laptop sleep.
 
 ## Features
 
-- Popup launcher for the current project (`prefix` + `y`).
-- Global picker for managed Codex sessions and already-running Codex panes
-  (`prefix` + `u`).
-- Per-session and per-pane status: `WORK`, `WAIT`, `IDLE`, or `????`.
-- Metadata from Codex JSONL session logs: last prompt/title and approximate
-  remaining context.
-- Live `capture-pane` preview inside the picker.
-- Safe navigation to existing panes without killing the user's normal tmux
-  windows.
+- Central switcher for every managed Codex popup and discovered Codex pane.
+- Per-directory launcher for persistent managed popup sessions.
+- Per-session and per-pane status, driven by Codex hooks when installed.
+- Latest prompt/title and approximate context remaining from Codex JSONL logs.
+- Live `capture-pane` preview inside the switcher.
+- Safe navigation to existing Codex panes without killing normal tmux windows.
 - `ctrl-x` kill action for managed `codex-*` sessions only.
-- Hook installer and uninstaller that merge into an existing Codex hooks file
-  with backups.
+- Hook installer and uninstaller that merge into existing Codex hooks with
+  backups.
 - TPM-compatible plugin, implemented with Bash plus Python 3 standard library
   helpers.
 
