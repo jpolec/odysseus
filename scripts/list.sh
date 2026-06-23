@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Open the Codex session picker in a popup.
+# Open the agent session picker in a popup.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,32 +7,49 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$DIR/helpers.sh"
 
 client="${1:-}"
-prefix="$(get_tmux_option @codex_session_prefix 'codex-')"
 w="$(get_tmux_option @codex_popup_width '90%')"
 h="$(get_tmux_option @codex_popup_height '90%')"
 
-# The session of a client attached to a prefixed session, i.e. the popup we are
+# The session of a client attached to a managed session, i.e. the popup we are
 # inside, if any. Empty when invoked from a normal non-popup pane.
 nested_session() {
+  local _client session
   tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null |
-    awk -v p="$prefix" 'index($2, p) == 1 { print $2; exit }'
+    while IFS=' ' read -r _client session; do
+      if ai_is_managed_session "$session"; then
+        printf '%s\n' "$session"
+        return 0
+      fi
+    done
 }
 
-# A client NOT attached to a prefixed session, preferring the invoking client.
+# A client NOT attached to a managed session, preferring the invoking client.
 host_client() {
-  local found
+  local found candidate candidate_session
   if [ -n "$client" ]; then
-    found="$(
-      tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null |
-        awk -v c="$client" -v p="$prefix" '$1 == c && index($2, p) != 1 { print $1; exit }'
-    )"
+    found=''
+    while IFS=' ' read -r candidate candidate_session; do
+      if [ "$candidate" = "$client" ] && ! ai_is_managed_session "$candidate_session"; then
+        found="$candidate"
+        break
+      fi
+    done <<EOF
+$(tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null)
+EOF
     if [ -n "$found" ]; then
       printf '%s\n' "$found"
       return 0
     fi
   fi
-  tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null |
-    awk -v p="$prefix" 'index($2, p) != 1 { print $1; exit }'
+
+  while IFS=' ' read -r candidate candidate_session; do
+    if ! ai_is_managed_session "$candidate_session"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done <<EOF
+$(tmux list-clients -F '#{client_name} #{session_name}' 2>/dev/null)
+EOF
 }
 
 # If we are inside a session popup, close it by detaching its client.
