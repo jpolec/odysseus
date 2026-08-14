@@ -3,7 +3,7 @@
 const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, events: [], filter: "all", projectFilter: "all", view: "attention",
-  stream: null, refreshTimer: null,
+  stream: null, refreshTimer: null, stats: null, searchResults: [],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -55,6 +55,7 @@ function setView(view) {
   if (view === "inbox") refreshInbox();
   if (view === "attention") refreshAttention();
   if (view === "epics") refreshEpics();
+  if (view === "insights") refreshInsights();
   updateGitHubLink();
 }
 
@@ -73,7 +74,8 @@ function renderRuns() {
     <button class="task-card ${run.id === state.selectedId ? "selected" : ""}" data-run-id="${escapeHtml(run.id)}" type="button">
       <div class="task-card-top"><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
       <h3>${escapeHtml(run.title)}</h3>
-      <div class="task-card-meta"><span>${escapeHtml(run.lane)}</span><span>${escapeHtml(projectById(run.project_id)?.name || run.kind || run.workflow)}</span></div>
+      <div class="task-card-meta"><span>${escapeHtml(run.lane)} · P${escapeHtml(run.priority ?? 50)}</span><span>${escapeHtml(projectById(run.project_id)?.name || run.kind || run.workflow)}</span></div>
+      <div class="task-signals"><span class="risk-${escapeHtml(run.merge_analysis?.risk || "none")}">${escapeHtml(run.merge_analysis?.risk || "none")} merge risk</span>${run.ci?.status && run.ci.status !== "not_started" ? `<span class="ci-${escapeHtml(run.ci.status)}">CI ${escapeHtml(run.ci.status)}</span>` : ""}</div>
     </button>`).join("") : `<div class="empty-list">No tasks in this view.</div>`;
   $$(".task-card[data-run-id]").forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.runId)));
 }
@@ -120,6 +122,7 @@ function renderDetail(run, diff) {
     ["Input", compactNumber(metrics.input_tokens)], ["Cached", compactNumber(metrics.cached_input_tokens)],
     ["Output", compactNumber(metrics.output_tokens)], ["Tool calls", compactNumber(metrics.tool_calls)],
     ["Cost", metrics.cost_usd ? `$${Number(metrics.cost_usd).toFixed(4)}` : "—"], ["Confidence", run.confidence === null || run.confidence === undefined ? "—" : `${Math.round(Number(run.confidence) * 100)}%`],
+    ["Merge risk", run.merge_analysis?.risk || "none"], ["GitHub CI", run.ci?.status || "not started"],
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
   $("#metadata").innerHTML = [
     ["Lane", run.lane], ["Workflow", run.workflow], ["Project", projectById(run.project_id)?.name || run.project_path],
@@ -127,32 +130,37 @@ function renderDetail(run, diff) {
     ["Agent session", run.agent_sessions?.agent || run.agent_session_id || "—"], ["tmux", run.tmux_target ? `${run.tmux_session} · ${run.tmux_target}` : run.tmux_session || "—"],
     ["Attempt", run.kind === "tmux" ? "interactive" : `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`], ["Role", run.role || "implementer"],
     ["Epic", run.epic_id || "—"], ["Depends on", (run.dependency_keys || []).join(", ") || "—"],
+    ["Artifact", run.artifact_sha ? run.artifact_sha.slice(0, 12) : "—"], ["Priority", `P${run.priority ?? 50}`],
+    ["Stage", run.stage || statusLabel(run.status)], ["Heartbeat", run.last_heartbeat ? `${relativeTime(run.last_heartbeat)} ago` : "—"],
   ].map(([label, value]) => `<div class="meta"><small>${escapeHtml(label)}</small><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
   $("#workflowStrip").classList.toggle("hidden", run.kind === "tmux");
   renderActions(run); renderWorkflow(run); renderEvents();
   $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
-  renderChecks(run.check_results || []); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {});
+  renderIntegration(run); renderChecks(run.check_results || []); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
 }
 
 function renderActions(run) {
   const actions = [];
   if (run.status === "review") actions.push(`<button class="action-button accept" data-action="accept" type="button">Accept</button>`);
-  if (["attention", "review", "failed", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Resume agent</button>`);
+  if (["attention", "review", "failed", "accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Resume agent</button>`);
   if (["review", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="draft-pr" type="button">Draft PR</button>`);
   if (run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) actions.push(`<button class="action-button" data-action="takeover" type="button">Take over in tmux</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
   if (run.pull_request_url) actions.push(`<a class="action-button accept" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open PR</a>`);
+  if (run.pull_request_url) actions.push(`<button class="action-button" data-action="ci-poll" type="button">Poll CI</button>`);
   $("#runActions").innerHTML = actions.join("");
   $$("#runActions [data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
 }
 
 function renderWorkflow(run) {
   const status = run.status; let current = 0;
-  if (run.worktree_path || status === "running") current = 1;
-  if (status === "checking") current = 2;
-  if (["reviewing", "review", "accepted", "pr_created", "publishing"].includes(status)) current = 3;
-  ["stageWorktree", "stageAgent", "stageCheck", "stageReview"].forEach((id, index) => {
-    const node = $(`#${id}`); node.classList.toggle("done", index < current || ["review", "accepted", "pr_created"].includes(status)); node.classList.toggle("current", index === current && activeStatuses.has(status));
+  if ((run.integration_sources || []).length) current = 2; else if (run.worktree_path || status === "running") current = 1;
+  if (status === "running") current = 2;
+  if (status === "checking") current = 3;
+  if (["reviewing", "review", "accepted", "publishing"].includes(status)) current = 4;
+  if (status === "pr_created") current = 5;
+  ["stageWorktree", "stageIntegrate", "stageAgent", "stageCheck", "stageReview", "stageCI"].forEach((id, index) => {
+    const node = $(`#${id}`); node.classList.toggle("done", index < current || (status === "pr_created" && index < 5) || run.ci?.status === "passed"); node.classList.toggle("current", index === current && (activeStatuses.has(status) || status === "pr_created"));
   });
 }
 
@@ -189,13 +197,35 @@ function renderEvaluation(evaluation) {
   ` : `<div class="empty-card">Evaluation has not run yet.</div>`;
 }
 
+function renderIntegration(run) {
+  const analysis = run.merge_analysis || {risk: "none", overlaps: [], files: []};
+  const sources = run.integration_sources || [];
+  const overlaps = analysis.overlaps || [];
+  $("#integrationResults").innerHTML = `
+    <div class="integration-hero risk-${escapeHtml(analysis.risk || "none")}"><div><small>MERGE RISK</small><strong>${escapeHtml(String(analysis.risk || "none").toUpperCase())}</strong></div><span>${sources.length} predecessor artifact${sources.length === 1 ? "" : "s"}</span></div>
+    <div class="artifact-card"><small>DURABLE ARTIFACT</small><code>${escapeHtml(run.artifact_sha || "Created when this task is accepted or published")}</code></div>
+    ${sources.length ? `<div class="source-list">${sources.map((source) => `<div><span>${escapeHtml(source.run_id)}</span><code>${escapeHtml(source.artifact_sha?.slice(0, 12) || "—")}</code></div>`).join("")}</div>` : `<div class="empty-card">This task has no predecessor artifacts to compose.</div>`}
+    ${overlaps.length ? `<div class="overlap-list"><strong>Overlapping file surfaces</strong>${overlaps.map((item) => `<p>${escapeHtml(item.left)} ↔ ${escapeHtml(item.right)}<br><code>${escapeHtml((item.files || []).join(", "))}</code></p>`).join("")}</div>` : ""}
+    ${(analysis.files || []).length ? `<details class="file-surface"><summary>${analysis.files.length} files in the integrated surface</summary><pre>${escapeHtml(analysis.files.join("\n"))}</pre></details>` : ""}`;
+}
+
+function renderCI(run) {
+  const ci = run.ci || {status: "not_started", checks: []};
+  const checks = ci.checks || [];
+  $("#ciResults").innerHTML = `
+    <div class="ci-hero ci-${escapeHtml(ci.status || "not_started")}"><div><small>GITHUB CHECKS</small><strong>${escapeHtml(statusLabel(ci.status || "not_started"))}</strong></div><span>${escapeHtml(ci.summary || "Publish a draft PR to start the feedback loop.")}</span></div>
+    ${checks.length ? checks.map((check) => `<div class="ci-check"><span>${escapeHtml(check.workflow || "workflow")}</span><strong>${escapeHtml(check.name || "check")}</strong><em>${escapeHtml(check.bucket || check.state || "unknown")}</em></div>`).join("") : `<div class="empty-card">No GitHub check runs recorded.</div>`}
+    ${ci.logs ? `<details class="ci-logs"><summary>Failed log captured for agent resume</summary><pre>${escapeHtml(ci.logs)}</pre></details>` : ""}
+    <div class="ci-foot"><span>Automatic repairs: ${escapeHtml(ci.attempt || 0)}</span><span>${ci.updated_at ? `Updated ${relativeTime(ci.updated_at)} ago` : "Not polled"}</span></div>`;
+}
+
 function openStream(runId) {
   if (state.view !== "tasks" || state.stream) return;
   const after = state.events.at(-1)?.seq || 0; const stream = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`); state.stream = stream;
   stream.addEventListener("odysseus", (message) => {
     const event = JSON.parse(message.data); if (state.events.some((item) => item.seq === event.seq)) return;
     state.events.push(event); renderEvents(); window.clearTimeout(state.refreshTimer);
-    state.refreshTimer = window.setTimeout(async () => { await refreshRuns(); if (["run.review_ready", "run.failed", "run.accepted", "pr.created", "agent.usage", "agent.tool.started"].includes(event.type)) await refreshSelected(); }, 180);
+    state.refreshTimer = window.setTimeout(async () => { await refreshRuns(); if (["run.review_ready", "run.failed", "run.accepted", "pr.created", "artifact.created", "integration.completed", "integration.conflict", "ci.started", "ci.failed", "ci.passed", "ci.retry_pushed", "agent.usage", "agent.tool.started"].includes(event.type)) await refreshSelected(); }, 180);
   });
   stream.onopen = () => setConnection(true); stream.onerror = () => setConnection(false);
 }
@@ -214,7 +244,7 @@ async function runAction(action) {
   try {
     const result = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/${action}`, {method: "POST", body: "{}"});
     if (action === "takeover") await copyCommand(result.command);
-    else toast(action === "draft-pr" ? "Draft pull request created." : `Action completed: ${action}`);
+    else toast(action === "draft-pr" ? "Draft pull request created." : action === "ci-poll" ? "GitHub checks refreshed." : `Action completed: ${action}`);
     await refreshRuns(); await refreshSelected();
   } catch (error) { toast(error.message, true); }
 }
@@ -314,12 +344,39 @@ function renderIssues(issues, projectId) {
   $$('[data-import-issue]').forEach((button) => button.addEventListener("click", async () => { const issue = issues.find((item) => String(item.number) === button.dataset.importIssue); try { const run = await api("/api/github/import", {method: "POST", body: JSON.stringify({project_id: projectId, title: issue.title, body: issue.body, url: issue.url})}); await refreshRuns(); await selectRun(run.id); } catch (error) { toast(error.message, true); } }));
 }
 
+async function refreshInsights() {
+  try {
+    state.stats = await api("/api/stats");
+    const entries = [
+      ["Successful changes", state.stats.successful_changes, `${Math.round(Number(state.stats.success_rate || 0) * 100)}% of tasks`],
+      ["Human interventions", state.stats.human_interventions, `${state.stats.open_attention} currently open`],
+      ["Tokens observed", compactNumber(state.stats.tokens), `${compactNumber(state.stats.tool_calls)} tool calls`],
+      ["Compute cost", `$${Number(state.stats.cost_usd || 0).toFixed(2)}`, state.stats.cost_per_successful_change === null ? "No accepted task yet" : `$${Number(state.stats.cost_per_successful_change).toFixed(2)} / success`],
+      ["CI repair loops", state.stats.ci_failures, "published changes repaired"],
+      ["High merge risk", state.stats.merge_risk_high, "tasks with overlap"],
+    ];
+    $("#insightStats").innerHTML = entries.map(([label, value, note]) => `<article class="insight-card"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><p>${escapeHtml(note)}</p></article>`).join("");
+  } catch (error) { toast(error.message, true); }
+}
+
+async function runSearch(query = "") {
+  const value = String(query || $("#insightSearch").value || $("#globalSearch").value || "").trim();
+  if (!value) return;
+  $("#insightSearch").value = value; $("#globalSearch").value = value; setView("insights");
+  $("#searchResults").innerHTML = `<div class="empty-card">Searching local state…</div>`;
+  try {
+    state.searchResults = (await api(`/api/search?q=${encodeURIComponent(value)}`)).results;
+    $("#searchResults").innerHTML = state.searchResults.length ? state.searchResults.map((item) => `<article class="search-result"><div><span>${escapeHtml(item.kind)}</span><span>${escapeHtml(item.status || "record")}</span></div><h3>${escapeHtml(item.title || item.id)}</h3><p>${escapeHtml(item.snippet || "No preview")}</p>${item.run_id ? `<button class="ghost" data-search-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}</article>`).join("") : `<div class="empty-card">No local record matched “${escapeHtml(value)}”.</div>`;
+    $$('[data-search-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.searchRun)));
+  } catch (error) { toast(error.message, true); }
+}
+
 function bindDialogs() {
   const taskDialog = $("#taskDialog"); [$("#newTaskButton"), $("#emptyNewTask")].forEach((button) => button.addEventListener("click", () => taskDialog.showModal()));
-  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), workflow: "agent-check-review", max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); toast(`Queued ${run.id}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } });
+  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); toast(`Queued ${run.id}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } });
   $("#newEpicButton").addEventListener("click", () => $("#epicDialog").showModal());
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Planning…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Planner proposal is ready for approval."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Create proposal"; } });
-  $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const prompt = new FormData(event.currentTarget).get("feedback"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast("Existing agent session queued for continuation."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
+  $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
   $("#newInboxButton").addEventListener("click", () => $("#inboxDialog").showModal());
   $("#inboxForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); await api("/api/inbox", {method: "POST", body: JSON.stringify({title: data.get("title"), task: data.get("task"), project_id: project?.id || "", project_path: project?.path || ""})}); $("#inboxDialog").close(); event.currentTarget.reset(); await refreshInbox(); });
   $("#addProjectButton").addEventListener("click", () => $("#projectDialog").showModal());
@@ -328,12 +385,12 @@ function bindDialogs() {
 
 async function init() {
   try {
-    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join(""); $("#laneSelect").innerHTML = laneOptions; $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions;
+    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join(""); $("#laneSelect").innerHTML = laneOptions; $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions;
     bindDialogs();
     $$(".nav-button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
     $$(".filter").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderRuns(); }));
     $$(".tab").forEach((button) => button.addEventListener("click", () => { $$(".tab").forEach((item) => item.classList.toggle("active", item === button)); $$(".tab-pane").forEach((pane) => pane.classList.toggle("active", pane.id === `tab-${button.dataset.tab}`)); }));
-    $("#projectFilter").addEventListener("change", (event) => { state.projectFilter = event.target.value; renderRuns(); updateGitHubLink(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#loadIssues").addEventListener("click", loadIssues);
+    $("#projectFilter").addEventListener("change", (event) => { state.projectFilter = event.target.value; renderRuns(); updateGitHubLink(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
     await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns();
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
     setConnection(true);

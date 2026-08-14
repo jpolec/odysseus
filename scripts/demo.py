@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a disposable, deterministic-looking Odysseus 0.3 demo control plane."""
+"""Create a disposable, deterministic-looking Odysseus 0.4 demo control plane."""
 
 from __future__ import annotations
 
@@ -21,6 +21,11 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     if state_dir.exists() and any(state_dir.iterdir()):
         raise ValueError(f"demo state directory is not empty: {state_dir}")
     store = RunStore(state_dir)
+    store.update_config(
+        {
+            "ci": {"watch": False, "auto_resume": True, "max_attempts": 2, "poll_seconds": 30}
+        }
+    )
     epic = store.epics.create(
         {
             "title": "Passkey authentication",
@@ -126,6 +131,96 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         },
     )
     store.append_event(frontend_id, "run.attention", "odysseus", {"message": "Agent needs an operator decision."})
+
+    ci_run = store.create(
+        {
+            "title": "Stabilize checkout retry flow",
+            "task": "Compose the API and web retry artifacts, publish the draft PR, and keep repairing it until GitHub CI is green.",
+            "project_path": str(project),
+            "lane": "codex",
+            "review_lane": "claude",
+            "priority": 90,
+            "checks": ["python3 -m unittest", "npm test"],
+            "budgets": {"timeout_seconds": 1800, "stall_seconds": 300, "max_tokens": 80_000, "max_tool_calls": 120, "max_cost_usd": 8.0},
+        }
+    )
+    ci_id = ci_run["id"]
+    store.update(
+        ci_id,
+        status="pr_created",
+        branch=f"odysseus/{ci_id}",
+        base_ref="main",
+        base_sha="1" * 40,
+        artifact_sha="d8c45b1ea66e7b9a3ca26e64070e8c475d9f4512",
+        artifact_files=["api/checkout.py", "web/checkout.js", "tests/test_checkout.py"],
+        artifact_created_at="2026-08-14T09:18:00Z",
+        integration_sources=[
+            {"run_id": "checkout-api", "artifact_sha": "a4f2a2a729c7fe106f8a6e84d07dfa21f9135a91"},
+            {"run_id": "checkout-web", "artifact_sha": "b8077bbfab31dde9d6e7648f74f3c1d8ce41b521"},
+        ],
+        integration_head="c70a83fcda480d79874a78024d4bf3011b261c4f",
+        merge_analysis={
+            "risk": "high",
+            "source_count": 2,
+            "overlaps": [
+                {"left": "checkout-api", "right": "checkout-web", "files": ["contracts/checkout.json"]}
+            ],
+            "files": ["api/checkout.py", "contracts/checkout.json", "web/checkout.js"],
+        },
+        pull_request_url="https://github.com/jpolec/odysseus/pull/42",
+        check_results=[
+            {"command": "python3 -m unittest", "returncode": 0, "output": "67 tests passed"},
+            {"command": "npm test", "returncode": 0, "output": "18 browser tests passed"},
+        ],
+        ci={
+            "status": "failed",
+            "attempt": 1,
+            "summary": "1 failed, 0 pending, 3 passed",
+            "updated_at": "2026-08-14T09:24:00Z",
+            "checks": [
+                {"workflow": "Quality", "name": "unit / python", "bucket": "pass"},
+                {"workflow": "Quality", "name": "browser / chromium", "bucket": "fail"},
+                {"workflow": "Security", "name": "semgrep", "bucket": "pass"},
+                {"workflow": "Build", "name": "package", "bucket": "pass"},
+            ],
+            "logs": "browser / chromium\nAssertionError: expected retry banner after 429 response\n  at tests/checkout.spec.ts:118",
+        },
+        metrics={
+            "input_tokens": 61_220,
+            "cached_input_tokens": 39_804,
+            "output_tokens": 9_118,
+            "reasoning_output_tokens": 2_106,
+            "tool_calls": 83,
+            "cost_usd": 4.612,
+            "session_usage": {},
+        },
+        review_summary="Independent review passed. GitHub browser CI exposed one behavioral retry regression.",
+        confidence=0.93,
+        policy_decision="ci_repair",
+        review_status="ci_repair_pushed",
+        stage="ci",
+        last_heartbeat="2026-08-14T09:23:45Z",
+    )
+    store.append_event(ci_id, "integration.started", "git", {"risk": "high", "source_count": 2})
+    store.append_event(ci_id, "integration.artifact_applied", "git", {"dependency_run_id": "checkout-api"})
+    store.append_event(ci_id, "integration.artifact_applied", "git", {"dependency_run_id": "checkout-web"})
+    store.append_event(ci_id, "integration.completed", "git", {"risk": "high", "integration_head": "c70a83fcda48"})
+    store.append_event(ci_id, "pr.created", "git", {"url": "https://github.com/jpolec/odysseus/pull/42"})
+    store.append_event(
+        ci_id,
+        "ci.failed",
+        "github",
+        {
+            "message": "Chromium retry-flow test failed; the original Codex session is ready to resume.",
+            "attempt": 1,
+            "max_attempts": 2,
+            "options": [
+                {"id": "resume", "label": "Resume original agent"},
+                {"id": "takeover", "label": "Take over in tmux"},
+            ],
+            "priority": "high",
+        },
+    )
     return store
 
 
