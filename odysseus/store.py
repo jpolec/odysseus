@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 from .events import Event, now_iso
+from .attention import AttentionQueue
+from .epics import EpicStore, VALID_ROLES
 from .inbox import Inbox
 from .projects import ProjectRegistry
 
@@ -22,14 +25,52 @@ TERMINAL_STATUSES = frozenset({"accepted", "pr_created", "cancelled"})
 ACTIVE_STATUSES = frozenset(
     {"starting", "running", "checking", "reviewing", "cancelling", "publishing"}
 )
-REVIEWABLE_STATUSES = frozenset({"review", "failed", "accepted"})
+REVIEWABLE_STATUSES = frozenset({"review", "failed", "accepted", "attention"})
 DEFAULT_CONFIG: dict[str, Any] = {
     "max_parallel": 2,
     "default_lane": "codex",
     "default_workflow": "agent-check-review",
     "max_retries": 2,
+    "planner_lane": "",
+    "review_lane": "",
     "lanes": {},
+    "evaluation_policy": {
+        "min_confidence": 0.85,
+        "require_human_review": True,
+        "required_evaluators": [],
+    },
 }
+
+
+RUN_SCHEMA_VERSION = 3
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _run_v3_defaults() -> dict[str, Any]:
+    return {
+        "epic_id": "",
+        "task_key": "",
+        "role": "implementer",
+        "depends_on": [],
+        "dependency_keys": [],
+        "dependencies_met": [],
+        "blocks": [],
+        "block_keys": [],
+        "parallelizable": True,
+        "blocked_reason": "",
+        "evaluation": {},
+        "verifier_results": [],
+        "confidence": None,
+        "policy_decision": "human_review",
+        "human_review_required": True,
+        "pending_operator_response": "",
+    }
 
 
 def default_state_root() -> Path:
@@ -71,6 +112,31 @@ class RunStore:
             self._atomic_json(self.config_path, DEFAULT_CONFIG)
         self.projects = ProjectRegistry(self)
         self.inbox = Inbox(self)
+        self.attention = AttentionQueue(self)
+        self.epics = EpicStore(self)
+        self._migrate_runs()
+
+    def _migrate_runs(self) -> None:
+        """Upgrade old snapshots in place while preserving append-only journals."""
+
+        with self.locked():
+            for path in self.runs_dir.glob("*.json"):
+                try:
+                    run = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(run, dict):
+                    continue
+                changed = False
+                for key, value in _run_v3_defaults().items():
+                    if key not in run:
+                        run[key] = value
+                        changed = True
+                if _safe_int(run.get("schema_version")) < RUN_SCHEMA_VERSION:
+                    run["schema_version"] = RUN_SCHEMA_VERSION
+                    changed = True
+                if changed:
+                    self._atomic_json(path, run)
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -107,12 +173,21 @@ class RunStore:
         merged = dict(DEFAULT_CONFIG)
         if isinstance(value, dict):
             merged.update(value)
-        merged["max_parallel"] = max(1, int(merged.get("max_parallel", 2)))
-        merged["max_retries"] = max(0, int(merged.get("max_retries", 2)))
+        merged["max_parallel"] = max(1, _safe_int(merged.get("max_parallel", 2)) or 2)
+        merged["max_retries"] = max(0, _safe_int(merged.get("max_retries", 2)))
         return merged
 
     def update_config(self, changes: Mapping[str, Any]) -> dict[str, Any]:
-        allowed = {"max_parallel", "default_lane", "default_workflow", "max_retries", "lanes"}
+        allowed = {
+            "max_parallel",
+            "default_lane",
+            "default_workflow",
+            "max_retries",
+            "planner_lane",
+            "review_lane",
+            "lanes",
+            "evaluation_policy",
+        }
         unknown = set(changes) - allowed
         if unknown:
             raise ValueError(f"unknown config keys: {', '.join(sorted(unknown))}")
@@ -148,6 +223,8 @@ class RunStore:
             raise RuntimeError(f"corrupt run record: {path}") from exc
         if not isinstance(value, dict):
             raise RuntimeError(f"invalid run record: {path}")
+        for key, default in _run_v3_defaults().items():
+            value.setdefault(key, default)
         return value
 
     def list(self) -> list[dict[str, Any]]:
@@ -158,6 +235,8 @@ class RunStore:
             except (OSError, json.JSONDecodeError):
                 continue
             if isinstance(value, dict):
+                for key, default in _run_v3_defaults().items():
+                    value.setdefault(key, default)
                 runs.append(value)
         return sorted(runs, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
@@ -177,11 +256,21 @@ class RunStore:
         checks = request.get("checks", [])
         if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
             raise ValueError("checks must be a list of shell command strings")
-        max_retries = int(request.get("max_retries", config["max_retries"]))
+        retries_value = request.get("max_retries")
+        max_retries = config["max_retries"] if retries_value is None else _safe_int(retries_value)
         kind = str(request.get("kind") or "task")
         initial_status = str(request.get("status") or "queued")
+        role = str(request.get("role") or "implementer")
+        if role not in VALID_ROLES:
+            raise ValueError("role must be planner, implementer, or reviewer")
+        graph_lists: dict[str, list[str]] = {}
+        for key in ("depends_on", "dependency_keys", "blocks", "block_keys"):
+            raw = request.get(key) or []
+            if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+                raise ValueError(f"{key} must be a list of run ids or task keys")
+            graph_lists[key] = list(dict.fromkeys(raw))
         run: dict[str, Any] = {
-            "schema_version": 2,
+            "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
             "kind": kind,
             "title": title,
@@ -227,6 +316,16 @@ class RunStore:
                 "cost_usd": 0.0,
                 "session_usage": {},
             },
+            **_run_v3_defaults(),
+            "epic_id": str(request.get("epic_id") or ""),
+            "task_key": str(request.get("task_key") or ""),
+            "role": role,
+            "depends_on": graph_lists["depends_on"],
+            "dependency_keys": graph_lists["dependency_keys"],
+            "blocks": graph_lists["blocks"],
+            "block_keys": graph_lists["block_keys"],
+            "parallelizable": bool(request.get("parallelizable", True)),
+            "blocked_reason": str(request.get("blocked_reason") or ""),
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)
@@ -280,7 +379,64 @@ class RunStore:
             run["updated_at"] = event.ts
             self._aggregate_event(run, event_type, data or {})
             self._atomic_json(self._path(run_id), run)
+        self._route_attention(run, event_type, data or {})
         return value
+
+    def _route_attention(
+        self,
+        run: Mapping[str, Any],
+        event_type: str,
+        data: Mapping[str, Any],
+    ) -> None:
+        """Project normalized exceptional events into the operator queue."""
+
+        mapping = {
+            "run.review_ready": ("review", "medium", "Review ready"),
+            "run.failed": ("blocked", "high", "Task failed"),
+            "dag.blocked": ("blocked", "high", "Dependency blocked"),
+            "evaluation.failed": ("evaluation_failed", "high", "Evaluation failed"),
+            "agent.question": ("question", "medium", "Agent question"),
+            "agent.permission_request": ("permission_request", "high", "Permission required"),
+            "agent.blocked": ("blocked", "high", "Agent blocked"),
+            "agent.decision_required": ("decision_required", "medium", "Decision required"),
+        }
+        if event_type in {"run.accepted", "pr.created", "run.cancelled"}:
+            self.attention.resolve_for_run(str(run["id"]), resolution=event_type)
+            return
+        if event_type not in mapping:
+            return
+        item_type, priority, fallback_title = mapping[event_type]
+        title = str(data.get("title") or f"{fallback_title}: {run.get('title', run['id'])}")
+        message = str(
+            data.get("message")
+            or data.get("question")
+            or data.get("reason")
+            or run.get("last_error")
+            or "Operator action is required."
+        )
+        stable = json.dumps(
+            {
+                "run_id": run["id"],
+                "type": item_type,
+                "title": title,
+                "message": message,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        self.attention.create(
+            {
+                "type": item_type,
+                "priority": str(data.get("priority") or priority),
+                "title": title,
+                "message": message,
+                "options": data.get("options") if isinstance(data.get("options"), list) else [],
+                "run_id": str(run["id"]),
+                "epic_id": str(run.get("epic_id") or ""),
+                "project_id": str(run.get("project_id") or ""),
+                "dedupe_key": hashlib.sha256(stable.encode("utf-8")).hexdigest(),
+            }
+        )
 
     @staticmethod
     def _aggregate_event(run: dict[str, Any], event_type: str, data: Mapping[str, Any]) -> None:
@@ -298,29 +454,32 @@ class RunStore:
             metrics = {}
             run["metrics"] = metrics
         if event_type == "agent.tool.started":
-            metrics["tool_calls"] = int(metrics.get("tool_calls", 0)) + 1
+            metrics["tool_calls"] = _safe_int(metrics.get("tool_calls", 0)) + 1
             return
         if event_type == "agent.cost":
-            metrics["cost_usd"] = round(
-                float(metrics.get("cost_usd", 0.0)) + float(data.get("cost_usd", 0.0) or 0.0), 8
-            )
+            try:
+                previous_cost = float(metrics.get("cost_usd", 0.0) or 0.0)
+                new_cost = float(data.get("cost_usd", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                previous_cost, new_cost = 0.0, 0.0
+            metrics["cost_usd"] = round(previous_cost + new_cost, 8)
             return
         if event_type != "agent.usage":
             return
         keys = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
-        values = {key: max(0, int(data.get(key, 0) or 0)) for key in keys}
+        values = {key: max(0, _safe_int(data.get(key, 0))) for key in keys}
         if data.get("cumulative"):
             session_id = str(data.get("session_id") or "unknown")
             usage_by_session = metrics.setdefault("session_usage", {})
             previous = usage_by_session.get(session_id, {}) if isinstance(usage_by_session, dict) else {}
             for key in keys:
-                delta = max(0, values[key] - int(previous.get(key, 0) or 0))
-                metrics[key] = int(metrics.get(key, 0)) + delta
+                delta = max(0, values[key] - _safe_int(previous.get(key, 0)))
+                metrics[key] = _safe_int(metrics.get(key, 0)) + delta
             if isinstance(usage_by_session, dict):
                 usage_by_session[session_id] = values
             return
         for key in keys:
-            metrics[key] = int(metrics.get(key, 0)) + values[key]
+            metrics[key] = _safe_int(metrics.get(key, 0)) + values[key]
 
     def events(self, run_id: str, after: int = 0, limit: int = 1000) -> list[dict[str, Any]]:
         self.get(run_id)
@@ -344,6 +503,8 @@ class RunStore:
         with self.locked():
             run = self.get(run_id)
             if run.get("status") != "queued":
+                return None
+            if not self.epics.can_start(run):
                 return None
             if max_parallel is not None:
                 active = 0
@@ -393,9 +554,9 @@ class RunStore:
             raise ValueError("interactive tmux sessions must be stopped or detached through tmux")
         if run.get("status") in TERMINAL_STATUSES:
             return run
-        if run.get("status") in {"review", "failed"}:
+        if run.get("status") in {"review", "failed", "accepted"}:
             return run
-        if run.get("status") == "queued":
+        if run.get("status") in {"queued", "blocked", "attention"}:
             self.update(
                 run_id,
                 cancel_requested=False,

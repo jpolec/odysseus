@@ -13,6 +13,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
+from .planner import EpicPlanner
 from .scheduler import ReviewActions, Scheduler
 from .server import OdysseusApp
 from .store import RunStore, default_state_root
@@ -113,6 +114,50 @@ def cmd_runs(args: argparse.Namespace) -> int:
             f"{str(run.get('status', '')):<12} {str(run.get('lane', '')):<9} "
             f"{str(run.get('id', '')):<54} {run.get('title', '')}"
         )
+    return 0
+
+
+def cmd_epics(args: argparse.Namespace) -> int:
+    store = _store(args)
+    if args.epic_id:
+        epic = store.epics.get(args.epic_id)
+        _print_json({**epic, "runs": store.epics.runs(args.epic_id)})
+    else:
+        _print_json({"epics": store.epics.list()})
+    return 0
+
+
+def cmd_plan(args: argparse.Namespace) -> int:
+    requirement = args.requirement if args.requirement != "-" else sys.stdin.read()
+    planner = EpicPlanner(_store(args))
+    epic = planner.plan(
+        requirement,
+        args.project,
+        lane=args.planner_lane,
+        title=args.title or "",
+        default_task_lane=args.lane,
+        default_review_lane=args.review_lane,
+        checks=args.check,
+    )
+    _print_json(epic)
+    print(f"Approve with: bin/odysseus approve-epic {epic['id']}", file=sys.stderr)
+    return 0
+
+
+def cmd_approve_epic(args: argparse.Namespace) -> int:
+    _print_json(EpicPlanner(_store(args)).approve(args.epic_id))
+    return 0
+
+
+def cmd_attention(args: argparse.Namespace) -> int:
+    _print_json({"items": _store(args).attention.list(status=args.status)})
+    return 0
+
+
+def cmd_answer(args: argparse.Namespace) -> int:
+    response = args.response if args.response != "-" else sys.stdin.read()
+    _, actions = _actions(args)
+    _print_json(actions.answer_attention(args.attention_id, response))
     return 0
 
 
@@ -282,6 +327,33 @@ def parser() -> argparse.ArgumentParser:
     runs = sub.add_parser("runs", help="list persisted runs")
     runs.add_argument("--json", action="store_true")
     runs.set_defaults(func=cmd_runs)
+
+    epics = sub.add_parser("epics", help="list epics or show one task DAG")
+    epics.add_argument("epic_id", nargs="?")
+    epics.set_defaults(func=cmd_epics)
+
+    plan = sub.add_parser("plan", help="decompose a requirement into an approval-gated task DAG")
+    plan.add_argument("requirement", help="requirement text, or - to read stdin")
+    plan.add_argument("--title")
+    plan.add_argument("--project", default=".")
+    plan.add_argument("--planner-lane", default="")
+    plan.add_argument("--lane", default="")
+    plan.add_argument("--review-lane", default="")
+    plan.add_argument("--check", action="append", default=[])
+    plan.set_defaults(func=cmd_plan)
+
+    approve_epic = sub.add_parser("approve-epic", help="materialize an approved epic proposal")
+    approve_epic.add_argument("epic_id")
+    approve_epic.set_defaults(func=cmd_approve_epic)
+
+    attention = sub.add_parser("attention", help="list work that needs an operator")
+    attention.add_argument("--status", choices=["open", "answered", "resolved"], default="open")
+    attention.set_defaults(func=cmd_attention)
+
+    answer = sub.add_parser("answer", help="answer an agent question or permission request")
+    answer.add_argument("attention_id")
+    answer.add_argument("response", help="operator response, or - to read stdin")
+    answer.set_defaults(func=cmd_answer)
 
     show = sub.add_parser("show", help="show one run record")
     show.add_argument("run_id")

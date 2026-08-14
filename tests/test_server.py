@@ -81,6 +81,45 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(inbox_request) as response:
                     inbox = json.load(response)
                 self.assertEqual(inbox["status"], "open")
+
+                store.append_event(
+                    run["id"],
+                    "agent.question",
+                    "claude",
+                    {"title": "Choose migration", "message": "Retain nullable email?", "options": ["retain", "not-null"]},
+                )
+                with urllib.request.urlopen(f"{base}/api/attention?status=open") as response:
+                    attention = json.load(response)["items"]
+                self.assertEqual(attention[0]["type"], "question")
+                answer_request = urllib.request.Request(
+                    f"{base}/api/attention/{attention[0]['id']}/respond",
+                    data=json.dumps({"response": "retain"}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with urllib.request.urlopen(answer_request) as response:
+                    answered = json.load(response)
+                self.assertEqual(answered["attention"]["response"], "retain")
+
+                epic = store.epics.create(
+                    {
+                        "title": "API epic",
+                        "project_path": str(project),
+                        "status": "proposed",
+                        "plan": {
+                            "summary": "One step",
+                            "tasks": [{"task_key": "ship", "title": "Ship", "task": "Ship it", "project_path": str(project)}],
+                        },
+                    }
+                )
+                approve_request = urllib.request.Request(
+                    f"{base}/api/epics/{epic['id']}/approve",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with urllib.request.urlopen(approve_request) as response:
+                    approved = json.load(response)
+                self.assertEqual(approved["status"], "active")
+                self.assertEqual(len(approved["task_run_ids"]), 1)
             finally:
                 app.stop()
                 thread.join(timeout=2)

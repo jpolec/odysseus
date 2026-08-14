@@ -16,6 +16,7 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
+from .planner import EpicPlanner
 from .scheduler import ReviewActions, Scheduler
 from .github import GitHubBridge
 from .store import RunStore
@@ -27,6 +28,8 @@ RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>ev
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
 PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
+EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve))?$")
+ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
 
 
 class OdysseusApp:
@@ -52,6 +55,7 @@ class OdysseusApp:
         self.token = secrets.token_urlsafe(24)
         self.scheduler = scheduler or Scheduler(store)
         self.actions = ReviewActions(store, self.scheduler)
+        self.planner = EpicPlanner(store)
         self.tmux = TmuxBridge(store)
         self.github = GitHubBridge()
         self.auth_user = auth_user
@@ -89,7 +93,7 @@ class OdysseusHTTPServer(ThreadingHTTPServer):
 class OdysseusHandler(BaseHTTPRequestHandler):
     server: OdysseusHTTPServer
     protocol_version = "HTTP/1.1"
-    server_version = "Odysseus/0.2"
+    server_version = "Odysseus/0.3"
 
     def log_message(self, format: str, *args: Any) -> None:
         if self.server.app.verbose:
@@ -112,6 +116,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "token": self.server.app.token,
                     "max_parallel": config["max_parallel"],
                     "default_lane": config["default_lane"],
+                    "planner_lane": config.get("planner_lane") or config["default_lane"],
+                    "review_lane": config.get("review_lane") or config["default_lane"],
                     "default_workflow": config["default_workflow"],
                     "lanes": list(dict.fromkeys(lanes)),
                     "tmux_available": self.server.app.tmux.available(),
@@ -127,6 +133,10 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "queued": sum(
                         1 for run in self.server.app.store.list() if run.get("status") == "queued"
                     ),
+                    "blocked": sum(
+                        1 for run in self.server.app.store.list() if run.get("status") == "blocked"
+                    ),
+                    "needs_attention": len(self.server.app.store.attention.list(status="open")),
                 }
             )
             return
@@ -143,6 +153,13 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             self._json({"items": self.server.app.store.inbox.list(status=query.get("status", [None])[0])})
             return
+        if parsed.path == "/api/attention":
+            query = parse_qs(parsed.query)
+            self._json({"items": self.server.app.store.attention.list(status=query.get("status", [None])[0])})
+            return
+        if parsed.path == "/api/epics":
+            self._json({"epics": self.server.app.store.epics.list()})
+            return
         if parsed.path == "/api/github/issues":
             query = parse_qs(parsed.query)
             try:
@@ -156,6 +173,22 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         match = RUN_ROUTE.fullmatch(parsed.path)
         if match:
             self._get_run_route(match.group("run_id"), match.group("action"), parsed)
+            return
+        epic_match = EPIC_ROUTE.fullmatch(parsed.path)
+        if epic_match and not epic_match.group("action"):
+            try:
+                epic_id = epic_match.group("epic_id")
+                epic = self.server.app.store.epics.get(epic_id)
+                self._json({**epic, "runs": self.server.app.store.epics.runs(epic_id)})
+            except KeyError:
+                self._json_error(HTTPStatus.NOT_FOUND, "epic not found")
+            return
+        attention_match = ATTENTION_ROUTE.fullmatch(parsed.path)
+        if attention_match and not attention_match.group("action"):
+            try:
+                self._json(self.server.app.store.attention.get(attention_match.group("item_id")))
+            except KeyError:
+                self._json_error(HTTPStatus.NOT_FOUND, "attention item not found")
             return
         self._static(parsed.path)
 
@@ -183,6 +216,23 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/inbox":
                 self._json(self.server.app.store.inbox.create(body), HTTPStatus.CREATED)
                 return
+            if parsed.path == "/api/epics/plan":
+                requirement = str(body.get("requirement") or "")
+                project_path = str(body.get("project_path") or ".")
+                checks = body.get("checks") or []
+                if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
+                    raise ValueError("checks must be a list of commands")
+                epic = self.server.app.planner.plan(
+                    requirement,
+                    project_path,
+                    lane=str(body.get("planner_lane") or ""),
+                    title=str(body.get("title") or ""),
+                    default_task_lane=str(body.get("lane") or ""),
+                    default_review_lane=str(body.get("review_lane") or ""),
+                    checks=checks,
+                )
+                self._json(epic, HTTPStatus.CREATED)
+                return
             if parsed.path == "/api/github/import":
                 project = self.server.app.store.projects.get(str(body.get("project_id") or ""))
                 title = str(body.get("title") or "GitHub issue")
@@ -209,6 +259,18 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             if inbox_match:
                 self._post_inbox(inbox_match.group("item_id"), inbox_match.group("action"), body)
                 return
+            epic_match = EPIC_ROUTE.fullmatch(parsed.path)
+            if epic_match and epic_match.group("action") == "approve":
+                self._json(self.server.app.planner.approve(epic_match.group("epic_id")))
+                return
+            attention_match = ATTENTION_ROUTE.fullmatch(parsed.path)
+            if attention_match:
+                self._post_attention(
+                    attention_match.group("item_id"),
+                    attention_match.group("action"),
+                    body,
+                )
+                return
             match = RUN_ROUTE.fullmatch(parsed.path)
             if not match:
                 self._json_error(HTTPStatus.NOT_FOUND, "not found")
@@ -230,7 +292,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             else:
                 self._json_error(HTTPStatus.NOT_FOUND, "unknown action")
         except KeyError:
-            self._json_error(HTTPStatus.NOT_FOUND, "run not found")
+            self._json_error(HTTPStatus.NOT_FOUND, "record not found")
         except (ValueError, RuntimeError) as exc:
             self._json_error(HTTPStatus.BAD_REQUEST, str(exc))
         except Exception as exc:
@@ -270,6 +332,43 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             self._json(run, HTTPStatus.CREATED)
         else:
             self._json_error(HTTPStatus.NOT_FOUND, "unknown inbox action")
+
+    def _post_attention(self, item_id: str, action: str | None, body: Mapping[str, Any]) -> None:
+        if action == "resolve":
+            item = self.server.app.store.attention.resolve(
+                item_id, str(body.get("resolution") or "resolved")
+            )
+            if item.get("run_id"):
+                self.server.app.store.append_event(
+                    str(item["run_id"]),
+                    "attention.resolved",
+                    "user",
+                    {"attention_id": item_id, "resolution": item["resolution"]},
+                )
+            self._json(item)
+            return
+        if action == "respond":
+            response = str(body.get("response") or "")
+            if response == "takeover":
+                item = self.server.app.store.attention.respond(item_id, response)
+                run_id = str(item.get("run_id") or "")
+                if not run_id:
+                    raise ValueError("attention item has no run")
+                self.server.app.store.append_event(
+                    run_id,
+                    "attention.answered",
+                    "user",
+                    {"attention_id": item_id, "response": response},
+                )
+                self.server.app.store.attention.resolve_for_run(run_id, resolution="takeover")
+                self._json(
+                    {"attention": item, "takeover": self.server.app.tmux.takeover(self.server.app.store.get(run_id))},
+                    HTTPStatus.CREATED,
+                )
+            else:
+                self._json(self.server.app.actions.answer_attention(item_id, response), HTTPStatus.ACCEPTED)
+            return
+        self._json_error(HTTPStatus.NOT_FOUND, "unknown attention action")
 
     def _get_run_route(self, run_id: str, action: str | None, parsed: Any) -> None:
         try:

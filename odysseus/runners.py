@@ -20,6 +20,16 @@ Emit = Callable[[str, str, Mapping[str, Any]], None]
 Cancelled = Callable[[], bool]
 SENSITIVE_KEY = re.compile(r"(?:api[_-]?key|authorization|password|passwd|secret|token|credential|cookie)", re.I)
 SENSITIVE_VALUE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*|\b(?:sk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{12,}\b")
+ATTENTION_MARKER = "ODYSSEUS_ATTENTION:"
+
+
+def _safe_int(value: Any) -> int:
+    """Treat missing, redacted, and vendor-specific counters as zero."""
+
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 @dataclass(slots=True)
@@ -63,6 +73,39 @@ def _sanitize(value: Any, *, key: str = "") -> Any:
     if isinstance(value, dict):
         return {str(item_key): _sanitize(item_value, key=str(item_key)) for item_key, item_value in list(value.items())[:100]}
     return value
+
+
+def _attention_from_text(text: str) -> tuple[str, dict[str, Any]] | None:
+    """Read an explicit agent-to-operator handoff from a final message."""
+
+    payload = ""
+    for line in reversed(text.splitlines()):
+        if ATTENTION_MARKER in line:
+            payload = line.split(ATTENTION_MARKER, 1)[1].strip()
+            break
+    if not payload:
+        return None
+    try:
+        value = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    kind = str(value.get("type") or "decision_required")
+    event_type = {
+        "question": "agent.question",
+        "permission_request": "agent.permission_request",
+        "blocked": "agent.blocked",
+        "decision_required": "agent.decision_required",
+    }.get(kind, "agent.decision_required")
+    options = value.get("options") if isinstance(value.get("options"), list) else []
+    return event_type, {
+        "attention_type": kind,
+        "title": str(value.get("title") or "Operator decision required")[:500],
+        "message": str(value.get("message") or value.get("question") or "")[:20_000],
+        "options": options[:12],
+        "priority": str(value.get("priority") or "medium"),
+    }
 
 
 class AgentRunner:
@@ -206,10 +249,12 @@ class _VendorNormalizer:
     def _usage(value: Any) -> dict[str, int]:
         usage = value if isinstance(value, dict) else {}
         return {
-            "input_tokens": int(usage.get("input_tokens", 0) or 0),
-            "cached_input_tokens": int(usage.get("cached_input_tokens", usage.get("cache_read_input_tokens", 0)) or 0),
-            "output_tokens": int(usage.get("output_tokens", 0) or 0),
-            "reasoning_output_tokens": int(usage.get("reasoning_output_tokens", 0) or 0),
+            "input_tokens": _safe_int(usage.get("input_tokens", 0)),
+            "cached_input_tokens": _safe_int(
+                usage.get("cached_input_tokens", usage.get("cache_read_input_tokens", 0))
+            ),
+            "output_tokens": _safe_int(usage.get("output_tokens", 0)),
+            "reasoning_output_tokens": _safe_int(usage.get("reasoning_output_tokens", 0)),
         }
 
     def events(self, vendor: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -242,9 +287,29 @@ class _VendorNormalizer:
                         data[key] = str(item[key])[:20_000] if key in {"aggregated_output", "error"} else item[key]
                 values.append(("agent.tool.started" if event_type.endswith("started") else "agent.tool.completed", data))
             elif item_type == "agent_message" and event_type.endswith("completed"):
-                values.append(("agent.message", {**self._base(), "text": _extract_text(item)[:20_000]}))
+                text = _extract_text(item)[:20_000]
+                values.append(("agent.message", {**self._base(), "text": text}))
+                attention = _attention_from_text(text)
+                if attention:
+                    attention_type, attention_data = attention
+                    values.append((attention_type, {**self._base(), **attention_data}))
             elif item_type == "reasoning" and event_type.endswith("completed"):
                 values.append(("agent.reasoning", {**self._base(), "text": _extract_text(item)[:20_000]}))
+            elif item_type in {"request_user_input", "approval_request"}:
+                attention_type = "agent.question" if item_type == "request_user_input" else "agent.permission_request"
+                values.append(
+                    (
+                        attention_type,
+                        {
+                            **self._base(),
+                            "attention_type": "question" if item_type == "request_user_input" else "permission_request",
+                            "title": str(item.get("title") or "Agent needs operator input")[:500],
+                            "message": str(item.get("question") or item.get("message") or "")[:20_000],
+                            "options": item.get("options") if isinstance(item.get("options"), list) else [],
+                            "priority": "high" if item_type == "approval_request" else "medium",
+                        },
+                    )
+                )
         elif event_type == "turn.completed":
             values.append(("agent.usage", {**self._base(), **self._usage(vendor.get("usage"))}))
         return values
@@ -263,7 +328,12 @@ class _VendorNormalizer:
                 if not isinstance(block, dict):
                     continue
                 if block.get("type") == "text":
-                    values.append(("agent.message", {**self._base(), "text": str(block.get("text") or "")[:20_000]}))
+                    text = str(block.get("text") or "")[:20_000]
+                    values.append(("agent.message", {**self._base(), "text": text}))
+                    attention = _attention_from_text(text)
+                    if attention:
+                        attention_type, attention_data = attention
+                        values.append((attention_type, {**self._base(), **attention_data}))
                 elif block.get("type") == "thinking":
                     values.append(("agent.reasoning", {**self._base(), "text": str(block.get("thinking") or "")[:20_000]}))
                 elif block.get("type") == "tool_use":
@@ -271,12 +341,66 @@ class _VendorNormalizer:
                     name = str(block.get("name") or "tool")
                     self.tools[item_id] = name
                     values.append(("agent.tool.started", {**self._base(), "tool_call_id": item_id, "tool": name, "kind": "tool_use", "input": _sanitize(block.get("input", {}))}))
+                    if name.lower() in {"askuserquestion", "request_user_input"}:
+                        raw_input = block.get("input") if isinstance(block.get("input"), dict) else {}
+                        questions = raw_input.get("questions") if isinstance(raw_input.get("questions"), list) else []
+                        question = questions[0] if questions and isinstance(questions[0], dict) else raw_input
+                        raw_options = question.get("options") if isinstance(question.get("options"), list) else []
+                        options: list[Any] = []
+                        for option in raw_options[:12]:
+                            if isinstance(option, dict):
+                                options.append(
+                                    {
+                                        "id": str(option.get("value") or option.get("label") or ""),
+                                        "label": str(option.get("label") or option.get("description") or ""),
+                                    }
+                                )
+                            else:
+                                options.append(str(option))
+                        values.append(
+                            (
+                                "agent.question",
+                                {
+                                    **self._base(),
+                                    "attention_type": "question",
+                                    "title": str(question.get("header") or "Agent question")[:500],
+                                    "message": str(question.get("question") or "")[:20_000],
+                                    "options": options,
+                                    "priority": "medium",
+                                },
+                            )
+                        )
         elif event_type == "user":
             for block in content:
                 if not isinstance(block, dict) or block.get("type") != "tool_result":
                     continue
                 item_id = str(block.get("tool_use_id") or "")
-                values.append(("agent.tool.completed", {**self._base(), "tool_call_id": item_id, "tool": self.tools.get(item_id, "tool"), "kind": "tool_result", "error": bool(block.get("is_error")), "output": _extract_text(block.get("content"))[:20_000]}))
+                output = _extract_text(block.get("content"))[:20_000]
+                tool = self.tools.get(item_id, "tool")
+                values.append(("agent.tool.completed", {**self._base(), "tool_call_id": item_id, "tool": tool, "kind": "tool_result", "error": bool(block.get("is_error")), "output": output}))
+                if block.get("is_error") and any(
+                    phrase in output.lower()
+                    for phrase in ("requires approval", "permission denied", "not allowed")
+                ):
+                    values.append(
+                        (
+                            "agent.permission_request",
+                            {
+                                **self._base(),
+                                "attention_type": "permission_request",
+                                "title": f"Permission required for {tool}",
+                                "message": output,
+                                "tool": tool,
+                                "tool_call_id": item_id,
+                                "options": [
+                                    {"id": "takeover", "label": "Take over in tmux"},
+                                    {"id": "retry", "label": "Retry with guidance"},
+                                    {"id": "reject", "label": "Reject"},
+                                ],
+                                "priority": "high",
+                            },
+                        )
+                    )
         elif event_type == "result":
             values.append(("agent.usage", {**self._base(), **self._usage(vendor.get("usage")), "cumulative": True}))
             cost = vendor.get("total_cost_usd")

@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from odysseus.epics import CycleError
+from odysseus.store import RunStore
+
+
+class EpicTests(unittest.TestCase):
+    def _store(self, root: Path) -> tuple[RunStore, Path]:
+        project = root / "project"
+        project.mkdir()
+        return RunStore(root / "state"), project
+
+    def test_validated_dag_queues_roots_and_unblocks_dependants(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, project = self._store(Path(temp))
+            epic = store.epics.create({"title": "Ship auth", "project_path": str(project)})
+            mapping = store.epics.create_task_batch(
+                epic["id"],
+                [
+                    {"task_key": "schema", "task": "Change schema"},
+                    {"task_key": "api", "task": "Build API", "depends_on": ["schema"]},
+                    {"task_key": "ui", "task": "Build UI", "depends_on": ["schema"]},
+                    {
+                        "task_key": "integration",
+                        "task": "Integrate",
+                        "depends_on": ["api", "ui"],
+                        "parallelizable": False,
+                    },
+                ],
+            )
+
+            self.assertEqual(store.get(mapping["schema"])["status"], "queued")
+            self.assertEqual(store.get(mapping["api"])["status"], "blocked")
+            self.assertIsNone(store.claim(mapping["api"], max_parallel=4))
+
+            store.update(mapping["schema"], status="accepted")
+            unblocked = store.epics.refresh_dag(epic["id"])
+            self.assertCountEqual(unblocked, [mapping["api"], mapping["ui"]])
+            self.assertEqual(store.get(mapping["api"])["dependencies_met"], [mapping["schema"]])
+
+    def test_cycle_is_rejected_before_any_run_is_created(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, project = self._store(Path(temp))
+            epic = store.epics.create({"title": "Bad graph", "project_path": str(project)})
+            with self.assertRaises(CycleError):
+                store.epics.create_task_batch(
+                    epic["id"],
+                    [
+                        {"task_key": "a", "task": "A", "depends_on": ["b"]},
+                        {"task_key": "b", "task": "B", "depends_on": ["a"]},
+                    ],
+                )
+            self.assertEqual(store.list(), [])
+
+    def test_nonparallel_task_waits_for_active_sibling(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, project = self._store(Path(temp))
+            epic = store.epics.create({"title": "Serialized", "project_path": str(project)})
+            mapping = store.epics.create_task_batch(
+                epic["id"],
+                [
+                    {"task_key": "first", "task": "First"},
+                    {"task_key": "second", "task": "Second", "parallelizable": False},
+                ],
+            )
+            self.assertIsNotNone(store.claim(mapping["first"], max_parallel=4))
+            self.assertIsNone(store.claim(mapping["second"], max_parallel=4))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -11,6 +11,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Mapping
 
+from .evaluation import EvaluationEngine
 from .events import now_iso
 from .runners import AgentRunner, CheckRunner, ProcessResult
 from .store import RunStore
@@ -72,6 +73,7 @@ class Scheduler:
     def _loop(self) -> None:
         while not self._stop.is_set():
             self._reap_and_cancel()
+            self.store.epics.refresh_all()
             config = self.store.config()
             available = int(config["max_parallel"]) - self.active_count()
             if available > 0:
@@ -257,6 +259,23 @@ class Scheduler:
             )
             emit("step.completed", "odysseus", {"step": "agent", "attempt": attempt})
 
+            pending = [
+                item
+                for item in self.store.attention.list(status="open", run_id=run_id)
+                if item.get("type")
+                in {"question", "permission_request", "blocked", "decision_required"}
+            ]
+            if pending:
+                self.store.transition(
+                    run_id,
+                    "attention",
+                    event_type="run.attention",
+                    worker_pid=None,
+                    last_error="Agent needs an operator decision before checks can continue.",
+                    data={"message": "Agent needs an operator decision.", "attention_ids": [item["id"] for item in pending]},
+                )
+                return
+
             self.store.update(run_id, status="checking")
             emit(
                 "step.started",
@@ -294,6 +313,15 @@ class Scheduler:
                 return
             emit("step.completed", "odysseus", {"step": "check", "attempt": attempt})
 
+            verifier_results = self._run_verifiers(
+                run_id,
+                worktree,
+                options.get("evaluators") or [],
+                cancel,
+                emit,
+            )
+            self.store.update(run_id, verifier_results=verifier_results)
+
             followups = self.store.inbox.ingest_agent_file(self.store.get(run_id), worktree)
             for item in followups:
                 emit(
@@ -324,7 +352,39 @@ class Scheduler:
                 self._fail_process(run_id, "review", review_result)
                 return
             emit("step.completed", "odysseus", {"step": "review"})
-            self.store.transition(
+            emit("evaluation.started", "odysseus", {"verifiers": len(verifier_results)})
+            evaluation = EvaluationEngine.evaluate(
+                self.store.get(run_id),
+                check_results,
+                review_result.output,
+                verifier_results=verifier_results,
+                policy=options.get("policy") or self.store.config().get("evaluation_policy") or {},
+            )
+            self.store.update(
+                run_id,
+                evaluation=evaluation,
+                confidence=evaluation["confidence"],
+                policy_decision=evaluation["decision"],
+                human_review_required=evaluation["human_review_required"],
+            )
+            evaluation_event = "evaluation.completed" if evaluation["eligible"] else "evaluation.failed"
+            emit(
+                evaluation_event,
+                "odysseus",
+                {
+                    "message": (
+                        "Evaluation reached the configured confidence policy."
+                        if evaluation["eligible"]
+                        else "Evaluation requires operator review."
+                    ),
+                    "confidence": evaluation["confidence"],
+                    "threshold": evaluation["threshold"],
+                    "decision": evaluation["decision"],
+                    "failing_evaluators": evaluation["failing_evaluators"],
+                    "missing_evaluators": evaluation["missing_evaluators"],
+                },
+            )
+            final = self.store.transition(
                 run_id,
                 "review",
                 event_type="run.review_ready",
@@ -334,6 +394,16 @@ class Scheduler:
                 last_error="",
                 data={"message": "Diff and checks are ready for a human decision."},
             )
+            if evaluation["decision"] == "auto_accept_eligible":
+                self.store.append_event(run_id, "review.accepted", "policy", {"confidence": evaluation["confidence"]})
+                self.store.transition(
+                    run_id,
+                    "accepted",
+                    event_type="run.accepted",
+                    source="policy",
+                    review_status="accepted_by_policy",
+                    data={"confidence": evaluation["confidence"]},
+                )
             return
 
     def _run_checks(
@@ -368,6 +438,45 @@ class Scheduler:
                 return results, record
         return results, None
 
+    def _run_verifiers(
+        self,
+        run_id: str,
+        worktree: Path,
+        raw_verifiers: Any,
+        cancel: threading.Event,
+        emit: Any,
+    ) -> list[dict[str, Any]]:
+        if not isinstance(raw_verifiers, list):
+            raise ValueError("evaluators must be a JSON array")
+        results: list[dict[str, Any]] = []
+        for index, value in enumerate(raw_verifiers[:20]):
+            if not isinstance(value, dict) or not str(value.get("command") or "").strip():
+                raise ValueError("each evaluator requires a command")
+            command = str(value["command"])
+            emit("step.started", "odysseus", {"step": "evaluator", "id": value.get("id") or index, "command": command})
+            result = self.check_runner.run(
+                command,
+                worktree,
+                emit=emit,
+                cancelled=lambda: self._is_cancelled(run_id, cancel),
+            )
+            record = {
+                "id": str(value.get("id") or f"evaluator-{index + 1}"),
+                "kind": str(value.get("kind") or "deterministic"),
+                "command": command,
+                "returncode": result.returncode,
+                "output": result.output[-30_000:],
+                "duration_seconds": result.duration_seconds,
+                "weight": value.get("weight", 0.2),
+                "score": value.get("score") if value.get("score") is not None else (1.0 if result.returncode == 0 else 0.0),
+            }
+            results.append(record)
+            emit("check.completed", "evaluator", record)
+            emit("step.completed", "odysseus", {"step": "evaluator", "id": record["id"]})
+            if result.cancelled:
+                break
+        return results
+
     def _fail_process(self, run_id: str, step: str, result: ProcessResult) -> None:
         message = f"{step} process exited with code {result.returncode}"
         self.store.append_event(
@@ -395,6 +504,9 @@ class Scheduler:
             "If you discover useful work that is outside this task, write a JSON array of objects "
             "with title, task, and optional priority to .odysseus-followups.json. Do not put the "
             "current task in that file.\n\n"
+            "If you cannot proceed without operator input, do not guess. Finish with one single-line "
+            "ODYSSEUS_ATTENTION: JSON object containing type (question, permission_request, blocked, "
+            "or decision_required), title, message, optional options, and priority.\n\n"
             f"Task:\n{run['task']}\n"
         )
         if cycle:
@@ -414,7 +526,9 @@ class Scheduler:
             "You are the read-only review agent in an Odysseus workflow. Inspect the complete diff "
             "against the base commit and the repository context. Do not edit files. Report concrete "
             "correctness, security, regression, and test concerns, ordered by severity. If there are "
-            "no material concerns, say so explicitly.\n\n"
+            "no material concerns, say so explicitly. Finish with exactly one single-line "
+            "ODYSSEUS_EVALUATION: JSON object containing score (0..1), verdict "
+            "(pass, fail, or needs_review), and a findings array. Do not wrap it in a Markdown fence.\n\n"
             f"Original task:\n{run['task']}\n\nChecks:\n" + "\n".join(check_lines)
         )
 
@@ -437,6 +551,7 @@ class ReviewActions:
         if run.get("status") != "review":
             raise ValueError("only a run waiting for review can be accepted")
         self.store.append_event(run_id, "review.accepted", "user", {})
+        self.store.attention.resolve_for_run(run_id, resolution="accepted")
         return self.store.transition(
             run_id,
             "accepted",
@@ -449,8 +564,8 @@ class ReviewActions:
         if not feedback:
             raise ValueError("feedback is required")
         run = self.store.get(run_id)
-        if run.get("status") not in {"review", "failed"}:
-            raise ValueError("only a review or failed run can be sent back")
+        if run.get("status") not in {"review", "failed", "attention"}:
+            raise ValueError("only a review, failed, or attention run can be sent back")
         cycle = int(run.get("review_cycle", 0)) + 1
         self.store.update(
             run_id,
@@ -468,14 +583,15 @@ class ReviewActions:
             "user",
             {"feedback": feedback, "review_cycle": cycle},
         )
+        self.store.attention.resolve_for_run(run_id, resolution="sent_back")
         self.store.append_event(run_id, "run.queued", "odysseus", {"reason": "review_feedback"})
         return self.store.get(run_id)
 
     def resume(self, run_id: str, prompt: str) -> dict[str, Any]:
         feedback = prompt.strip() or "Continue this task from the existing agent session and address any remaining work."
         run = self.store.get(run_id)
-        if run.get("status") not in {"review", "failed", "accepted"}:
-            raise ValueError("only a reviewed, failed, or accepted run can be resumed")
+        if run.get("status") not in {"review", "failed", "accepted", "attention"}:
+            raise ValueError("only a reviewed, failed, accepted, or attention run can be resumed")
         cycle = int(run.get("review_cycle", 0)) + 1
         self.store.update(
             run_id,
@@ -493,7 +609,30 @@ class ReviewActions:
             "user",
             {"reason": "resume", "prompt": feedback, "review_cycle": cycle},
         )
+        self.store.attention.resolve_for_run(run_id, resolution="resumed")
         return self.store.get(run_id)
+
+    def answer_attention(self, item_id: str, response: str) -> dict[str, Any]:
+        item = self.store.attention.respond(item_id, response)
+        run_id = str(item.get("run_id") or "")
+        if not run_id:
+            return {"attention": item}
+        run = self.store.get(run_id)
+        self.store.append_event(
+            run_id,
+            "attention.answered",
+            "user",
+            {"attention_id": item_id, "response": response},
+        )
+        self.store.attention.resolve_for_run(run_id, resolution="answered_together")
+        if run.get("status") in {"attention", "review", "failed", "accepted"}:
+            resumed = self.resume(
+                run_id,
+                f"Operator response to your pending question or permission request:\n{response}",
+            )
+            return {"attention": item, "run": resumed}
+        self.store.update(run_id, pending_operator_response=response)
+        return {"attention": item, "run": self.store.get(run_id)}
 
     def draft_pr(self, run_id: str) -> dict[str, Any]:
         run = self.store.get(run_id)

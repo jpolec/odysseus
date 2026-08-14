@@ -5,10 +5,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from odysseus.runners import AgentRunner, _VendorNormalizer, _sanitize
+from odysseus.runners import AgentRunner, _VendorNormalizer, _attention_from_text, _sanitize
 
 
 class RunnerTests(unittest.TestCase):
+    def test_explicit_attention_marker_becomes_normalized_question(self) -> None:
+        parsed = _attention_from_text(
+            'I need a decision.\nODYSSEUS_ATTENTION: {"type":"question","title":"Schema","message":"Allow NULL?","options":["yes","no"]}'
+        )
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed[0], "agent.question")
+        self.assertEqual(parsed[1]["options"], ["yes", "no"])
+
     def test_vendor_json_becomes_normalized_agent_output(self) -> None:
         script = (
             "import json; "
@@ -62,6 +71,38 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertEqual([item[0] for item in events], ["agent.session", "agent.tool.started", "agent.usage"])
         self.assertEqual(events[-1][1]["cached_input_tokens"], 12)
+
+    def test_claude_denied_tool_becomes_permission_request(self) -> None:
+        normalizer = _VendorNormalizer("claude", "agent", False)
+        normalizer.events(
+            {
+                "type": "assistant",
+                "session_id": "thread-1",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "id": "tool-1", "name": "Bash", "input": {}}
+                    ]
+                },
+            }
+        )
+        events = normalizer.events(
+            {
+                "type": "user",
+                "session_id": "thread-1",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tool-1",
+                            "is_error": True,
+                            "content": "This command requires approval",
+                        }
+                    ]
+                },
+            }
+        )
+        self.assertEqual([item[0] for item in events], ["agent.tool.completed", "agent.permission_request"])
+        self.assertEqual(events[-1][1]["tool"], "Bash")
 
     def test_telemetry_redacts_common_secrets(self) -> None:
         value = _sanitize({"api_key": "secret", "command": "curl -H 'Authorization: Bearer abcdefghijklmnop'"})
