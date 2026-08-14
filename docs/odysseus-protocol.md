@@ -9,11 +9,13 @@ records, while SSE transports new events without inventing a second schema.
 | State | Meaning |
 | --- | --- |
 | `queued` | Persisted and eligible for a scheduler slot |
+| `blocked` | A DAG predecessor is incomplete, failed, cancelled, or missing |
 | `starting` | Claimed by a scheduler process |
 | `running` | Implementation agent is active |
 | `checking` | Project checks are running |
 | `reviewing` | Read-only agent review is running |
 | `review` | Waiting for a human decision |
+| `attention` | Agent yielded a question, permission request, or decision |
 | `failed` | Agent, check retry budget, or workflow failed |
 | `cancelling` | Cancellation was requested |
 | `cancelled` | Child process stopped and the run is terminal |
@@ -55,18 +57,26 @@ Current event types:
 ```text
 run.queued              run.started             run.status
 run.cancel_requested    run.cancelled           run.failed
-run.review_ready        run.accepted
+run.attention           run.review_ready        run.accepted
 worktree.creating       worktree.ready          worktree.dirty_base
 step.started            step.completed          step.failed
 agent.output            agent.message           agent.reasoning
 agent.session           agent.tool.started      agent.tool.completed
 agent.usage             agent.cost              agent.completed
+agent.question          agent.permission_request
+agent.blocked           agent.decision_required
 check.output            check.completed         workflow.retry
 review.sent_back        review.accepted
 pr.creating             pr.created              pr.failed
 system.recovered
 session.adopted         session.resumed         session.takeover_ready
 inbox.created           inbox.promoted
+attention.answered      attention.resolved
+evaluation.started      evaluation.completed    evaluation.failed
+epic.created            epic.proposed           epic.activated
+epic.task_created       epic.completed          epic.failed
+dag.dependency_met      dag.blocked              dag.unblocked
+planner.started         planner.completed        planner.failed
 ```
 
 ## HTTP API
@@ -76,7 +86,7 @@ The default origin is `http://127.0.0.1:8741`.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/bootstrap` | UI metadata and the per-process mutation token |
-| `GET` | `/api/health` | Scheduler health, active count, and queued count |
+| `GET` | `/api/health` | Scheduler health plus active, queued, blocked, and attention counts |
 | `GET` | `/api/runs` | All current run snapshots, newest first |
 | `POST` | `/api/runs` | Create a queued run |
 | `GET` | `/api/runs/:id` | One run snapshot |
@@ -98,6 +108,14 @@ The default origin is `http://127.0.0.1:8741`.
 | `POST` | `/api/inbox` | Capture a follow-up |
 | `POST` | `/api/inbox/:id/resolve` | Resolve a follow-up |
 | `POST` | `/api/inbox/:id/promote` | Turn a follow-up into a queued run |
+| `GET` | `/api/attention?status=open` | Cross-project operator attention queue |
+| `GET` | `/api/attention/:id` | One attention item |
+| `POST` | `/api/attention/:id/respond` | Answer with `{ "response": "..." }` and resume the linked session |
+| `POST` | `/api/attention/:id/resolve` | Close a notification without inventing an answer |
+| `GET` | `/api/epics` | List Epic proposals and active graphs |
+| `GET` | `/api/epics/:id` | Epic snapshot plus materialized runs |
+| `POST` | `/api/epics/plan` | Run a read-only Planner and create a proposal |
+| `POST` | `/api/epics/:id/approve` | Validate and materialize a proposed task DAG |
 | `GET` | `/api/github/issues?project_id=:id` | Open GitHub issues through authenticated `gh` |
 | `POST` | `/api/github/import` | Turn the supplied issue into a queued run |
 
@@ -124,6 +142,41 @@ Example create request:
 SSE messages use `event: odysseus`, set the event `id` to the run-local
 sequence number, and put the complete event envelope in `data`. Browsers can
 reconnect with `Last-Event-ID` or an explicit `after` query.
+
+## Planner and evaluation markers
+
+The read-only Planner's final output contains one line:
+
+```text
+ODYSSEUS_PLAN: {"summary":"...","tasks":[{"task_key":"api","title":"API","task":"...","role":"implementer","depends_on":[]}]}
+```
+
+The independent Reviewer's final output contains one line:
+
+```text
+ODYSSEUS_EVALUATION: {"score":0.94,"verdict":"pass","findings":[]}
+```
+
+An implementation agent that cannot safely continue may yield:
+
+```text
+ODYSSEUS_ATTENTION: {"type":"question","title":"Migration policy","message":"Retain NULL?","options":["retain","not-null"],"priority":"medium"}
+```
+
+Built-in Codex and Claude normalizers also translate native question and denied
+permission events. Marker parsing is a compatibility path for headless/custom
+lanes; unknown or malformed markers never become implicit approval.
+
+## DAG semantics
+
+- `depends_on` contains run ids; `dependency_keys` retains stable Epic keys.
+- A dependency is met only at `accepted` or `pr_created`.
+- Failed, cancelled, or missing dependencies keep downstream work blocked and
+  emit an attention item.
+- The scheduler validates readiness again while claiming, closing the race
+  between graph refresh and worker start.
+- `parallelizable: false` excludes overlap with active siblings in the Epic.
+- Version 0.3 does not merge predecessor worktree artifacts automatically.
 
 ## Review and Git Semantics
 

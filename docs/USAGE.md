@@ -10,6 +10,8 @@ Odysseus manages two connected kinds of work:
    worktree, run through implementation/check/review, and wait for a human.
 2. **Interactive sessions** start in tmux. They are discovered automatically
    and remain ordinary terminal sessions until you explicitly adopt them.
+3. **Epics** start as a requirement. A read-only Planner proposes a task DAG;
+   the graph is inert until an operator approves it.
 
 An autonomous task can become interactive through **Take over in tmux**. An
 interactive session can gain durable Odysseus history through **Adopt**. Neither
@@ -73,6 +75,15 @@ The health endpoint is useful for scripts:
 curl -fsS http://127.0.0.1:8741/api/health
 ```
 
+### Disposable product tour
+
+```sh
+scripts/demo.py --serve
+```
+
+Open <http://127.0.0.1:8742/>. This uses a new temporary state directory and no
+agent API calls. It is also the reproducible source state for UI screenshots.
+
 ## Run an autonomous task
 
 ### From the web UI
@@ -112,15 +123,46 @@ limit with:
 bin/odysseus config --max-parallel 3
 ```
 
+## Plan and approve an Epic DAG
+
+From **Epics** in the web UI, enter a requirement, project, Planner lane,
+implementation lane, review lane, and checks. The equivalent CLI flow is:
+
+```sh
+bin/odysseus plan \
+  --project /srv/repos/api \
+  --planner-lane claude \
+  --lane codex \
+  --review-lane claude \
+  --check "python3 -m unittest" \
+  "Add passkey registration and login"
+
+bin/odysseus epics EPIC_ID
+bin/odysseus approve-epic EPIC_ID
+```
+
+The Planner runs with the built-in lane's read-only mode and must finish with a
+single `ODYSSEUS_PLAN:` JSON object. Approval validates the complete graph and
+materializes its tasks. A task is ready only when all predecessor runs are
+`accepted` or `pr_created`. Cycles and unknown keys fail before any task is
+created.
+
+In 0.3 this is an execution DAG, not yet an artifact merge graph. A downstream
+task does not automatically receive the uncommitted diffs from its predecessors.
+Use a deliberate integration task and human review; automated integration
+branches arrive in 0.4.
+
 ## Understand task state
 
 | State | Operator meaning |
 | --- | --- |
 | `queued` | Waiting for a scheduler slot. |
+| `blocked` | Waiting for DAG dependencies or a failed predecessor decision. |
 | `running` | The implementation agent is active. |
 | `checking` | Trusted project checks are executing. |
 | `reviewing` | The read-only review pass is active. |
 | `review` | Waiting for Accept, Resume, Takeover, or Draft PR. |
+| `attention` | The agent yielded a question, permission request, or decision. |
 | `failed` | Inspect the last error and event history; resume is still available. |
 | `accepted` | Approval was recorded; no merge or cleanup was performed. |
 | `pr_created` | A draft pull request was created. |
@@ -129,6 +171,26 @@ bin/odysseus config --max-parallel 3
 Every task stores a current JSON snapshot plus an append-only NDJSON journal.
 The web UI replays the journal, then follows new records through Server-Sent
 Events.
+
+## Work from Needs You
+
+The default page is an operator queue, not an agent monitor. It contains open:
+
+- structured questions and permission requests;
+- agent, dependency, workflow, and evaluation failures;
+- review-ready changes.
+
+CLI equivalents:
+
+```sh
+bin/odysseus attention
+bin/odysseus answer ATTENTION_ID "Retain NULL for legacy accounts"
+```
+
+An answer is recorded as `attention.answered` and supplied to the saved
+implementation session in the same worktree. **Take over in tmux** is an option
+when the decision is easier to make interactively. Resolving an item without an
+answer closes the notification but does not invent agent guidance.
 
 ## Review, resume, and take over
 
@@ -259,6 +321,33 @@ Checks passed directly with `--check` or the web form take precedence. These
 commands are trusted configuration and execute through `/bin/sh -lc` inside the
 isolated task worktree.
 
+### Add independent evaluators and policy
+
+```json
+{
+  "checks": ["python3 -m unittest"],
+  "evaluators": [
+    {
+      "id": "security",
+      "kind": "static",
+      "command": "semgrep --config auto",
+      "weight": 0.3
+    }
+  ],
+  "policy": {
+    "min_confidence": 0.9,
+    "require_human_review": true,
+    "required_evaluators": ["security"]
+  }
+}
+```
+
+Evaluators are trusted shell commands executed after the normal checks. The
+evaluation view combines them with check outcomes, the structured independent
+review, and lane independence. Keep `require_human_review` true until the
+project's gates are mature. Setting it false can mark an eligible run accepted,
+but never merges or publishes code.
+
 ## Configure a custom lane
 
 Edit `~/.odysseus/config.json`. A custom lane can be an argv array:
@@ -288,6 +377,8 @@ Default layout:
 ├── config.json
 ├── projects.json
 ├── inbox.json
+├── attention.json
+├── epics/<epic-id>.json
 ├── runs/<run-id>.json
 ├── events/<run-id>.ndjson
 └── worktrees/<repository>-<sha>/<run-id>/
@@ -344,6 +435,8 @@ certificate. See [../SECURITY.md](../SECURITY.md) for the trust model.
 - Open `/api/health` and check the active/queued counts.
 - Run `bin/odysseus doctor` and verify the selected agent CLI exists.
 - Inspect `bin/odysseus events RUN_ID` and `bin/odysseus show RUN_ID`.
+- For Epic tasks, inspect `depends_on`, `blocked_reason`, and
+  `bin/odysseus epics EPIC_ID`.
 
 ### A tmux session is missing
 
@@ -367,7 +460,7 @@ If another process owns the configured port, either stop it or change
 ### Resume is unavailable
 
 Resume requires a saved Codex or Claude implementation session id and a task in
-review or failed state. Inspect `agent_sessions` with:
+attention, review, failed, or accepted state. Inspect `agent_sessions` with:
 
 ```sh
 bin/odysseus show RUN_ID
@@ -384,6 +477,11 @@ has a recognized GitHub remote and that the task branch can be pushed.
 serve       Run the scheduler and local web UI
 run         Queue an autonomous task
 runs        List persisted tasks and adopted sessions
+plan        Propose an approval-gated Epic task DAG
+epics       List Epics or inspect one graph
+approve-epic Materialize and queue an approved graph
+attention   List open operator decisions
+answer      Answer and resume the linked agent session
 show        Print one run snapshot
 events      Print one run's event journal
 resume      Continue the saved implementation thread

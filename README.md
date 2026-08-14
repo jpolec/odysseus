@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.2.0](https://img.shields.io/badge/version-0.2.0-171a16)
+![Version: 0.3.0](https://img.shields.io/badge/version-0.3.0-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -9,10 +9,10 @@
 **A local-first control plane for coding agents and the tmux sessions you
 already use.**
 
-Odysseus runs isolated agent tasks, preserves their event history, shows tool
-calls and token usage, and keeps a human gate before publishing. Its light web
-UI is also a live window into existing tmux sessions: discovery is automatic,
-while adoption and takeover stay explicit.
+Odysseus turns requirements into approval-gated task DAGs, runs isolated agent
+work, evaluates the evidence, and shows only exceptions in a central **Needs
+You** queue. Its light web UI is also a live window into existing tmux sessions:
+discovery is automatic, while adoption and takeover stay explicit.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
@@ -25,10 +25,15 @@ while adoption and takeover stay explicit.
   usable from the terminal.
 - **Run safely in parallel.** Every autonomous task receives its own branch and
   Git worktree; a persistent scheduler enforces the global concurrency limit.
+- **Plan before spending.** A read-only Planner proposes an acyclic task graph;
+  the operator approves it before ready tasks can run.
+- **See only what needs you.** Questions, permissions, broken dependencies,
+  failures, evaluation findings, and review gates share one attention queue.
 - **Continue, do not restart.** Resume sends feedback to the saved agent thread
   and the same worktree. Takeover opens that thread interactively in tmux.
 - **See the work.** The UI exposes normalized messages, reasoning summaries,
-  tool calls/results, token and cache usage, checks, review, and live activity.
+  tool calls/results, token and cache usage, checks, independent evaluation,
+  confidence, policy, and live activity.
 - **Keep control.** Accept only records approval. Creating a draft pull request
   is a separate, explicit action.
 - **Operate more than one repository.** Projects, tasks, tmux sessions, GitHub
@@ -54,12 +59,22 @@ Without `--open`, visit <http://127.0.0.1:8741/>. Keep this process running: it
 serves the UI and claims queued tasks. The fastest end-to-end walkthrough is in
 [START.md](START.md).
 
+To explore a populated control plane without spending model tokens:
+
+```sh
+scripts/demo.py --serve
+```
+
+Open <http://127.0.0.1:8742/>. The disposable state demonstrates Needs You,
+an Epic DAG, blocked/ready work, tool telemetry, checks, and evaluation.
+
 ## Where tasks come from
 
 | Source | What happens |
 | --- | --- |
 | **New task** in the web UI | A branch and worktree are created, then the bounded agent/check/review workflow runs. |
 | `bin/odysseus run ...` | The same workflow is queued from a terminal or script. |
+| **Plan an epic** / `bin/odysseus plan ...` | A read-only planner proposes a DAG; tasks exist only after explicit approval. |
 | Existing Codex/Claude tmux pane | It appears in **Sessions** automatically; no import button is required. |
 | **Adopt** on a tmux session | A durable Odysseus record is created without interrupting the pane. |
 | Inbox **Promote** | A human or agent follow-up becomes a queued task in its project. |
@@ -73,7 +88,26 @@ Odysseus history.
 
 ```text
 queue -> isolated worktree -> implementation agent -> project checks
-      -> read-only review -> human decision -> accept / resume / takeover / draft PR
+      -> independent evaluation -> Needs You / policy
+      -> accept / resume / takeover / draft PR
+```
+
+For a larger requirement:
+
+```text
+requirement -> read-only Planner -> proposed DAG -> operator approval
+            -> ready tasks fan out -> dependency gates -> integration/review
+```
+
+```sh
+bin/odysseus plan \
+  --project /absolute/path/to/repository \
+  --planner-lane claude \
+  --lane codex \
+  --review-lane claude \
+  "Implement passkey authentication end to end"
+
+bin/odysseus approve-epic EPIC_ID
 ```
 
 Queue a task from the CLI:
@@ -96,6 +130,10 @@ At the review gate:
 | **Resume agent** | Sends feedback to the saved implementation thread in the same worktree. |
 | **Take over in tmux** | Resumes the exact implementation thread in a managed interactive session. |
 | **Draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request. |
+
+**Take over** does not steal or recreate work. It opens the exact saved agent
+thread in tmux, inside the existing task worktree, so the human can continue
+interactively. **Resume agent** continues that same thread autonomously.
 
 ## tmux controls
 
@@ -178,7 +216,20 @@ Checks can be supplied per task or committed as `.odysseus.json`:
   "checks": [
     "python3 -m unittest discover -s tests -v",
     "git diff --check"
-  ]
+  ],
+  "evaluators": [
+    {
+      "id": "security",
+      "kind": "static",
+      "command": "semgrep --config auto",
+      "weight": 0.3
+    }
+  ],
+  "policy": {
+    "min_confidence": 0.9,
+    "require_human_review": true,
+    "required_evaluators": ["security"]
+  }
 }
 ```
 
@@ -192,6 +243,8 @@ State is stored under `~/.odysseus` by default:
 ├── config.json
 ├── projects.json
 ├── inbox.json
+├── attention.json
+├── epics/<epic-id>.json
 ├── runs/<run-id>.json
 ├── events/<run-id>.ndjson
 └── worktrees/<repository>-<sha>/<run-id>/
@@ -228,6 +281,11 @@ service.
 
 ```sh
 bin/odysseus runs
+bin/odysseus epics
+bin/odysseus plan --project /repo "Implement the requirement"
+bin/odysseus approve-epic EPIC_ID
+bin/odysseus attention
+bin/odysseus answer ATTENTION_ID "Use option A"
 bin/odysseus show RUN_ID
 bin/odysseus events RUN_ID
 bin/odysseus resume RUN_ID "Address the review findings"

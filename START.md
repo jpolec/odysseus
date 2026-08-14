@@ -1,7 +1,8 @@
 # Start Odysseus in ten minutes
 
-This walkthrough starts the web control plane, runs one isolated task, and
-connects the tmux controls. Nothing is installed globally.
+This walkthrough starts the web control plane, tries a no-token demo, runs one
+isolated task or Epic DAG, and connects the tmux controls. Nothing is installed
+globally.
 
 ## 1. Clone and verify
 
@@ -28,7 +29,23 @@ If the browser does not open, visit <http://127.0.0.1:8741/>. Keep this process
 running: it serves the UI and runs the persistent scheduler. State is stored in
 `~/.odysseus` unless `ODYSSEUS_HOME` or `--state-dir` overrides it.
 
-## 3. Queue the first task
+The landing page is **Needs You**. An empty page means no agent currently needs
+an operator decision; it is not a list of every running terminal.
+
+## 3. Optional: tour the populated UI without agents
+
+In another terminal:
+
+```sh
+scripts/demo.py --serve
+```
+
+Open <http://127.0.0.1:8742/>. The disposable state contains a passkey Epic,
+parallel task roots, a blocked integration task, a structured agent question,
+a review gate, token/tool metrics, and explainable evaluation. Stop with
+`Ctrl-C`; your normal `~/.odysseus` state is untouched.
+
+## 4. Queue the first task
 
 In the web UI:
 
@@ -51,11 +68,33 @@ bin/odysseus run \
 
 Odysseus creates an `odysseus/<run-id>` branch and isolated Git worktree, runs
 the implementation agent, executes the checks, asks a read-only agent for
-review, and stops at the human decision gate.
+review, evaluates the independent signals, and stops at the human decision
+gate unless an explicit project policy permits auto-accept eligibility.
 
-## 4. Make the human decision
+## 5. Or plan a larger requirement
 
-Open the task and inspect **Activity**, **Diff**, **Checks**, and **Review**.
+Select **Epics** -> **Plan an epic**, or run:
+
+```sh
+bin/odysseus plan \
+  --project /absolute/path/to/your/repository \
+  --planner-lane claude \
+  --lane codex \
+  --review-lane claude \
+  --check "python3 -m unittest discover -s tests -v" \
+  "Implement passkey authentication end to end"
+```
+
+The Planner is read-only. Inspect its proposed graph, then approve it in the UI
+or with `bin/odysseus approve-epic EPIC_ID`. Only dependency-ready roots are
+queued. Version 0.3 orders the work; automatic composition of predecessor diffs
+into an integration branch is planned for 0.4.
+
+## 6. Make the human decision
+
+Open the task and inspect **Activity**, **Diff**, **Checks**, **Review**, and
+**Evaluation**. Or stay in **Needs You**, where agent questions, permission
+requests, failures, broken dependencies, and review gates are collected.
 Then choose one action:
 
 - **Accept** records approval without merging or deleting anything.
@@ -73,9 +112,11 @@ bin/odysseus resume RUN_ID "Fix the failing edge case"
 bin/odysseus takeover RUN_ID
 bin/odysseus accept RUN_ID
 bin/odysseus draft-pr RUN_ID
+bin/odysseus attention
+bin/odysseus answer ATTENTION_ID "Choose option A"
 ```
 
-## 5. Add the tmux controls
+## 7. Add the tmux controls
 
 With TPM, add this before `run '~/.tmux/plugins/tpm/tpm'`:
 
@@ -93,7 +134,7 @@ The web **Sessions** view discovers managed sessions and existing Codex/Claude
 panes automatically. Select **Adopt** only when you want a durable Odysseus
 record for an interactive pane.
 
-## 6. Confirm resume and takeover
+## 8. Confirm resume and takeover
 
 The important distinction is:
 
@@ -109,7 +150,11 @@ bin/odysseus sessions
 bin/odysseus events RUN_ID
 ```
 
-## 7. Continue from here
+Takeover is not a new agent or a copy of its files: Odysseus starts or returns a
+managed tmux session in the existing task worktree and resumes the recorded
+agent session id.
+
+## 9. Continue from here
 
 - [Complete usage guide](docs/USAGE.md): projects, inbox, GitHub, custom lanes,
   state, backups, VPS installation, and troubleshooting.

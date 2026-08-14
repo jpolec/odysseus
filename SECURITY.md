@@ -7,6 +7,17 @@ no CORS permission, and requires a per-process same-origin token on mutations.
 Agent commands still operate with the permissions of the user who started the
 server, so only register repositories and check commands you trust.
 
+> **Trusted-repository boundary:** `checks` and `evaluators` from a project's
+> `.odysseus.json` execute through `/bin/sh -lc` in the task worktree with the
+> server user's permissions. Opening an untrusted repository and running its
+> configuration is remote code execution by design. Review that file first.
+
+A Git worktree isolates code changes, not the process environment. Agents may
+still reach the user's readable files, credentials, local databases, ports, and
+network according to the underlying Codex/Claude mode and operating system.
+Per-task container, credential, resource, and network isolation is planned for
+0.5; it is not a property of 0.3.
+
 Common credential-shaped fields and token patterns are redacted from normalized
 vendor telemetry before it is persisted. This is defense in depth, not a reason
 to put secrets in prompts or shell commands.

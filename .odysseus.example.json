@@ -2,5 +2,18 @@
   "checks": [
     "python3 -m unittest discover -s tests -v",
     "git diff --check"
-  ]
+  ],
+  "evaluators": [
+    {
+      "id": "security",
+      "kind": "static",
+      "command": "semgrep --config auto",
+      "weight": 0.3
+    }
+  ],
+  "policy": {
+    "min_confidence": 0.9,
+    "require_human_review": true,
+    "required_evaluators": ["security"]
+  }
 }
