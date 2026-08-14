@@ -81,6 +81,11 @@
               <header><div><p class="eyebrow">PROJECT SKILLS</p><h2>Reusable engineering guidance</h2><p class="card-description">Odysseus can load small, generic playbooks when a task matches. Project-local skills override the bundled catalog.</p></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
               <div class="project-skill-list" id="projectSkillList"><div class="empty-list">Loading project skills…</div></div>
             </article>
+            <article class="project-knowledge-card project-memory-card">
+              <header><div><p class="eyebrow">PROJECT MEMORY</p><h2>Repository-specific knowledge</h2><p class="card-description">Store facts unique to this codebase. Triggers and folders attach only relevant memory to a task; every attachment appears in its Context Receipt.</p></div><div class="memory-head-actions"><span class="quiet-badge" id="projectMemoryCount">0 active</span><button class="ghost compact" id="addProjectMemory" type="button">Add memory</button></div></header>
+              <div class="project-memory-list" id="projectMemoryList"><div class="empty-list">Loading project memory…</div></div>
+              <div class="memory-suggestions hidden" id="memorySuggestions"></div>
+            </article>
             <div class="project-home-grid project-history-grid">
               <article class="project-knowledge-card">
                 <header><div><p class="eyebrow">GIT</p><h2>Recent commits</h2></div></header>
@@ -229,12 +234,24 @@
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Save brief</button></div>
     </form></dialog>
 
+    <dialog id="knowledgeDialog"><form method="dialog" id="knowledgeForm">
+      <div class="dialog-head"><div><p class="eyebrow">PROJECT MEMORY</p><h2>Teach Odysseus about this repository</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Keep this specific to one project.</strong><p>Use generic Skills for security, databases, or testing. Use Project Memory for local architecture, commands, constraints, and conventions.</p></div>
+      <input type="hidden" name="id">
+      <input type="hidden" name="source" value="operator">
+      <label>Title <input name="title" required maxlength="200" placeholder="Billing migration rule"></label>
+      <label>Knowledge <span class="field-help">The exact guidance an agent should receive.</span><textarea name="content" rows="7" required placeholder="Run the billing compatibility fixture before changing invoice data."></textarea></label>
+      <div class="form-row"><label>Triggers <span class="field-help">Comma-separated task words.</span><input name="triggers" placeholder="billing, invoice, migration"></label><label>Folders <span class="field-help">Optional path signals.</span><input name="folders" placeholder="billing/, migrations/"></label></div>
+      <label class="checkbox-row"><input type="checkbox" name="enabled" checked> Enable this memory for matching tasks</label>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Save memory</button></div>
+    </form></dialog>
+
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
       <div class="dialog-head"><div><p class="eyebrow">NEW TASK</p><h2>What should change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="dialog-intro"><strong>Choose a project and describe one finished outcome.</strong><p>Odysseus handles the worktree, agent, checks, and review. Your source checkout stays untouched.</p></div>
       <label>Task
         <span class="field-help">Write the outcome, important constraints, and what “done” means.</span>
-        <textarea name="task" rows="5" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
+        <textarea name="task" id="taskPrompt" rows="5" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
       </label>
       <details class="prompt-example"><summary>Show a good task example</summary><p>Update the setup command in README, verify every referenced path exists, and run the documentation checks. Do not change application behavior.</p></details>
       <label>Project
@@ -254,6 +271,7 @@
           <span class="field-help">Auto selects relevant project guidance. Manual lets you choose; None sends no skill playbooks.</span>
           <select name="skill_mode" id="taskSkillMode"><option value="auto">Auto — recommended</option><option value="manual">Choose manually</option><option value="none">None</option></select>
         </label>
+        <div class="task-skill-recommendations hidden" id="taskSkillRecommendations"></div>
         <div class="task-skill-choices hidden" id="taskSkillChoices" aria-label="Choose task skills"></div>
         <label>Verification commands <span class="optional">optional</span>
           <span class="field-help">Trusted shell commands, one per line. Empty uses project defaults.</span>

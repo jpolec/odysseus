@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.5.2](https://img.shields.io/badge/version-0.5.2-171a16)
+![Version: 0.5.3](https://img.shields.io/badge/version-0.5.3-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -55,6 +55,12 @@ available without occupying the first-use path.
 - **Know why context was used.** Every task stores a Context Receipt containing
   the exact README, instruction, brief, and skill snapshots sent to the agent,
   with selection reasons and content digests visible under Evidence.
+- **Remember project-specific facts safely.** Project Memory attaches enabled
+  guidance by trigger or folder. Repeated feedback becomes a suggestion, never
+  automatic memory; an operator must review and save it.
+- **Route skills from local evidence.** Auto selection explains task signals
+  and, once enough outcomes exist, adjusts ranking with this project's success
+  and intervention history.
 - **Stay inspectable.** State is JSON plus append-only NDJSON. The runtime uses
   Python's standard library and browser-native JavaScript—no database, Redis,
   Node build, or mandatory container.
@@ -92,8 +98,8 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes seven real browser captures—Workspace, Project, Attention,
-Task Summary, Integration, CI repair, and New task—to `docs/screenshots/` and
+The script writes eight real browser captures—Workspace, Project, Attention,
+Task Summary, Integration, CI repair, Context Receipt, and New task—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 project, task surface, or dialog, so filenames match the visible UI.
 

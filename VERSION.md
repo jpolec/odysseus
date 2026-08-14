@@ -2,14 +2,30 @@
 
 ## Current version
 
-**0.5.2 — 2026-08-14**
+**0.5.3 — 2026-08-14**
 
 Version 0.5 makes project context and reusable engineering guidance visible at
 the project level. Repository evidence remains read-only, while project briefs,
 skill policies, and exact per-run skill snapshots live in private Odysseus
 state.
 
-## What is available in 0.5.2
+## What is available in 0.5.3
+
+### 0.5.3 Project Memory and Explainable Skill Routing
+
+- Project Memory stores repository-specific guidance separately from generic
+  engineering Skills. Each item has task triggers, optional folder signals,
+  source, enable/disable state, and operator-owned content.
+- Matching memory is frozen into the same per-run Context Receipt as README,
+  instructions, brief, and Skills. `knowledge.selected` records why it matched.
+- Repeated review guidance, check failures, and CI failure summaries may appear
+  as suggestions. They remain disabled until an operator reviews and saves
+  them; Odysseus never silently trains on its own output.
+- `project-skill-router-v1` ranks eligible Skills from task signals, required or
+  disabled project policy, and sufficiently observed project outcome and human
+  intervention history. New Task previews what Auto will attach and why.
+- CLI tasks support `--skill-mode auto|manual|none` and repeatable `--skill` for
+  explicit manual selection.
 
 ### 0.5.2 Context Receipts
 
@@ -165,8 +181,8 @@ state.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.5.2` |
-| Run snapshot schema | `6` |
+| Application version | `0.5.3` |
+| Run snapshot schema | `7` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
 | Export format | `odysseus-state-v1` |
@@ -177,7 +193,7 @@ state.
 The local HTTP API is documented but not yet stable. Consumers should check
 the application, run-schema, event-envelope, and export-format markers.
 
-## Known 0.4 boundaries
+## Known boundaries
 
 - Merge prediction is exact at the file surface and authoritative at the real
   Git merge. Semantic code-graph conflict prediction and a cross-PR merge queue
@@ -190,10 +206,11 @@ the application, run-schema, event-envelope, and export-format markers.
   termination. Providers that omit a metric cannot be limited by that metric.
 - Worktrees isolate repository files, not ports, databases, environment files,
   credentials, CPU, RAM, or network access. Runtime isolation is next.
-- Project discovery is deterministic and read-only; semantic retrieval and
-  automatic knowledge extraction are not part of 0.5.2.
+- Project discovery is deterministic and read-only; semantic repository
+  retrieval and autonomous knowledge extraction are not
+  part of 0.5.3. History creates reviewable suggestions, not trusted memory.
 
-## Upgrade from 0.3
+## Upgrade from 0.4 or earlier
 
 Stop the running server and back up the complete state directory, then:
 
@@ -204,13 +221,19 @@ python3 -m unittest discover -s tests -v
 bin/odysseus serve
 ```
 
-Opening the state store adds schema-4 defaults to older run snapshots. Event
+Opening the state store adds schema-7 defaults to older run snapshots. Event
 journals remain append-only and are not rewritten. Existing branches,
 worktrees, tmux sessions, project registrations, and 0.3 Epics are preserved.
 An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.5.3 — Project Memory and Explainable Skill Routing
+
+Added triggered/folder-scoped project memory, enable/disable and history-based
+suggestions with operator approval, explainable project-history skill routing,
+and automatic-selection previews in New Task.
 
 ### 0.5.2 — Context Receipts
 

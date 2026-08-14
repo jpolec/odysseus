@@ -100,6 +100,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             "max_retries": args.max_retries,
             "base_ref": args.base,
             "priority": args.priority,
+            "skill_mode": args.skill_mode,
+            "skills": args.skill,
             "budgets": {key: value for key, value in budget_values.items() if value is not None},
         }
     )
@@ -378,6 +380,8 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--max-tokens", type=int, help="hard token budget (0 disables)")
     run.add_argument("--max-tool-calls", type=int, help="hard tool-call budget (0 disables)")
     run.add_argument("--max-cost", type=float, help="reported USD cost budget (0 disables)")
+    run.add_argument("--skill-mode", choices=("auto", "manual", "none"), default="auto", help="automatic, explicit, or disabled task skills")
+    run.add_argument("--skill", action="append", default=[], help="skill name for --skill-mode manual; repeatable")
     run.add_argument("--json", action="store_true")
     run.set_defaults(func=cmd_run)
 

@@ -4,4 +4,4 @@ from .events import EVENT_SCHEMA_VERSION, Event
 from .store import RunStore
 
 __all__ = ["EVENT_SCHEMA_VERSION", "Event", "RunStore"]
-__version__ = "0.5.2"
+__version__ = "0.5.3"

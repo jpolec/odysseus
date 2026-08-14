@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 import subprocess
 from pathlib import Path
 from typing import Any, Mapping
@@ -126,11 +127,18 @@ class ProjectKnowledge:
         self.store = store
         self.profile_dir = store.root / "project_profiles"
         self.profile_dir.mkdir(exist_ok=True)
+        self.items_dir = store.root / "project_knowledge"
+        self.items_dir.mkdir(exist_ok=True)
 
     def _profile_path(self, project_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id):
             raise ValueError("invalid project id")
         return self.profile_dir / f"{project_id}.json"
+
+    def _items_path(self, project_id: str) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id):
+            raise ValueError("invalid project id")
+        return self.items_dir / f"{project_id}.json"
 
     def profile(self, project_id: str) -> dict[str, Any]:
         path = self._profile_path(project_id)
@@ -158,6 +166,133 @@ class ProjectKnowledge:
         with self.store.locked():
             self.store._atomic_json(self._profile_path(project_id), value)
         return value
+
+    def items(self, project_id: str) -> dict[str, Any]:
+        self.store.projects.get(project_id)
+        try:
+            value = json.loads(self._items_path(project_id).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            value = {}
+        items = value.get("items") if isinstance(value, dict) else []
+        if not isinstance(items, list):
+            items = []
+        clean = [item for item in items if isinstance(item, dict) and item.get("id")]
+        return {
+            "project_id": project_id,
+            "items": sorted(clean, key=lambda item: (not bool(item.get("enabled", True)), str(item.get("title") or "").lower())),
+            "suggestions": self.suggestions(project_id, existing=clean),
+            "updated_at": value.get("updated_at") if isinstance(value, dict) else None,
+        }
+
+    @staticmethod
+    def _string_list(value: Any, field: str, limit: int = 20) -> list[str]:
+        if isinstance(value, str):
+            value = [item.strip() for item in value.split(",") if item.strip()]
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(f"{field} must be a list of strings")
+        return list(dict.fromkeys(item.strip().lower() for item in value if item.strip()))[:limit]
+
+    def update_item(self, project_id: str, changes: Mapping[str, Any]) -> dict[str, Any]:
+        self.store.projects.get(project_id)
+        title = str(changes.get("title") or "").strip()
+        content = str(changes.get("content") or "").strip()
+        if not title or len(title) > 200:
+            raise ValueError("knowledge title is required and must be at most 200 characters")
+        if not content or len(content) > 20_000:
+            raise ValueError("knowledge content is required and must be at most 20000 characters")
+        current = self.items(project_id)
+        items = current["items"]
+        item_id = str(changes.get("id") or f"knowledge-{secrets.token_hex(4)}")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", item_id):
+            raise ValueError("invalid knowledge id")
+        existing = next((item for item in items if item["id"] == item_id), {})
+        value = {
+            "id": item_id,
+            "title": title,
+            "content": content,
+            "triggers": self._string_list(changes.get("triggers", existing.get("triggers", [])), "triggers"),
+            "folders": self._string_list(changes.get("folders", existing.get("folders", [])), "folders"),
+            "enabled": bool(changes.get("enabled", existing.get("enabled", True))),
+            "source": str(changes.get("source") or existing.get("source") or "operator"),
+            "status": "active",
+            "created_at": existing.get("created_at") or now_iso(),
+            "updated_at": now_iso(),
+        }
+        items = [item for item in items if item["id"] != item_id] + [value]
+        payload = {"items": items, "updated_at": now_iso()}
+        with self.store.locked():
+            self.store._atomic_json(self._items_path(project_id), payload)
+        return self.items(project_id)
+
+    def select_items(self, project_id: str, task: str, limit: int = 4) -> list[dict[str, Any]]:
+        task_lower = task.lower()
+        selected: list[tuple[int, str, dict[str, Any]]] = []
+        for item in self.items(project_id)["items"]:
+            if not item.get("enabled", True):
+                continue
+            triggers = [str(value).lower() for value in item.get("triggers") or []]
+            folders = [str(value).lower() for value in item.get("folders") or []]
+            signals = [value for value in triggers + folders if value and value in task_lower]
+            if (triggers or folders) and not signals:
+                continue
+            reason = "always-on project memory" if not (triggers or folders) else f"matched {', '.join(signals[:3])}"
+            selected.append((len(signals), str(item.get("title") or ""), {**item, "reason": reason}))
+        return [item for _, _, item in sorted(selected, key=lambda value: (-value[0], value[1].lower()))[:limit]]
+
+    @staticmethod
+    def _suggestion_key(value: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9/_. -]+", " ", value.lower())).strip()[:300]
+
+    def suggestions(self, project_id: str, *, existing: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+        samples: dict[str, dict[str, Any]] = {}
+        for run in self.store.list():
+            if str(run.get("project_id")) != project_id:
+                continue
+            for event in self.store.events(str(run["id"]), limit=3_000):
+                event_type = str(event.get("type") or "")
+                data = event.get("data") if isinstance(event.get("data"), dict) else {}
+                text = ""
+                if event_type == "review.sent_back":
+                    text = str(data.get("message") or data.get("feedback") or run.get("feedback") or "")
+                elif event_type == "check.completed":
+                    try:
+                        failed_check = int(data.get("returncode") or 0) != 0
+                    except (TypeError, ValueError):
+                        failed_check = False
+                    command = str(data.get("command") or "").strip()
+                    text = f"Run and fix `{command}` before review." if failed_check and command else ""
+                elif event_type == "ci.failed":
+                    text = str(data.get("summary") or "").strip()
+                if len(text) < 12:
+                    continue
+                key = self._suggestion_key(text)
+                sample = samples.setdefault(key, {"content": text[:2_000], "count": 0, "run_ids": []})
+                if run["id"] not in sample["run_ids"]:
+                    sample["count"] += 1
+                    sample["run_ids"].append(run["id"])
+        known = {self._suggestion_key(str(item.get("content") or "")) for item in (existing or [])}
+        suggestions: list[dict[str, Any]] = []
+        stop = {"this", "that", "with", "from", "before", "after", "review", "always", "should", "have"}
+        for key, sample in samples.items():
+            if sample["count"] < 2 or key in known:
+                continue
+            tokens = [token for token in re.findall(r"[a-z][a-z0-9_.-]{3,}", key) if token not in stop]
+            folders = re.findall(r"(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+", sample["content"])
+            suggestions.append(
+                {
+                    "id": f"suggestion-{_digest(key)[:10]}",
+                    "title": "Repeated project guidance",
+                    "content": sample["content"],
+                    "triggers": list(dict.fromkeys(tokens))[:5],
+                    "folders": list(dict.fromkeys(folders))[:5],
+                    "enabled": False,
+                    "source": "history",
+                    "status": "suggested",
+                    "evidence_count": sample["count"],
+                    "run_ids": sample["run_ids"][:5],
+                }
+            )
+        return sorted(suggestions, key=lambda item: (-int(item["evidence_count"]), item["id"]))[:8]
 
     def discover(self, project: Mapping[str, Any]) -> dict[str, Any]:
         root = Path(str(project["path"])).resolve()
@@ -212,6 +347,7 @@ class ProjectKnowledge:
         project: Mapping[str, Any],
         task: str,
         selected_skills: list[Mapping[str, Any]],
+        selected_memory: list[Mapping[str, Any]],
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Freeze the exact project context and provenance sent to one run."""
 
@@ -219,11 +355,11 @@ class ProjectKnowledge:
         bundle: list[dict[str, Any]] = []
         remaining_bytes = 64_000
 
-        def capture(kind: str, title: str, path: str, reason: str, content: str) -> None:
+        def capture(kind: str, title: str, path: str, reason: str, content: str, per_source_limit: int) -> None:
             nonlocal remaining_bytes
             if remaining_bytes <= 0 or not content:
                 return
-            encoded = content.encode("utf-8")[:remaining_bytes]
+            encoded = content.encode("utf-8")[: min(remaining_bytes, per_source_limit)]
             clipped = encoded.decode("utf-8", errors="ignore")
             if not clipped:
                 return
@@ -251,13 +387,22 @@ class ProjectKnowledge:
             if value
         )
         if profile_content:
-            capture("project_profile", "Odysseus project brief", "odysseus://project-profile", "project-level operator context", profile_content)
+            capture("project_profile", "Odysseus project brief", "odysseus://project-profile", "project-level operator context", profile_content, 8_000)
+        for item in selected_memory:
+            capture(
+                "project_memory",
+                str(item.get("title") or "Project memory"),
+                f"odysseus://project-memory/{item.get('id')}",
+                str(item.get("reason") or "matched task context"),
+                str(item.get("content") or ""),
+                6_000,
+            )
         for relative in README_CANDIDATES:
             path = root / relative
             if path.is_file():
                 content = _read_text(path, limit=20_000)
                 if content:
-                    capture("readme", relative, relative, "primary repository overview", content)
+                    capture("readme", relative, relative, "primary repository overview", content, 16_000)
                 break
         instruction_paths = [root / relative for relative in INSTRUCTION_CANDIDATES]
         cursor_rules = root / ".cursor" / "rules"
@@ -270,7 +415,7 @@ class ProjectKnowledge:
             if not content:
                 continue
             relative = str(path.relative_to(root))
-            capture("agent_instructions", relative, relative, "repository-authored agent instructions", content)
+            capture("agent_instructions", relative, relative, "repository-authored agent instructions", content, 8_000)
         sources = [
             {key: item[key] for key in ("kind", "title", "path", "reason", "sha256", "bytes")}
             for item in bundle

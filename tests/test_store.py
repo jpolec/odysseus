@@ -116,7 +116,7 @@ class StoreTests(unittest.TestCase):
 
             migrated = RunStore(store.root).get(run["id"])
 
-            self.assertEqual(migrated["schema_version"], 6)
+            self.assertEqual(migrated["schema_version"], 7)
             self.assertEqual(migrated["depends_on"], [])
             self.assertEqual(migrated["evaluation"], {})
             self.assertEqual(

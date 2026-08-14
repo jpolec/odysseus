@@ -89,6 +89,7 @@ EVENT_TYPES = frozenset(
         "skill.selected",
         "skill.loaded",
         "context.receipt.created",
+        "knowledge.selected",
     }
 )
 

@@ -84,6 +84,8 @@ epic.created            epic.proposed           epic.activated
 epic.task_created       epic.completed          epic.failed
 dag.dependency_met      dag.blocked              dag.unblocked
 planner.started         planner.completed        planner.failed
+skill.selected          skill.loaded
+context.receipt.created knowledge.selected
 ```
 
 ## HTTP API
@@ -112,6 +114,11 @@ The default origin is `http://127.0.0.1:8741`.
 | `GET` | `/api/projects` | Registered projects and Git/GitHub metadata |
 | `POST` | `/api/projects` | Register or refresh a project |
 | `DELETE` | `/api/projects/:id` | Remove a registry entry (does not delete files) |
+| `GET` | `/api/projects/:id/overview` | README/instruction/stack/commit/activity Project Overview |
+| `GET/POST` | `/api/projects/:id/profile` | Read or update the private Project Brief |
+| `GET/POST` | `/api/projects/:id/skills` | Inspect catalog/effectiveness or update skill policies |
+| `POST` | `/api/projects/:id/skills/recommend` | Explain automatic skill ranking for `{ "task": "..." }` |
+| `GET/POST` | `/api/projects/:id/knowledge` | Inspect Memory/suggestions or create/update an item |
 | `GET` | `/api/tmux/sessions` | Auto-discovered live tmux sessions |
 | `POST` | `/api/tmux/sessions/:name/adopt` | Create durable history for an interactive session |
 | `GET` | `/api/inbox` | Cross-project follow-ups |
@@ -147,6 +154,8 @@ Example create request:
   "max_retries": 2,
   "base_ref": "main",
   "priority": 70,
+  "skill_mode": "auto",
+  "skills": [],
   "budgets": {
     "timeout_seconds": 1800,
     "stall_seconds": 300,
@@ -217,10 +226,16 @@ lanes; unknown or malformed markers never become implicit approval.
   attempt count. Eligible automatic repairs push to the same PR branch; retry
   exhaustion creates attention and never auto-merges.
 
-## Run snapshot schema 4 additions
+## Run snapshot schema additions
 
 Schema 4 adds `priority`, `artifact_sha`, `artifact_files`,
 `artifact_created_at`, `integration_sources`, `integration_head`,
 `merge_analysis`, `ci`, `ci_retry_active`, `github_feedback_seen`, `budgets`,
 `budget_status`, `stage`, `stage_started_at`, and `last_heartbeat`. Store open
 migrates old snapshots by adding defaults; it never rewrites event journals.
+
+Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
+`skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7
+adds `knowledge_selected` and the explainable `skill_routing` record. Context
+and skill payloads are queue-time snapshots; consumers must not replace their
+digests with the current contents of a repository file.

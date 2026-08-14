@@ -63,7 +63,30 @@ Git's real conflict result, but not semantic code graphs. GitHub integration is
 polling-based and never auto-merges. State export is shipped; verified import,
 retention, and cleanup remain below.
 
-## Planned — 0.5: isolated execution environments
+## Shipped — 0.5: project intelligence and context provenance
+
+- Project Overview grounded in an existing README, repository instruction
+  files, stack markers, recent commits, private operator brief, and one
+  cross-run activity timeline.
+- Generic bundled and repository-local Markdown Skills with preview and
+  project-level Auto, Required, or Disabled policy.
+- Automatic or explicit per-task skill selection with immutable skill content
+  snapshots and normalized selection/load events.
+- Context Receipts that prove the exact project brief, README, instructions,
+  Project Memory, and Skills sent to each run, including reasons and digests.
+- Project-specific Skill outcomes: observed success, tokens, reported cost, and
+  human interventions. Unknown history remains unknown.
+- Triggered and folder-scoped Project Memory with enable/disable, explicit
+  operator ownership, and history-derived suggestions that require approval.
+- Explainable skill routing from task signals, policy, and sufficiently
+  observed outcomes on the current repository.
+
+Current boundary: the router chooses context Skills, not the agent model.
+Project Memory is deterministic and operator-approved; semantic code retrieval,
+autonomous fact extraction, shared organizational memory, and vector search are
+not claimed.
+
+## Planned — 0.6: isolated execution environments
 
 - Optional disposable Docker/Podman/devcontainer environment per task lane.
 - Automatic port allocation and environment variables per worktree.
@@ -85,7 +108,7 @@ retention, and cleanup remain below.
 The goal is isolation of both code and runtime state: worktrees alone do not
 prevent two agents from fighting over the same port, database, or credentials.
 
-## Planned — 0.6: evidence-based agent routing
+## Planned — 0.7: evidence-based agent routing
 
 - High-value tournament mode: several agents or prompts attempt one ambiguous
   task and an independent judge selects a candidate.
@@ -93,16 +116,16 @@ prevent two agents from fighting over the same port, database, or credentials.
   CI failures, cost, tokens, and human interventions by task class and lane.
 - Router that chooses an agent from empirical project history, expected
   quality, latency, and cost; every automatic choice remains explainable.
-- Project memory for architecture, code map, ADRs, schemas, API contracts,
-  recent changes, and known issues, retrieved as a task-specific subset.
+- Semantic project context for architecture, code maps, ADRs, schemas, API
+  contracts, recent changes, and known issues, retrieved as a cited subset.
 - Analytics for cost per accepted task/merged PR, retry rate, human minutes,
   and **Human Attention per Successful Change**.
 - NDJSON export to CSV/Parquet and budget alerts.
 
-## Planned — 0.7: workflow and organization plane
+## Planned — 0.8: workflow and organization plane
 
 - Organization -> workspace -> project -> epic -> task -> attempt hierarchy.
-- Reusable Markdown skills, task templates, and declarative workflows.
+- Shared organization Skills, task templates, and declarative workflows.
 - Path/diff/risk policy engine for required checks, security review, human
   review, and narrowly scoped auto-merge.
 - Odysseus MCP server: queue work, read status, answer attention items, and
@@ -111,7 +134,22 @@ prevent two agents from fighting over the same port, database, or credentials.
 - Remote authenticated workers with heartbeats and crash recovery.
 - Mobile review and push notifications.
 
-## Exploring — 0.8: Attention Autopilot and Flight Recorder
+## Cross-cutting adoption track
+
+- One-command verified installer, Homebrew tap, signed versioned releases, and
+  an explicit upgrade/rollback path.
+- A five-minute first-run checklist that creates a safe demo task before asking
+  the operator to configure advanced policy.
+- Reproducible dogfooding state and real browser screenshots for every major
+  release; examples must be generated from the shipped server, never mockups.
+- Secure phone access over an authenticated private-network listener, with
+  responsive Needs You, structured answers, diff/review, and terminal handoff.
+- Notification actions that answer or defer a structured question without
+  opening the full cockpit, while refusing ambiguous terminal keystrokes.
+- Import/export for portable generic Skills and an explicit trust review before
+  enabling Skills or shell checks sourced from another repository.
+
+## Exploring — 0.9: Attention Autopilot and Flight Recorder
 
 Every run already creates an evidence trail. The proposed Flight Recorder turns
 it into a learning loop:

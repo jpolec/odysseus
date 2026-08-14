@@ -161,7 +161,22 @@ context without discarding files. Each choice is explicit in the event stream.
 Success means a retry is never ambiguously “the same agent again,” and a lane
 switch never tries to resume a foreign provider's session id.
 
-## Isolate runtime state as well as files — planned 0.5
+## Ground every task in inspectable project context — 0.5
+
+An operator opens a project and sees its README-derived overview, agent
+instructions, stack, recent commits, generic Skills, and repository-specific
+Memory. A new authentication task automatically receives the security Skill
+and matching local auth rule. Evidence -> Context shows the exact frozen text,
+path, reason, byte count, and digest used by that run.
+
+Repeated human feedback can appear as a proposed Memory item, but it cannot
+influence another task until the operator reviews, edits, enables, and saves it.
+
+Success means context is useful without being invisible: a later file change
+cannot rewrite old evidence, generic guidance is not confused with project
+facts, and sparse outcome history never masquerades as a reliable benchmark.
+
+## Isolate runtime state as well as files — planned 0.6
 
 Several agents need PostgreSQL and a web port. Each lane gets a disposable
 container, unique ports, scoped environment, ephemeral database, resource
@@ -171,7 +186,7 @@ production cloud credentials, or `~/.ssh`.
 Success means parallel runs cannot collide on services and untrusted project
 configuration cannot execute shell checks without explicit approval.
 
-## Learn which agent works on this repository — planned 0.6
+## Learn which agent works on this repository — planned 0.7
 
 After enough accepted tasks, the operator compares lanes by task class: success
 rate, median time, review corrections, CI failures, cost, tokens, and human
@@ -181,7 +196,7 @@ evidence behind the choice.
 Success means routing optimizes verified outcomes and human attention, not a
 generic benchmark or model popularity.
 
-## Queue work from another agent — planned 0.7
+## Queue work from another agent — planned 0.8
 
 An interactive agent finds a bug in a shared library and calls the Odysseus MCP
 server to create a task in that project. It can read status later, while the
@@ -190,7 +205,7 @@ new work still passes through isolation, checks, evaluation, and policy.
 Success means provenance links the originating session to the resulting task
 without granting that session hidden merge or production credentials.
 
-## Answer routine questions from approved precedent — exploring 0.8
+## Answer routine questions from approved precedent — exploring 0.9
 
 Attention Autopilot sees a question that matches a prior human-approved
 decision and an applicable policy. It proposes the answer with citations and

@@ -59,7 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 6
+RUN_SCHEMA_VERSION = 7
 
 
 def _safe_int(value: Any) -> int:
@@ -114,6 +114,8 @@ def _run_defaults() -> dict[str, Any]:
         "skill_context": [],
         "context_bundle": [],
         "context_receipt": {},
+        "knowledge_selected": [],
+        "skill_routing": {},
     }
 
 
@@ -353,7 +355,9 @@ class RunStore:
             task_mode=skill_mode,
             requested=skills_requested,
         ) if kind != "tmux" else []
-        context_bundle, context_receipt = self.knowledge.snapshot(project_record, task, selected_skills) if kind != "tmux" else ([], {})
+        selected_memory = self.knowledge.select_items(str(project_record["id"]), task) if kind != "tmux" else []
+        skill_routing = self.skills.recommend(str(project_record["id"]), task) if kind != "tmux" and skill_mode == "auto" else {"algorithm": skill_mode, "recommendations": []}
+        context_bundle, context_receipt = self.knowledge.snapshot(project_record, task, selected_skills, selected_memory) if kind != "tmux" else ([], {})
         run: dict[str, Any] = {
             "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
@@ -425,6 +429,11 @@ class RunStore:
             ],
             "context_bundle": context_bundle,
             "context_receipt": context_receipt,
+            "knowledge_selected": [
+                {key: item.get(key) for key in ("id", "title", "triggers", "folders", "source", "reason")}
+                for item in selected_memory
+            ],
+            "skill_routing": skill_routing,
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)
@@ -447,6 +456,13 @@ class RunStore:
                 "skill.selected",
                 "odysseus",
                 {"name": skill["name"], "sha256": skill["sha256"], "scope": skill["scope"], "reason": skill["reason"]},
+            )
+        for item in selected_memory:
+            self.append_event(
+                run_id,
+                "knowledge.selected",
+                "odysseus",
+                {"id": item["id"], "title": item["title"], "reason": item["reason"]},
             )
         return self.get(run_id)
 

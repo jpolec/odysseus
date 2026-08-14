@@ -93,6 +93,24 @@ class SkillRegistryTests(unittest.TestCase):
             self.assertEqual(security["effectiveness"]["avg_tokens"], 1000)
             self.assertEqual(security["effectiveness"]["interventions"], 1)
 
+    def test_router_explains_task_signals_and_project_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "service"
+            project.mkdir()
+            store = RunStore(root / "state")
+            for suffix in ("one", "two"):
+                run = store.create({"task": f"Authentication security audit {suffix}", "project_path": str(project)})
+                store.update(run["id"], status="accepted")
+
+            recommendation = store.skills.recommend(run["project_id"], "Fix authentication security")
+            security = next(item for item in recommendation["recommendations"] if item["name"] == "security-review")
+
+            self.assertEqual(recommendation["algorithm"], "project-skill-router-v1")
+            self.assertTrue(security["selected"])
+            self.assertIn("authentication", security["signals"])
+            self.assertTrue(any("100% success" in reason for reason in security["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()

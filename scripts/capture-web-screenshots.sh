@@ -39,7 +39,7 @@ curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null
 RUN_ID="$($REPOSITORY_ROOT/bin/odysseus --state-dir "$STATE_DIR" runs --json | python3 -c 'import json,sys; print(next(run["id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Stabilize checkout retry flow"))')"
 PROJECT_ID="$($REPOSITORY_ROOT/bin/odysseus --state-dir "$STATE_DIR" runs --json | python3 -c 'import json,sys; print(next(run["project_id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Stabilize checkout retry flow"))')"
 BASE_URL="http://127.0.0.1:$PORT"
-COMMON=(--headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1440,1000)
+COMMON=(--headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --virtual-time-budget=1800 --window-size=1440,1000)
 
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-workspace.png" "$BASE_URL/?view=work"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-project.png" "$BASE_URL/#project/$PROJECT_ID"
@@ -47,5 +47,6 @@ COMMON=(--headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-task-summary.png" "$BASE_URL/#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-integration.png" "$BASE_URL/?tab=integration#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-ci-repair.png" "$BASE_URL/?tab=ci#task/$RUN_ID"
-"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-new-task.png" "$BASE_URL/?view=work&dialog=task"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-context-receipt.png" "$BASE_URL/?tab=context#task/$RUN_ID"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-new-task.png" "$BASE_URL/?view=work&dialog=task&prompt=Review%20authentication%20security"
 printf 'Screenshots written to %s\n' "$OUTPUT_DIR"

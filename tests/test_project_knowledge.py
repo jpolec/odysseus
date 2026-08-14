@@ -69,6 +69,42 @@ class ProjectKnowledgeTests(unittest.TestCase):
             persisted = store.get(run["id"])
             self.assertIn("Authentication service", persisted["context_bundle"][0]["content"])
 
+    def test_project_memory_is_triggered_and_repeated_feedback_is_suggested(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "service"
+            project.mkdir()
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            catalog = store.knowledge.update_item(
+                registered["id"],
+                {
+                    "title": "Billing migration rule",
+                    "content": "Run the billing compatibility fixture before changing invoice data.",
+                    "triggers": ["billing", "invoice"],
+                    "folders": ["migrations/"],
+                    "enabled": True,
+                },
+            )
+            item_id = catalog["items"][0]["id"]
+
+            selected = store.create({"task": "Change the billing invoice schema", "project_path": str(project)})
+            self.assertEqual(selected["knowledge_selected"][0]["id"], item_id)
+            self.assertIn("project_memory", {source["kind"] for source in selected["context_receipt"]["sources"]})
+            self.assertIn("knowledge.selected", {event["type"] for event in store.events(selected["id"])})
+
+            for suffix in ("one", "two"):
+                run = store.create({"task": f"Small correction {suffix}", "project_path": str(project)})
+                store.append_event(
+                    run["id"],
+                    "review.sent_back",
+                    "operator",
+                    {"message": "Always run the billing compatibility fixture before review."},
+                )
+            suggestions = store.knowledge.items(registered["id"])["suggestions"]
+            self.assertEqual(suggestions[0]["evidence_count"], 2)
+            self.assertEqual(suggestions[0]["source"], "history")
+
 
 if __name__ == "__main__":
     unittest.main()

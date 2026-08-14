@@ -205,6 +205,8 @@ class SkillRegistry:
     ) -> list[dict[str, Any]]:
         if task_mode not in VALID_TASK_MODES:
             raise ValueError("skill mode must be auto, manual, or none")
+        if task_mode == "none":
+            return []
         requested = list(dict.fromkeys(str(item) for item in (requested or [])))
         skills = self.discover(project)
         by_name = {skill["name"]: skill for skill in skills}
@@ -223,15 +225,73 @@ class SkillRegistry:
                     raise ValueError(f"skill is disabled for this project: {name}")
                 selected[name] = {**by_name[name], "reason": "selected for this task", "policy": policy.get(name, "auto")}
         elif task_mode == "auto":
-            task_tokens = _tokens(task)
-            ranked: list[tuple[int, str, dict[str, Any]]] = []
-            for skill in skills:
-                if policy.get(skill["name"], "auto") != "auto":
+            recommendation = self.recommend(str(project["id"]), task)
+            for item in recommendation["recommendations"]:
+                if not item["selected"] or item["name"] in selected:
                     continue
-                trigger_tokens = _tokens(" ".join(skill.get("triggers") or []))
-                score = len(task_tokens & trigger_tokens)
-                if score:
-                    ranked.append((score, skill["name"], skill))
-            for score, name, skill in sorted(ranked, key=lambda item: (-item[0], item[1]))[:3]:
-                selected[name] = {**skill, "reason": f"matched {score} task signal{'s' if score != 1 else ''}", "policy": "auto"}
+                skill = by_name[item["name"]]
+                selected[item["name"]] = {
+                    **skill,
+                    "reason": "; ".join(item["reasons"]),
+                    "policy": "auto",
+                    "routing_score": item["score"],
+                    "routing_algorithm": recommendation["algorithm"],
+                    "signals": item["signals"],
+                }
         return [selected[name] for name in sorted(selected)]
+
+    def recommend(self, project_id: str, task: str) -> dict[str, Any]:
+        project = self.store.projects.get(project_id)
+        policy = self.policy(project_id)
+        history = self.effectiveness(project_id)
+        task_tokens = _tokens(task)
+        ranked: list[dict[str, Any]] = []
+        for skill in self.discover(project):
+            mode = policy.get(skill["name"], "auto")
+            if mode == "disabled":
+                continue
+            signals = sorted(task_tokens & _tokens(" ".join(skill.get("triggers") or [])))
+            if mode != "required" and not signals:
+                continue
+            observed = history.get(skill["name"], self._empty_effectiveness())
+            runs = int(observed.get("runs") or 0)
+            success_rate = observed.get("success_rate")
+            history_weight = min(runs / 8.0, 1.0)
+            history_adjustment = 0.0
+            reasons = ["required by project policy"] if mode == "required" else [f"matched task signals: {', '.join(signals)}"]
+            if success_rate is not None and runs >= 2:
+                history_adjustment = (float(success_rate) - 0.5) * 4.0 * history_weight
+                reasons.append(f"{round(float(success_rate) * 100)}% success across {runs} observed runs")
+            interventions = int(observed.get("interventions") or 0)
+            intervention_penalty = min(interventions / max(runs, 1), 2.0) * history_weight
+            if interventions and runs >= 2:
+                reasons.append(f"{interventions} human intervention{'s' if interventions != 1 else ''} in history")
+            score = (100.0 if mode == "required" else len(signals) * 10.0) + history_adjustment - intervention_penalty
+            ranked.append(
+                {
+                    "name": skill["name"],
+                    "description": skill["description"],
+                    "scope": skill["scope"],
+                    "policy": mode,
+                    "signals": signals,
+                    "score": round(score, 3),
+                    "reasons": reasons,
+                    "effectiveness": observed,
+                }
+            )
+        ranked.sort(key=lambda item: (-float(item["score"]), item["name"]))
+        automatic = 0
+        for item in ranked:
+            if item["policy"] == "required":
+                item["selected"] = True
+            elif automatic < 3:
+                item["selected"] = True
+                automatic += 1
+            else:
+                item["selected"] = False
+        return {
+            "project_id": project_id,
+            "algorithm": "project-skill-router-v1",
+            "task_sha256": hashlib.sha256(task.encode("utf-8")).hexdigest(),
+            "recommendations": ranked,
+        }

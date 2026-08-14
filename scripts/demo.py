@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a disposable, deterministic-looking Odysseus 0.4 demo control plane."""
+"""Create a disposable, deterministic-looking Odysseus 0.5 demo control plane."""
 
 from __future__ import annotations
 
@@ -34,8 +34,29 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     quasar = sample_root / "quasar-data"
     atlas.mkdir(parents=True)
     quasar.mkdir(parents=True)
+    (atlas / "README.md").write_text("# Atlas Payments\n\nIdempotent payment and ledger services.\n", encoding="utf-8")
+    (atlas / "AGENTS.md").write_text("Run webhook and ledger compatibility tests before review.\n", encoding="utf-8")
+    (quasar / "README.md").write_text("# Quasar Data\n\nResearch pipelines with temporal safety gates.\n", encoding="utf-8")
     store.projects.upsert(atlas, {"name": "Atlas Payments", "tags": ["demo", "payments"]})
     store.projects.upsert(quasar, {"name": "Quasar Data", "tags": ["demo", "research"]})
+    primary = store.projects.upsert(project, {"name": "Odysseus", "tags": ["demo", "orchestration"]})
+    store.knowledge.update_profile(
+        primary["id"],
+        {
+            "summary": "A local-first engineering control plane for coding agents and tmux sessions.",
+            "notes": "The demo keeps terminal control explicit and never spends model tokens.",
+        },
+    )
+    store.knowledge.update_item(
+        primary["id"],
+        {
+            "title": "Checkout browser contract",
+            "content": "Retry-flow changes must preserve the visible 429 banner and pass the Chromium checkout scenario.",
+            "triggers": ["checkout", "retry", "429"],
+            "folders": ["web/", "tests/checkout"],
+            "enabled": True,
+        },
+    )
 
     atlas_run = store.create(
         {
@@ -288,6 +309,13 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "priority": "high",
         },
     )
+    for run_id in (backend_id, ci_id):
+        store.append_event(
+            run_id,
+            "review.sent_back",
+            "operator",
+            {"message": "Keep the browser retry contract visible and run the Chromium checkout scenario before review."},
+        )
     return store
 
 

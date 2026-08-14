@@ -105,6 +105,10 @@ scripts/capture-web-screenshots.sh
 5. Inspect **Diff**, **Integration**, **Checks**, **Review**, **Evaluation**, and
    **CI** before deciding what happens next.
 
+In the default Auto mode, Odysseus previews the generic Skills it will attach
+after you type the task. Open Advanced only to choose Skills manually or attach
+none. Evidence -> Context later shows the exact frozen sources and reasons.
+
 ### From the CLI
 
 ```sh
@@ -319,6 +323,67 @@ bin/odysseus projects \
 
 Use the project selector in **Tasks** to narrow the task rail. **Projects** shows
 repository paths, tags, branch information, and recognized GitHub remotes.
+
+### Use Project Overview, Skills, and Memory
+
+Select a project in the Explorer and open **Overview**:
+
+- **Project brief** uses the repository README by default. **Edit brief** stores
+  an optional private summary and notes in Odysseus; it never rewrites README.
+- **Repository context** lists detected agent instructions and stack markers.
+  Recent commits and Project Log explain what happened across runs.
+- **Project Skills** are generic engineering playbooks. Expand one to inspect
+  it, then choose Auto, Required, or Disabled for this repository. Bundled
+  skills cover common security, database, API, test, accessibility,
+  dependency, performance, incident, and documentation work.
+- **Project Memory** is only for facts unique to this codebase. Add a title,
+  exact guidance, task triggers, and optional folder signals. An item with no
+  triggers or folders is always attached; use that sparingly. Toggle an item
+  off without deleting its history.
+
+Repository-local skills can be added at `.agents/skills/NAME/SKILL.md`,
+`.github/skills/NAME/SKILL.md`, or `.claude/skills/NAME/SKILL.md`. A local skill
+overrides a bundled skill with the same `name` for that project only. Minimal
+format:
+
+```markdown
+---
+name: release-check
+description: Verify this repository's release compatibility contract.
+triggers: release, version, changelog
+---
+
+# Release check
+
+Run the compatibility suite and verify upgrade notes before declaring done.
+```
+
+The New Task default is automatic selection. From the CLI:
+
+```sh
+# Explainable automatic selection from task signals, policy, and observed history.
+bin/odysseus run --project /srv/repos/api --skill-mode auto \
+  "Review authentication security"
+
+# Explicit selection, repeat --skill as needed.
+bin/odysseus run --project /srv/repos/api --skill-mode manual \
+  --skill security-review --skill test-strategy \
+  "Review authentication security"
+
+# Attach no generic Skills. Matching Project Memory still applies.
+bin/odysseus run --project /srv/repos/api --skill-mode none \
+  "Perform a clean-context investigation"
+```
+
+Repeated review guidance or failing checks may appear under **Suggested from
+history**. A suggestion is not active context: inspect and save it before use.
+Odysseus does not silently convert model output into trusted project memory.
+
+For every autonomous task, **Evidence -> Context** displays
+`context-receipt-v1`: task and bundle digests, source path/type, selection
+reason, byte count, and the immutable snapshot. The run JSON and append-only
+NDJSON retain the same provenance even if README, Memory, or Skills change
+later.
 
 ## Capture follow-up work in the inbox
 

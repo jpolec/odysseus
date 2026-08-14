@@ -4,7 +4,7 @@ const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
   stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
-  projectOverview: null, projectSkills: null, taskSkillCatalog: null,
+  projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -93,7 +93,7 @@ function activateTab(name) {
   const selectedTab = $(`.tab[data-tab="${name}"]`);
   if (!selectedTab) return;
   if (["diff", "integration"].includes(name)) activateTaskSection("changes");
-  if (["checks", "review", "evaluation", "ci"].includes(name)) activateTaskSection("evidence");
+  if (["checks", "context", "review", "evaluation", "ci"].includes(name)) activateTaskSection("evidence");
   const inspector = selectedTab.closest(".inspector-panel");
   [...inspector.querySelectorAll(".tab")].forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   [...inspector.querySelectorAll(".tab-pane")].forEach((pane) => pane.classList.toggle("active", pane.id === `tab-${name}`));
@@ -148,13 +148,15 @@ function selectProject(projectId = "all") {
 
 async function refreshProjectOverview() {
   const project = activeProject();
-  if (!project) { state.projectOverview = null; state.projectSkills = null; renderProjectKnowledge(); return; }
-  const [overview, skills] = await Promise.all([
+  if (!project) { state.projectOverview = null; state.projectSkills = null; state.projectKnowledge = null; renderProjectKnowledge(); return; }
+  const [overview, skills, knowledge] = await Promise.all([
     api(`/api/projects/${encodeURIComponent(project.id)}/overview`),
     api(`/api/projects/${encodeURIComponent(project.id)}/skills`),
+    api(`/api/projects/${encodeURIComponent(project.id)}/knowledge`),
   ]);
   state.projectOverview = overview;
   state.projectSkills = skills;
+  state.projectKnowledge = knowledge;
   if (activeProject()?.id === project.id) renderProjectKnowledge();
 }
 
@@ -162,6 +164,7 @@ async function refreshTaskSkillChoices() {
   const projectId = $("#taskProjectSelect").value;
   state.taskSkillCatalog = projectId ? await api(`/api/projects/${encodeURIComponent(projectId)}/skills`) : null;
   renderTaskSkillChoices();
+  scheduleTaskSkillRecommendations();
 }
 
 function renderTaskSkillChoices() {
@@ -171,6 +174,34 @@ function renderTaskSkillChoices() {
   if (!manual) return;
   const skills = (state.taskSkillCatalog?.skills || []).filter((skill) => skill.mode !== "disabled");
   container.innerHTML = skills.length ? skills.map((skill) => `<label class="task-skill-choice"><input type="checkbox" name="skills" value="${escapeHtml(skill.name)}" ${skill.mode === "required" ? "checked disabled" : ""}><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span>${skill.mode === "required" ? `<em>required</em>` : ""}</label>`).join("") : `<div class="empty-list">Choose a registered project to see its skills.</div>`;
+}
+
+function scheduleTaskSkillRecommendations() {
+  window.clearTimeout(scheduleTaskSkillRecommendations.timer);
+  scheduleTaskSkillRecommendations.timer = window.setTimeout(refreshTaskSkillRecommendations, 350);
+}
+
+async function refreshTaskSkillRecommendations() {
+  const projectId = $("#taskProjectSelect").value;
+  const task = $("#taskPrompt").value.trim();
+  const automatic = $("#taskSkillMode").value === "auto";
+  if (!projectId || !automatic || task.length < 4) {
+    state.taskSkillRecommendations = null;
+    renderTaskSkillRecommendations();
+    return;
+  }
+  const expected = `${projectId}\n${task}`;
+  const result = await api(`/api/projects/${encodeURIComponent(projectId)}/skills/recommend`, {method: "POST", body: JSON.stringify({task})});
+  if (`${$("#taskProjectSelect").value}\n${$("#taskPrompt").value.trim()}` !== expected) return;
+  state.taskSkillRecommendations = result;
+  renderTaskSkillRecommendations();
+}
+
+function renderTaskSkillRecommendations() {
+  const container = $("#taskSkillRecommendations");
+  const selected = (state.taskSkillRecommendations?.recommendations || []).filter((item) => item.selected);
+  container.classList.toggle("hidden", $("#taskSkillMode").value !== "auto" || !selected.length);
+  container.innerHTML = selected.length ? `<small>AUTO WILL ATTACH</small>${selected.map((item) => `<div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml((item.reasons || [])[0] || "project policy")}</span></div>`).join("")}` : "";
 }
 
 function renderProjectSkills() {
@@ -193,6 +224,42 @@ function renderProjectSkills() {
   });
 }
 
+function openKnowledgeDialog(item = null) {
+  const form = $("#knowledgeForm");
+  form.reset();
+  form.elements.id.value = item?.status === "suggested" ? "" : item?.id || "";
+  form.elements.source.value = item?.source || "operator";
+  form.elements.title.value = item?.title || "";
+  form.elements.content.value = item?.content || "";
+  form.elements.triggers.value = (item?.triggers || []).join(", ");
+  form.elements.folders.value = (item?.folders || []).join(", ");
+  form.elements.enabled.checked = item?.status === "suggested" ? true : item?.enabled !== false;
+  $("#knowledgeDialog").showModal();
+}
+
+function renderProjectMemory() {
+  const catalog = state.projectKnowledge;
+  const items = catalog?.items || [];
+  const active = items.filter((item) => item.enabled).length;
+  $("#projectMemoryCount").textContent = `${active} active`;
+  $("#projectMemoryList").innerHTML = items.length ? items.map((item) => `<article class="memory-item ${item.enabled ? "" : "disabled"}"><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.content)}</p><span>${[...(item.triggers || []).map((value) => `trigger: ${value}`), ...(item.folders || []).map((value) => `folder: ${value}`)].map(escapeHtml).join(" · ") || "Always attach"}</span></div><label class="memory-toggle"><input type="checkbox" data-memory-toggle="${escapeHtml(item.id)}" ${item.enabled ? "checked" : ""}><span>${item.enabled ? "On" : "Off"}</span></label><button class="ghost compact" data-memory-edit="${escapeHtml(item.id)}" type="button">Edit</button></article>`).join("") : `<div class="empty-list">No project-specific memory yet. Add only facts that agents cannot infer reliably from the repository.</div>`;
+  const suggestions = catalog?.suggestions || [];
+  $("#memorySuggestions").classList.toggle("hidden", !suggestions.length);
+  $("#memorySuggestions").innerHTML = suggestions.length ? `<header><div><small>SUGGESTED FROM HISTORY</small><strong>Repeated guidance worth remembering</strong></div><span>${suggestions.length}</span></header>${suggestions.map((item, index) => `<article><div><strong>${escapeHtml(item.content)}</strong><small>Seen ${item.evidence_count} times · requires your approval</small></div><button class="ghost compact" data-memory-suggestion="${index}" type="button">Review & add</button></article>`).join("")}` : "";
+  $$('[data-memory-edit]').forEach((button) => button.addEventListener("click", () => openKnowledgeDialog(items.find((item) => item.id === button.dataset.memoryEdit))));
+  $$('[data-memory-suggestion]').forEach((button) => button.addEventListener("click", () => openKnowledgeDialog(suggestions[Number(button.dataset.memorySuggestion)])));
+  $$('[data-memory-toggle]').forEach((input) => input.addEventListener("change", async () => {
+    const project = activeProject();
+    const item = items.find((value) => value.id === input.dataset.memoryToggle);
+    if (!project || !item) return;
+    try {
+      state.projectKnowledge = await api(`/api/projects/${encodeURIComponent(project.id)}/knowledge`, {method: "POST", body: JSON.stringify({...item, enabled: input.checked})});
+      renderProjectMemory();
+      toast(`${item.title} ${input.checked ? "enabled" : "disabled"}.`);
+    } catch (error) { toast(error.message, true); }
+  }));
+}
+
 function renderProjectKnowledge() {
   const project = activeProject();
   const overview = state.projectOverview;
@@ -204,6 +271,7 @@ function renderProjectKnowledge() {
     $("#projectAboutSource").textContent = "";
     $("#projectContextSources").innerHTML = `<div class="empty-list">Discovering repository context…</div>`;
     $("#projectSkillList").innerHTML = `<div class="empty-list">Loading project skills…</div>`;
+    $("#projectMemoryList").innerHTML = `<div class="empty-list">Loading project memory…</div>`;
     $("#projectCommitList").innerHTML = `<div class="empty-list">Loading Git history…</div>`;
     $("#projectTimeline").innerHTML = `<div class="empty-list">Building project timeline…</div>`;
     return;
@@ -219,6 +287,7 @@ function renderProjectKnowledge() {
   $("#projectCommitList").innerHTML = (overview.commits || []).length ? overview.commits.map((commit) => `<div class="project-commit"><code>${escapeHtml(commit.short_sha)}</code><div><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.author)} · ${relativeTime(commit.ts)} ago</small></div></div>`).join("") : `<div class="empty-list">No Git commits found.</div>`;
   $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Project activity will appear after its first task.</div>`;
   renderProjectSkills();
+  renderProjectMemory();
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
 }
 
@@ -664,12 +733,15 @@ function bindDialogs() {
   const projectProfileDialog = $("#projectProfileDialog");
   $("#editProjectBrief").addEventListener("click", () => { const form = $("#projectProfileForm"); form.elements.summary.value = state.projectOverview?.profile?.summary || ""; form.elements.notes.value = state.projectOverview?.profile?.notes || ""; projectProfileDialog.showModal(); });
   $("#projectProfileForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); try { submit.disabled = true; await api(`/api/projects/${encodeURIComponent(project.id)}/profile`, {method: "POST", body: JSON.stringify({summary: data.get("summary"), notes: data.get("notes")})}); projectProfileDialog.close(); await refreshProjectOverview(); toast("Project brief saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
+  $("#addProjectMemory").addEventListener("click", () => openKnowledgeDialog());
+  $("#knowledgeForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); const payload = {id: data.get("id"), source: data.get("source"), title: data.get("title"), content: data.get("content"), triggers: String(data.get("triggers") || "").split(",").map((value) => value.trim()).filter(Boolean), folders: String(data.get("folders") || "").split(",").map((value) => value.trim()).filter(Boolean), enabled: data.get("enabled") === "on"}; try { submit.disabled = true; state.projectKnowledge = await api(`/api/projects/${encodeURIComponent(project.id)}/knowledge`, {method: "POST", body: JSON.stringify(payload)}); $("#knowledgeDialog").close(); renderProjectMemory(); toast("Project memory saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
   const taskDialog = $("#taskDialog");
   [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); taskDialog.showModal(); }));
   $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); });
-  $("#taskSkillMode").addEventListener("change", renderTaskSkillChoices);
+  $("#taskPrompt").addEventListener("input", scheduleTaskSkillRecommendations);
+  $("#taskSkillMode").addEventListener("change", () => { renderTaskSkillChoices(); renderTaskSkillRecommendations(); scheduleTaskSkillRecommendations(); });
   $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
-  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); state.taskSkillCatalog = null; renderTaskSkillChoices(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
+  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); state.taskSkillCatalog = null; state.taskSkillRecommendations = null; renderTaskSkillChoices(); renderTaskSkillRecommendations(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
@@ -695,8 +767,8 @@ async function init() {
     const params = new URLSearchParams(location.search);
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
     else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView("work"); } }
-    const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
-    const requestedDialog = params.get("dialog"); if (requestedDialog === "task") $("#newTaskButton").click(); else if (requestedDialog === "epic") $("#newEpicButton").click();
+    const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
+    const requestedDialog = params.get("dialog"); if (requestedDialog === "task") { $("#taskPrompt").value = params.get("prompt") || ""; $("#newTaskButton").click(); scheduleTaskSkillRecommendations(); } else if (requestedDialog === "epic") $("#newEpicButton").click();
     setConnection(true);
     window.setInterval(() => refreshRuns().catch(() => setConnection(false)), 3000);
     window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]).catch(() => setConnection(false)), 6000);

@@ -44,7 +44,8 @@ scripts/demo.py --serve
 Open <http://127.0.0.1:8742/>. The disposable state contains a passkey plan,
 parallel task roots, a blocked integration task, a structured agent question,
 a review gate, composed artifacts, merge risk, failed GitHub CI, token/tool
-metrics, search, and explainable evaluation. Stop with
+metrics, Project Memory, skill routing, a Context Receipt, search, and
+explainable evaluation. Stop with
 `Ctrl-C`; your normal `~/.odysseus` state is untouched.
 
 ## 4. Queue the first task
@@ -58,8 +59,9 @@ In the web UI:
 
 The large text box is the only creative input. Write the desired result as you
 would to an engineer, including constraints and what “done” means. The selected
-project supplies the repository and defaults. Agent, checks, retries, priority,
-and budgets stay under **Customize agent, checks, and limits**.
+project supplies the repository, defaults, and automatically relevant generic
+Skills. Agent, manual Skill choice, checks, retries, priority, and budgets stay
+under **Customize agent, checks, and limits**.
 
 The equivalent CLI command is:
 
@@ -103,8 +105,8 @@ starts; failed merges stop there and appear in **Needs You**.
 ## 6. Make the human decision
 
 Open the task and start with **Summary**. Use **Changes**, **Activity**, and
-**Evidence** only when you need their diff, integration, checks, review,
-evaluation, or CI detail. Or stay in **Needs You**, where agent
+**Evidence** only when you need their diff, integration, exact Context Receipt,
+checks, review, evaluation, or CI detail. Or stay in **Needs You**, where agent
 questions, permission requests, failures, broken dependencies, and review gates
 are collected.
 Then choose one action:
