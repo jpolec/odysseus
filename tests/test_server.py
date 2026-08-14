@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import tempfile
 import threading
@@ -67,6 +68,48 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/") as response:
                     html = response.read().decode()
                 self.assertIn("ODYSSEUS", html)
+
+                with urllib.request.urlopen(f"{base}/api/projects") as response:
+                    projects = json.load(response)
+                self.assertEqual(len(projects["projects"]), 1)
+
+                inbox_request = urllib.request.Request(
+                    f"{base}/api/inbox",
+                    data=json.dumps({"title": "Follow-up", "task": "Later"}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with urllib.request.urlopen(inbox_request) as response:
+                    inbox = json.load(response)
+                self.assertEqual(inbox["status"], "open")
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
+    def test_optional_basic_auth_protects_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = RunStore(Path(temp) / "state")
+            app = OdysseusApp(
+                store,
+                host="127.0.0.1",
+                port=0,
+                scheduler=DummyScheduler(),
+                auth_user="operator",
+                auth_password="correct horse",
+            )
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            url = f"http://{host}:{port}/api/health"
+            try:
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(url)
+                self.assertEqual(caught.exception.code, 401)
+                caught.exception.close()
+                token = base64.b64encode(b"operator:correct horse").decode()
+                request = urllib.request.Request(url, headers={"Authorization": f"Basic {token}"})
+                with urllib.request.urlopen(request) as response:
+                    health = json.load(response)
+                self.assertTrue(health["ok"])
             finally:
                 app.stop()
                 thread.join(timeout=2)

@@ -59,6 +59,34 @@ class StoreTests(unittest.TestCase):
             self.assertFalse(cancelled["cancel_requested"])
             self.assertEqual(store.events(run["id"])[-1]["type"], "run.cancelled")
 
+    def test_projects_inbox_and_usage_are_aggregated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Measure", "project_path": str(project)})
+            self.assertEqual(len(store.projects.list()), 1)
+            item = store.inbox.create({"title": "Later", "task": "Do it", "project_path": str(project)})
+            self.assertEqual(store.inbox.get(item["id"])["status"], "open")
+            store.append_event(run["id"], "agent.session", "codex", {"phase": "agent", "session_id": "thread-1"})
+            store.append_event(run["id"], "agent.tool.started", "codex", {"tool": "shell"})
+            store.append_event(run["id"], "agent.usage", "codex", {"input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 10})
+            measured = store.get(run["id"])
+            self.assertEqual(measured["agent_sessions"]["agent"], "thread-1")
+            self.assertEqual(measured["metrics"]["input_tokens"], 100)
+            self.assertEqual(measured["metrics"]["tool_calls"], 1)
+
+    def test_adopted_session_is_not_scheduler_eligible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create_external({"task": "Interactive", "project_path": str(project), "kind": "tmux"})
+            self.assertEqual(run["status"], "session")
+            self.assertIsNone(store.claim(run["id"], max_parallel=1))
+
 
 if __name__ == "__main__":
     unittest.main()

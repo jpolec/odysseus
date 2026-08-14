@@ -1,0 +1,22 @@
+[Unit]
+Description=Odysseus agent control plane
+After=network.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__INSTALL_DIR__
+Environment=ODYSSEUS_HOME=__STATE_DIR__
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:__SERVICE_HOME__/.local/bin:__SERVICE_HOME__/.npm-global/bin
+ExecStart=/usr/bin/python3 __INSTALL_DIR__/bin/odysseus serve --host 127.0.0.1 --port __PORT__
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+ReadWritePaths=__STATE_DIR__
+
+[Install]
+WantedBy=multi-user.target

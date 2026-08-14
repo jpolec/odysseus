@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Remove tmux-codex-session-manager hooks from a Codex hooks.json file.
+# Remove Odysseus tmux hooks from a Codex hooks.json file.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 target="${1:-${CODEX_HOOKS_FILE:-$HOME/.codex/hooks.json}}"
 
 if ! command -v python3 >/dev/null 2>&1; then
-  printf 'tmux-codex-session-manager: python3 is required to merge hooks\n' >&2
+  printf 'odysseus: python3 is required to merge hooks\n' >&2
   exit 1
 fi
 
 if [ ! -f "$target" ]; then
-  printf 'tmux-codex-session-manager: hooks file not found: %s\n' "$target" >&2
+  printf 'odysseus: hooks file not found: %s\n' "$target" >&2
   exit 1
 fi
 
@@ -31,7 +31,7 @@ snippet = json.loads(subprocess.check_output([str(print_hooks)], text=True))
 try:
     data = json.loads(target.read_text())
 except json.JSONDecodeError as exc:
-    print(f"tmux-codex-session-manager: invalid JSON in {target}: {exc}", file=sys.stderr)
+    print(f"odysseus: invalid JSON in {target}: {exc}", file=sys.stderr)
     sys.exit(1)
 
 plugin_commands = {
@@ -44,7 +44,7 @@ plugin_commands = {
 
 hooks = data.get("hooks")
 if not isinstance(hooks, dict):
-    print(f"tmux-codex-session-manager: no hooks object found in {target}")
+    print(f"odysseus: no hooks object found in {target}")
     sys.exit(0)
 
 removed = 0
@@ -77,7 +77,7 @@ for event in list(hooks.keys()):
         hooks.pop(event, None)
 
 if removed == 0:
-    print(f"tmux-codex-session-manager: no matching hooks found in {target}")
+    print(f"odysseus: no matching hooks found in {target}")
     sys.exit(0)
 
 stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -88,7 +88,7 @@ tmp = target.with_name(f".{target.name}.tmp")
 tmp.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n")
 tmp.replace(target)
 
-print(f"tmux-codex-session-manager: hooks file: {target}")
-print(f"tmux-codex-session-manager: backup: {backup}")
-print(f"tmux-codex-session-manager: removed {removed}")
+print(f"odysseus: hooks file: {target}")
+print(f"odysseus: backup: {backup}")
+print(f"odysseus: removed {removed}")
 PY

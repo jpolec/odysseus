@@ -16,6 +16,7 @@ from typing import Any
 from .scheduler import ReviewActions, Scheduler
 from .server import OdysseusApp
 from .store import RunStore, default_state_root
+from .tmux import TmuxBridge
 
 
 def _print_json(value: Any) -> None:
@@ -28,12 +29,24 @@ def _store(args: argparse.Namespace) -> RunStore:
 
 def cmd_serve(args: argparse.Namespace) -> int:
     store = _store(args)
+    auth_password = ""
+    if args.auth_password_file:
+        try:
+            auth_password = Path(args.auth_password_file).expanduser().read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            raise ValueError(f"cannot read auth password file: {exc}") from exc
+        if not auth_password:
+            raise ValueError("auth password file is empty")
+    if args.allow_remote and not auth_password and not args.insecure_remote:
+        raise ValueError("--allow-remote requires --auth-password-file (or explicit --insecure-remote)")
     app = OdysseusApp(
         store,
         host=args.host,
         port=args.port,
         allow_remote=args.allow_remote,
         verbose=args.verbose,
+        auth_user=args.auth_user if auth_password else "",
+        auth_password=auth_password,
     )
     host, port = app.start()
     display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
@@ -145,6 +158,68 @@ def cmd_draft_pr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_resume(args: argparse.Namespace) -> int:
+    _, actions = _actions(args)
+    prompt = args.prompt if args.prompt != "-" else sys.stdin.read()
+    _print_json(actions.resume(args.run_id, prompt))
+    return 0
+
+
+def cmd_sessions(args: argparse.Namespace) -> int:
+    sessions = TmuxBridge(_store(args)).list()
+    if args.json:
+        _print_json({"sessions": sessions})
+        return 0
+    if not sessions:
+        print("No tmux sessions are currently visible.")
+        return 0
+    print(f"{'STATE':<9} {'LANE':<9} {'ADOPTED':<9} {'TARGET':<30} PROJECT")
+    for item in sessions:
+        print(
+            f"{str(item.get('status', 'unknown')):<9} {str(item.get('lane', '')):<9} "
+            f"{('yes' if item.get('adopted_run_id') else 'no'):<9} {str(item.get('id', '')):<30} "
+            f"{item.get('project_path', '')}"
+        )
+    return 0
+
+
+def cmd_adopt(args: argparse.Namespace) -> int:
+    _print_json(TmuxBridge(_store(args)).adopt(args.tmux_session))
+    return 0
+
+
+def cmd_takeover(args: argparse.Namespace) -> int:
+    store = _store(args)
+    result = TmuxBridge(store).takeover(store.get(args.run_id))
+    if args.json:
+        _print_json(result)
+    else:
+        print(result["command"])
+    return 0
+
+
+def cmd_projects(args: argparse.Namespace) -> int:
+    store = _store(args)
+    if args.add:
+        value: Any = store.projects.upsert(args.add, {"name": args.name or "", "tags": args.tag})
+    else:
+        value = {"projects": store.projects.list()}
+    _print_json(value)
+    return 0
+
+
+def cmd_inbox(args: argparse.Namespace) -> int:
+    inbox = _store(args).inbox
+    if args.add:
+        value: Any = inbox.create({"title": args.title or "", "task": args.add, "project_path": args.project or ""})
+    elif args.resolve:
+        value = inbox.update(args.resolve, status="resolved")
+    else:
+        value = {"items": inbox.list(status=args.status)}
+    _print_json(value)
+    return 0
+
+
 def cmd_config(args: argparse.Namespace) -> int:
     store = _store(args)
     changes: dict[str, Any] = {}
@@ -184,6 +259,9 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=int(os.environ.get("ODYSSEUS_PORT", "8741")))
     serve.add_argument("--allow-remote", action="store_true", help="disable loopback Host/Origin checks")
+    serve.add_argument("--auth-user", default=os.environ.get("ODYSSEUS_AUTH_USER", "odysseus"))
+    serve.add_argument("--auth-password-file", default=os.environ.get("ODYSSEUS_AUTH_PASSWORD_FILE", ""), help="enable HTTP Basic auth using a password read from this file")
+    serve.add_argument("--insecure-remote", action="store_true", help="explicitly allow an unauthenticated remote bind (not recommended)")
     serve.add_argument("--open", action="store_true", help="open the UI in the default browser")
     serve.add_argument("--verbose", action="store_true")
     serve.set_defaults(func=cmd_serve)
@@ -230,6 +308,38 @@ def parser() -> argparse.ArgumentParser:
     draft = sub.add_parser("draft-pr", help="commit, push, and open a draft pull request")
     draft.add_argument("run_id")
     draft.set_defaults(func=cmd_draft_pr)
+
+    resume = sub.add_parser("resume", help="continue a review/failed run in its existing agent session")
+    resume.add_argument("run_id")
+    resume.add_argument("prompt", nargs="?", default="", help="continuation prompt, or - to read stdin")
+    resume.set_defaults(func=cmd_resume)
+
+    sessions = sub.add_parser("sessions", help="list automatically discovered tmux sessions")
+    sessions.add_argument("--json", action="store_true")
+    sessions.set_defaults(func=cmd_sessions)
+
+    adopt = sub.add_parser("adopt", help="persist a live tmux session as an Odysseus task")
+    adopt.add_argument("tmux_session")
+    adopt.set_defaults(func=cmd_adopt)
+
+    takeover = sub.add_parser("takeover", help="resume an autonomous run interactively in tmux")
+    takeover.add_argument("run_id")
+    takeover.add_argument("--json", action="store_true")
+    takeover.set_defaults(func=cmd_takeover)
+
+    projects = sub.add_parser("projects", help="list or register projects")
+    projects.add_argument("--add")
+    projects.add_argument("--name")
+    projects.add_argument("--tag", action="append", default=[])
+    projects.set_defaults(func=cmd_projects)
+
+    inbox = sub.add_parser("inbox", help="list, add, or resolve follow-ups")
+    inbox.add_argument("--add")
+    inbox.add_argument("--title")
+    inbox.add_argument("--project")
+    inbox.add_argument("--resolve")
+    inbox.add_argument("--status", choices=["open", "resolved", "promoted"])
+    inbox.set_defaults(func=cmd_inbox)
 
     config = sub.add_parser("config", help="show or change scheduler configuration")
     config.add_argument("--max-parallel", type=int)

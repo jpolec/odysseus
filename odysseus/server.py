@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import mimetypes
 import re
@@ -16,13 +17,16 @@ from urllib.parse import parse_qs, urlparse
 
 from . import __version__
 from .scheduler import ReviewActions, Scheduler
+from .github import GitHubBridge
 from .store import RunStore
+from .tmux import TmuxBridge
 from .worktrees import WorktreeManager
 
 
-RUN_ROUTE = re.compile(
-    r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|send-back|draft-pr))?$"
-)
+RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|send-back|resume|takeover|draft-pr))?$")
+TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
+PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)$")
+INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
 
 
 class OdysseusApp:
@@ -36,6 +40,8 @@ class OdysseusApp:
         verbose: bool = False,
         static_root: Path | None = None,
         scheduler: Scheduler | None = None,
+        auth_user: str = "",
+        auth_password: str = "",
     ) -> None:
         self.store = store
         self.host = host
@@ -46,6 +52,10 @@ class OdysseusApp:
         self.token = secrets.token_urlsafe(24)
         self.scheduler = scheduler or Scheduler(store)
         self.actions = ReviewActions(store, self.scheduler)
+        self.tmux = TmuxBridge(store)
+        self.github = GitHubBridge()
+        self.auth_user = auth_user
+        self.auth_password = auth_password
         self.httpd: OdysseusHTTPServer | None = None
 
     def start(self) -> tuple[str, int]:
@@ -79,13 +89,15 @@ class OdysseusHTTPServer(ThreadingHTTPServer):
 class OdysseusHandler(BaseHTTPRequestHandler):
     server: OdysseusHTTPServer
     protocol_version = "HTTP/1.1"
-    server_version = "Odysseus/0.1"
+    server_version = "Odysseus/0.2"
 
     def log_message(self, format: str, *args: Any) -> None:
         if self.server.app.verbose:
             super().log_message(format, *args)
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if not self._authenticated():
+            return
         if not self._host_allowed():
             self._json_error(HTTPStatus.FORBIDDEN, "invalid Host header")
             return
@@ -102,6 +114,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "default_lane": config["default_lane"],
                     "default_workflow": config["default_workflow"],
                     "lanes": list(dict.fromkeys(lanes)),
+                    "tmux_available": self.server.app.tmux.available(),
+                    "repository_url": "https://github.com/jpolec/odysseus",
                 }
             )
             return
@@ -119,6 +133,26 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/runs":
             self._json({"runs": self.server.app.store.list()})
             return
+        if parsed.path == "/api/projects":
+            self._json({"projects": self.server.app.store.projects.list()})
+            return
+        if parsed.path == "/api/tmux/sessions":
+            self._json({"sessions": self.server.app.tmux.list()})
+            return
+        if parsed.path == "/api/inbox":
+            query = parse_qs(parsed.query)
+            self._json({"items": self.server.app.store.inbox.list(status=query.get("status", [None])[0])})
+            return
+        if parsed.path == "/api/github/issues":
+            query = parse_qs(parsed.query)
+            try:
+                project = self.server.app.store.projects.get(str(query.get("project_id", [""])[0]))
+                self._json({"issues": self.server.app.github.issues(project["path"]), "project": project})
+            except KeyError:
+                self._json_error(HTTPStatus.NOT_FOUND, "project not found")
+            except RuntimeError as exc:
+                self._json_error(HTTPStatus.BAD_GATEWAY, str(exc))
+            return
         match = RUN_ROUTE.fullmatch(parsed.path)
         if match:
             self._get_run_route(match.group("run_id"), match.group("action"), parsed)
@@ -126,6 +160,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self._static(parsed.path)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if not self._authenticated():
+            return
         if not self._host_allowed() or not self._origin_allowed():
             self._json_error(HTTPStatus.FORBIDDEN, "request origin is not allowed")
             return
@@ -141,6 +177,38 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 run = self.server.app.store.create(body)
                 self._json(run, HTTPStatus.CREATED)
                 return
+            if parsed.path == "/api/projects":
+                self._json(self.server.app.store.projects.upsert(str(body.get("path") or ""), body), HTTPStatus.CREATED)
+                return
+            if parsed.path == "/api/inbox":
+                self._json(self.server.app.store.inbox.create(body), HTTPStatus.CREATED)
+                return
+            if parsed.path == "/api/github/import":
+                project = self.server.app.store.projects.get(str(body.get("project_id") or ""))
+                title = str(body.get("title") or "GitHub issue")
+                url = str(body.get("url") or "")
+                issue_body = str(body.get("body") or "")
+                task = f"Implement GitHub issue: {title}\n\n{issue_body}"
+                if url:
+                    task += f"\n\nIssue: {url}"
+                run = self.server.app.store.create({"task": task, "title": title, "project_path": project["path"], "lane": body.get("lane") or self.server.app.store.config()["default_lane"]})
+                self._json(run, HTTPStatus.CREATED)
+                return
+            tmux_match = TMUX_ROUTE.fullmatch(parsed.path)
+            if tmux_match:
+                name = tmux_match.group("name")
+                if tmux_match.group("action") == "adopt":
+                    self._json(self.server.app.tmux.adopt(name), HTTPStatus.CREATED)
+                elif tmux_match.group("action") == "takeover":
+                    run = self.server.app.tmux.adopt(name)
+                    self._json(self.server.app.tmux.takeover(run))
+                else:
+                    self._json_error(HTTPStatus.NOT_FOUND, "unknown tmux action")
+                return
+            inbox_match = INBOX_ROUTE.fullmatch(parsed.path)
+            if inbox_match:
+                self._post_inbox(inbox_match.group("item_id"), inbox_match.group("action"), body)
+                return
             match = RUN_ROUTE.fullmatch(parsed.path)
             if not match:
                 self._json_error(HTTPStatus.NOT_FOUND, "not found")
@@ -153,6 +221,10 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json(self.server.app.actions.accept(run_id))
             elif action == "send-back":
                 self._json(self.server.app.actions.send_back(run_id, str(body.get("feedback", ""))))
+            elif action == "resume":
+                self._json(self.server.app.actions.resume(run_id, str(body.get("prompt", ""))), HTTPStatus.ACCEPTED)
+            elif action == "takeover":
+                self._json(self.server.app.tmux.takeover(self.server.app.store.get(run_id)), HTTPStatus.CREATED)
             elif action == "draft-pr":
                 self._json(self.server.app.actions.draft_pr(run_id))
             else:
@@ -163,6 +235,41 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             self._json_error(HTTPStatus.BAD_REQUEST, str(exc))
         except Exception as exc:
             self._json_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
+
+    def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if not self._authenticated():
+            return
+        if not self._host_allowed() or not self._origin_allowed():
+            self._json_error(HTTPStatus.FORBIDDEN, "request origin is not allowed")
+            return
+        if not secrets.compare_digest(self.headers.get("X-Odysseus-Token", ""), self.server.app.token):
+            self._json_error(HTTPStatus.FORBIDDEN, "missing or invalid Odysseus token")
+            return
+        match = PROJECT_ROUTE.fullmatch(urlparse(self.path).path)
+        if not match:
+            self._json_error(HTTPStatus.NOT_FOUND, "not found")
+            return
+        try:
+            self.server.app.store.projects.remove(match.group("project_id"))
+            self._json({"ok": True})
+        except KeyError:
+            self._json_error(HTTPStatus.NOT_FOUND, "project not found")
+
+    def _post_inbox(self, item_id: str, action: str | None, body: Mapping[str, Any]) -> None:
+        if action == "resolve":
+            self._json(self.server.app.store.inbox.update(item_id, status="resolved"))
+        elif action == "reopen":
+            self._json(self.server.app.store.inbox.update(item_id, status="open"))
+        elif action == "promote":
+            item = self.server.app.store.inbox.get(item_id)
+            if not item.get("project_path"):
+                raise ValueError("follow-up has no project")
+            run = self.server.app.store.create({"task": item["task"], "title": item["title"], "project_path": item["project_path"], "lane": body.get("lane") or self.server.app.store.config()["default_lane"]})
+            self.server.app.store.inbox.update(item_id, status="promoted")
+            self.server.app.store.append_event(run["id"], "inbox.promoted", "user", {"inbox_id": item_id})
+            self._json(run, HTTPStatus.CREATED)
+        else:
+            self._json_error(HTTPStatus.NOT_FOUND, "unknown inbox action")
 
     def _get_run_route(self, run_id: str, action: str | None, parsed: Any) -> None:
         try:
@@ -207,6 +314,24 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         host = raw.rsplit(":", 1)[0].strip("[]")
         return host in {"127.0.0.1", "localhost", "::1"}
 
+    def _authenticated(self) -> bool:
+        app = self.server.app
+        if not app.auth_user:
+            return True
+        raw = self.headers.get("Authorization", "")
+        expected = base64.b64encode(f"{app.auth_user}:{app.auth_password}".encode("utf-8")).decode("ascii")
+        if raw.startswith("Basic ") and secrets.compare_digest(raw[6:], expected):
+            return True
+        payload = b"Authentication required"
+        self.send_response(HTTPStatus.UNAUTHORIZED)
+        self.send_header("WWW-Authenticate", 'Basic realm="Odysseus", charset="UTF-8"')
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+        return False
+
     def _origin_allowed(self) -> bool:
         if self.server.app.allow_remote:
             return True
@@ -223,6 +348,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -285,6 +412,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; style-src 'self'; script-src 'self'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()

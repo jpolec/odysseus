@@ -93,7 +93,7 @@ while [ "$#" -gt 0 ]; do
     done
     ;;
   -*)
-    printf 'tmux-codex-session-manager: unknown launch option: %s\n' "$1" >&2
+    printf 'odysseus: unknown launch option: %s\n' "$1" >&2
     usage >&2
     exit 2
     ;;
@@ -110,20 +110,20 @@ lane="${lane:-$(ai_default_lane)}"
 
 case "$lane" in
 '' | *[!A-Za-z0-9_.-]*)
-  show_message "tmux-codex-session-manager: invalid lane: ${lane:-<empty>}"
+  show_message "odysseus: invalid lane: ${lane:-<empty>}"
   exit 0
   ;;
 esac
 
 case "$role" in
 '' | *[!A-Za-z0-9_.-]*)
-  show_message "tmux-codex-session-manager: invalid role: ${role:-<empty>}"
+  show_message "odysseus: invalid role: ${role:-<empty>}"
   exit 0
   ;;
 esac
 
 if ! ai_lane_is_configured "$lane"; then
-  show_message "tmux-codex-session-manager: lane is not in @ai_session_lanes: $lane"
+  show_message "odysseus: lane is not in @ai_session_lanes: $lane"
   exit 0
 fi
 
@@ -133,7 +133,7 @@ w="$(get_tmux_option @codex_popup_width '90%')"
 h="$(get_tmux_option @codex_popup_height '90%')"
 
 if [ ! -d "$path" ]; then
-  show_message "tmux-codex-session-manager: directory not found: $path"
+  show_message "odysseus: directory not found: $path"
   exit 0
 fi
 
@@ -148,7 +148,7 @@ if [ -n "$prompt_file" ]; then
   esac
 
   if [ ! -f "$prompt_file_path" ]; then
-    show_message "tmux-codex-session-manager: prompt file not found: $prompt_file"
+    show_message "odysseus: prompt file not found: $prompt_file"
     exit 0
   fi
   prompt_file_path="$(cd "$(dirname "$prompt_file_path")" && pwd -P)/$(basename "$prompt_file_path")"
@@ -176,7 +176,7 @@ if ! tmux has-session -t "$session" 2>/dev/null; then
   launch_cmd="$cmd"
   [ -n "$env_spec" ] && launch_cmd="$env_spec $cmd"
   if ! tmux new-session -d -s "$session" -c "$path" "$launch_cmd"; then
-    show_message "tmux-codex-session-manager: failed to create session: $session"
+    show_message "odysseus: failed to create session: $session"
     exit 1
   fi
 

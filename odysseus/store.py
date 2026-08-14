@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 from .events import Event, now_iso
+from .inbox import Inbox
+from .projects import ProjectRegistry
 
 
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -67,6 +69,8 @@ class RunStore:
         self.config_path = self.root / "config.json"
         if not self.config_path.exists():
             self._atomic_json(self.config_path, DEFAULT_CONFIG)
+        self.projects = ProjectRegistry(self)
+        self.inbox = Inbox(self)
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -164,6 +168,7 @@ class RunStore:
         project = Path(str(request.get("project_path", "."))).expanduser().resolve()
         if not project.is_dir():
             raise ValueError(f"project directory does not exist: {project}")
+        project_record = self.projects.upsert(project)
         config = self.config()
         stamp = now_iso()
         compact_stamp = stamp.replace("-", "").replace(":", "").replace("T", "-")[:15]
@@ -173,18 +178,22 @@ class RunStore:
         if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
             raise ValueError("checks must be a list of shell command strings")
         max_retries = int(request.get("max_retries", config["max_retries"]))
+        kind = str(request.get("kind") or "task")
+        initial_status = str(request.get("status") or "queued")
         run: dict[str, Any] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "id": run_id,
+            "kind": kind,
             "title": title,
             "task": task,
             "project_path": str(project),
+            "project_id": project_record["id"],
             "lane": str(request.get("lane") or config["default_lane"]),
             "review_lane": str(request.get("review_lane") or request.get("lane") or config["default_lane"]),
             "workflow": str(request.get("workflow") or config["default_workflow"]),
             "checks": checks,
             "max_retries": max(0, max_retries),
-            "status": "queued",
+            "status": initial_status,
             "created_at": stamp,
             "updated_at": stamp,
             "started_at": None,
@@ -205,11 +214,33 @@ class RunStore:
             "worker_pid": None,
             "cancel_requested": False,
             "event_seq": 0,
+            "agent_sessions": {},
+            "agent_session_id": str(request.get("agent_session_id") or ""),
+            "tmux_session": str(request.get("tmux_session") or ""),
+            "tmux_target": str(request.get("tmux_target") or ""),
+            "metrics": {
+                "input_tokens": 0,
+                "cached_input_tokens": 0,
+                "output_tokens": 0,
+                "reasoning_output_tokens": 0,
+                "tool_calls": 0,
+                "cost_usd": 0.0,
+                "session_usage": {},
+            },
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)
-        self.append_event(run_id, "run.queued", "odysseus", {"title": title})
+        if initial_status == "queued":
+            self.append_event(run_id, "run.queued", "odysseus", {"title": title})
         return self.get(run_id)
+
+    def create_external(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        value = dict(request)
+        value.setdefault("kind", "external")
+        value.setdefault("status", "session")
+        value.setdefault("workflow", "interactive")
+        value.setdefault("checks", [])
+        return self.create(value)
 
     def update(self, run_id: str, **changes: Any) -> dict[str, Any]:
         with self.locked():
@@ -247,8 +278,49 @@ class RunStore:
                 os.fsync(handle.fileno())
             run["event_seq"] = seq
             run["updated_at"] = event.ts
+            self._aggregate_event(run, event_type, data or {})
             self._atomic_json(self._path(run_id), run)
         return value
+
+    @staticmethod
+    def _aggregate_event(run: dict[str, Any], event_type: str, data: Mapping[str, Any]) -> None:
+        if event_type == "agent.session":
+            session_id = str(data.get("session_id") or "")
+            if session_id:
+                phase = str(data.get("phase") or "agent")
+                sessions = run.setdefault("agent_sessions", {})
+                if isinstance(sessions, dict):
+                    sessions[phase] = session_id
+                run["agent_session_id"] = session_id
+            return
+        metrics = run.setdefault("metrics", {})
+        if not isinstance(metrics, dict):
+            metrics = {}
+            run["metrics"] = metrics
+        if event_type == "agent.tool.started":
+            metrics["tool_calls"] = int(metrics.get("tool_calls", 0)) + 1
+            return
+        if event_type == "agent.cost":
+            metrics["cost_usd"] = round(
+                float(metrics.get("cost_usd", 0.0)) + float(data.get("cost_usd", 0.0) or 0.0), 8
+            )
+            return
+        if event_type != "agent.usage":
+            return
+        keys = ("input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")
+        values = {key: max(0, int(data.get(key, 0) or 0)) for key in keys}
+        if data.get("cumulative"):
+            session_id = str(data.get("session_id") or "unknown")
+            usage_by_session = metrics.setdefault("session_usage", {})
+            previous = usage_by_session.get(session_id, {}) if isinstance(usage_by_session, dict) else {}
+            for key in keys:
+                delta = max(0, values[key] - int(previous.get(key, 0) or 0))
+                metrics[key] = int(metrics.get(key, 0)) + delta
+            if isinstance(usage_by_session, dict):
+                usage_by_session[session_id] = values
+            return
+        for key in keys:
+            metrics[key] = int(metrics.get(key, 0)) + values[key]
 
     def events(self, run_id: str, after: int = 0, limit: int = 1000) -> list[dict[str, Any]]:
         self.get(run_id)
@@ -317,6 +389,8 @@ class RunStore:
 
     def request_cancel(self, run_id: str) -> dict[str, Any]:
         run = self.get(run_id)
+        if run.get("kind") == "tmux":
+            raise ValueError("interactive tmux sessions must be stopped or detached through tmux")
         if run.get("status") in TERMINAL_STATUSES:
             return run
         if run.get("status") in {"review", "failed"}:

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Merge tmux-codex-session-manager hooks into a Codex hooks.json file.
+# Merge Odysseus tmux hooks into a Codex hooks.json file.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 target="${1:-${CODEX_HOOKS_FILE:-$HOME/.codex/hooks.json}}"
 
 if ! command -v python3 >/dev/null 2>&1; then
-  printf 'tmux-codex-session-manager: python3 is required to merge hooks\n' >&2
+  printf 'odysseus: python3 is required to merge hooks\n' >&2
   exit 1
 fi
 
@@ -29,18 +29,18 @@ if target.exists() and target.stat().st_size:
     try:
         data = json.loads(target.read_text())
     except json.JSONDecodeError as exc:
-        print(f"tmux-codex-session-manager: invalid JSON in {target}: {exc}", file=sys.stderr)
+        print(f"odysseus: invalid JSON in {target}: {exc}", file=sys.stderr)
         sys.exit(1)
 else:
     data = {}
 
 if not isinstance(data, dict):
-    print(f"tmux-codex-session-manager: {target} must contain a JSON object", file=sys.stderr)
+    print(f"odysseus: {target} must contain a JSON object", file=sys.stderr)
     sys.exit(1)
 
 hooks = data.setdefault("hooks", {})
 if not isinstance(hooks, dict):
-    print(f"tmux-codex-session-manager: {target}.hooks must be a JSON object", file=sys.stderr)
+    print(f"odysseus: {target}.hooks must be a JSON object", file=sys.stderr)
     sys.exit(1)
 
 added = 0
@@ -48,7 +48,7 @@ skipped = 0
 for event, entries in snippet.get("hooks", {}).items():
     dest_entries = hooks.setdefault(event, [])
     if not isinstance(dest_entries, list):
-        print(f"tmux-codex-session-manager: hooks.{event} must be an array", file=sys.stderr)
+        print(f"odysseus: hooks.{event} must be an array", file=sys.stderr)
         sys.exit(1)
 
     existing_commands = {
@@ -86,8 +86,8 @@ tmp = target.with_name(f".{target.name}.tmp")
 tmp.write_text(json.dumps(data, indent=2, sort_keys=False) + "\n")
 tmp.replace(target)
 
-print(f"tmux-codex-session-manager: hooks file: {target}")
+print(f"odysseus: hooks file: {target}")
 if backup:
-    print(f"tmux-codex-session-manager: backup: {backup}")
-print(f"tmux-codex-session-manager: added {added}, skipped {skipped}")
+    print(f"odysseus: backup: {backup}")
+print(f"odysseus: added {added}, skipped {skipped}")
 PY

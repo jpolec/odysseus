@@ -20,6 +20,7 @@ records, while SSE transports new events without inventing a second schema.
 | `accepted` | Human accepted the review result |
 | `publishing` | Branch is being committed and pushed |
 | `pr_created` | Draft pull request was created |
+| `session` | Adopted interactive tmux session; not scheduler-eligible |
 
 A server restart recovers orphaned active states to `queued`. It does not erase
 their existing event history or worktree.
@@ -57,11 +58,15 @@ run.cancel_requested    run.cancelled           run.failed
 run.review_ready        run.accepted
 worktree.creating       worktree.ready          worktree.dirty_base
 step.started            step.completed          step.failed
-agent.output            agent.completed
+agent.output            agent.message           agent.reasoning
+agent.session           agent.tool.started      agent.tool.completed
+agent.usage             agent.cost              agent.completed
 check.output            check.completed         workflow.retry
 review.sent_back        review.accepted
 pr.creating             pr.created              pr.failed
 system.recovered
+session.adopted         session.resumed         session.takeover_ready
+inbox.created           inbox.promoted
 ```
 
 ## HTTP API
@@ -81,7 +86,20 @@ The default origin is `http://127.0.0.1:8741`.
 | `POST` | `/api/runs/:id/cancel` | Request cancellation |
 | `POST` | `/api/runs/:id/accept` | Accept at the human review gate |
 | `POST` | `/api/runs/:id/send-back` | Requeue with `{ "feedback": "..." }` |
+| `POST` | `/api/runs/:id/resume` | Continue the saved implementation thread with `{ "prompt": "..." }` |
+| `POST` | `/api/runs/:id/takeover` | Create/return a managed interactive tmux continuation |
 | `POST` | `/api/runs/:id/draft-pr` | Commit, push, and create a draft PR |
+| `GET` | `/api/projects` | Registered projects and Git/GitHub metadata |
+| `POST` | `/api/projects` | Register or refresh a project |
+| `DELETE` | `/api/projects/:id` | Remove a registry entry (does not delete files) |
+| `GET` | `/api/tmux/sessions` | Auto-discovered live tmux sessions |
+| `POST` | `/api/tmux/sessions/:name/adopt` | Create durable history for an interactive session |
+| `GET` | `/api/inbox` | Cross-project follow-ups |
+| `POST` | `/api/inbox` | Capture a follow-up |
+| `POST` | `/api/inbox/:id/resolve` | Resolve a follow-up |
+| `POST` | `/api/inbox/:id/promote` | Turn a follow-up into a queued run |
+| `GET` | `/api/github/issues?project_id=:id` | Open GitHub issues through authenticated `gh` |
+| `POST` | `/api/github/import` | Turn the supplied issue into a queued run |
 
 Every `POST` requires the token from `/api/bootstrap` in the
 `X-Odysseus-Token` header. The default server also rejects non-loopback Host and
@@ -114,6 +132,7 @@ reconnect with `Last-Event-ID` or an explicit `after` query.
 - Diff output compares the complete worktree, index, and task-branch commits to
   `base_sha`; readable untracked files are included.
 - Accept is a durable decision only. It does not merge or remove the worktree.
-- Send back preserves the branch/worktree and starts a new review cycle.
+- Resume/send back preserves the branch/worktree and uses the recorded Codex or
+  Claude implementation session id for the new cycle.
 - Draft PR runs `git add -A`, creates a commit when needed, pushes the task
   branch, and invokes `gh pr create --draft`.

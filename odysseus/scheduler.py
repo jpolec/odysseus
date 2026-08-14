@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import os
 import threading
 import time
@@ -117,6 +118,12 @@ class Scheduler:
     def _emit(self, run_id: str, event_type: str, source: str, data: Mapping[str, Any]) -> None:
         self.store.append_event(run_id, event_type, source, data)
 
+    def _run_agent(self, *args: Any, **kwargs: Any) -> ProcessResult:
+        """Keep simple third-party/test runners compatible with the v1 adapter."""
+        parameters = inspect.signature(self.agent_runner.run).parameters
+        supported = {key: value for key, value in kwargs.items() if key in parameters}
+        return self.agent_runner.run(*args, **supported)
+
     def _worker(self, run_id: str, cancel: threading.Event) -> None:
         try:
             self._execute(run_id, cancel)
@@ -200,6 +207,8 @@ class Scheduler:
         feedback = str(run.get("feedback") or "").strip()
         failure_context = feedback
         cycle = int(run.get("review_cycle", 0))
+        sessions = run.get("agent_sessions") if isinstance(run.get("agent_sessions"), dict) else {}
+        implementation_session = str(sessions.get("agent") or "")
 
         for attempt in range(1, max_retries + 2):
             if self._is_cancelled(run_id, cancel):
@@ -218,13 +227,15 @@ class Scheduler:
                 "odysseus",
                 {"step": "agent", "attempt": attempt, "lane": run["lane"]},
             )
-            agent_result = self.agent_runner.run(
+            agent_result = self._run_agent(
                 str(run["lane"]),
                 worktree,
                 implement_prompt,
                 review=False,
                 emit=emit,
                 cancelled=lambda: self._is_cancelled(run_id, cancel),
+                resume_session_id=implementation_session,
+                phase="agent",
             )
             if agent_result.cancelled or self._is_cancelled(run_id, cancel):
                 self._finish_interruption(run_id)
@@ -232,6 +243,13 @@ class Scheduler:
             if agent_result.returncode != 0:
                 self._fail_process(run_id, "agent", agent_result)
                 return
+            if implementation_session:
+                emit(
+                    "session.resumed",
+                    str(run["lane"]),
+                    {"phase": "agent", "session_id": implementation_session, "attempt": attempt},
+                )
+            implementation_session = agent_result.session_id or implementation_session
             emit(
                 "agent.completed",
                 str(run["lane"]),
@@ -276,19 +294,28 @@ class Scheduler:
                 return
             emit("step.completed", "odysseus", {"step": "check", "attempt": attempt})
 
+            followups = self.store.inbox.ingest_agent_file(self.store.get(run_id), worktree)
+            for item in followups:
+                emit(
+                    "inbox.created",
+                    "agent",
+                    {"inbox_id": item["id"], "title": item["title"]},
+                )
+
             self.store.update(run_id, status="reviewing")
             emit(
                 "step.started",
                 "odysseus",
                 {"step": "review", "lane": run["review_lane"]},
             )
-            review_result = self.agent_runner.run(
+            review_result = self._run_agent(
                 str(run["review_lane"]),
                 worktree,
                 self._review_prompt(run, check_results),
                 review=True,
                 emit=emit,
                 cancelled=lambda: self._is_cancelled(run_id, cancel),
+                phase="review",
             )
             if review_result.cancelled or self._is_cancelled(run_id, cancel):
                 self._finish_interruption(run_id)
@@ -365,6 +392,9 @@ class Scheduler:
             "You are the implementation agent in an Odysseus workflow. Work only in the current "
             "git worktree. Implement the task completely, inspect existing conventions, and leave "
             "the working tree ready for checks and review. Do not create a pull request.\n\n"
+            "If you discover useful work that is outside this task, write a JSON array of objects "
+            "with title, task, and optional priority to .odysseus-followups.json. Do not put the "
+            "current task in that file.\n\n"
             f"Task:\n{run['task']}\n"
         )
         if cycle:
@@ -439,6 +469,30 @@ class ReviewActions:
             {"feedback": feedback, "review_cycle": cycle},
         )
         self.store.append_event(run_id, "run.queued", "odysseus", {"reason": "review_feedback"})
+        return self.store.get(run_id)
+
+    def resume(self, run_id: str, prompt: str) -> dict[str, Any]:
+        feedback = prompt.strip() or "Continue this task from the existing agent session and address any remaining work."
+        run = self.store.get(run_id)
+        if run.get("status") not in {"review", "failed", "accepted"}:
+            raise ValueError("only a reviewed, failed, or accepted run can be resumed")
+        cycle = int(run.get("review_cycle", 0)) + 1
+        self.store.update(
+            run_id,
+            status="queued",
+            feedback=feedback,
+            review_cycle=cycle,
+            review_status="continued",
+            cancel_requested=False,
+            finished_at=None,
+            worker_pid=None,
+        )
+        self.store.append_event(
+            run_id,
+            "run.queued",
+            "user",
+            {"reason": "resume", "prompt": feedback, "review_cycle": cycle},
+        )
         return self.store.get(run_id)
 
     def draft_pr(self, run_id: str) -> dict[str, Any]:

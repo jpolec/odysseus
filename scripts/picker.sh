@@ -146,13 +146,13 @@ emit_rows() {
 }
 
 if ! command -v fzf >/dev/null 2>&1; then
-  tmux display-message "tmux-codex-session-manager: fzf is required for the picker"
+  tmux display-message "odysseus: fzf is required for the picker"
   exit 0
 fi
 
 rows="$(emit_rows)"
 if [ -z "$rows" ]; then
-  tmux display-message 'tmux-codex-session-manager: no agent sessions'
+  tmux display-message 'odysseus: no agent sessions'
   exit 0
 fi
 

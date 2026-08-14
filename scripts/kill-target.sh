@@ -19,10 +19,10 @@ session)
       --status DEAD >/dev/null 2>&1 || true
     tmux kill-session -t "$target" 2>/dev/null
   else
-    tmux display-message 'tmux-codex-session-manager: not killing unmanaged session'
+    tmux display-message 'odysseus: not killing unmanaged session'
   fi
   ;;
 pane)
-  tmux display-message 'tmux-codex-session-manager: not killing existing Codex pane'
+  tmux display-message 'odysseus: not killing existing Codex pane'
   ;;
 esac

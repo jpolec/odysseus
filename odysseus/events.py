@@ -26,6 +26,13 @@ EVENT_TYPES = frozenset(
         "step.completed",
         "step.failed",
         "agent.output",
+        "agent.message",
+        "agent.reasoning",
+        "agent.session",
+        "agent.tool.started",
+        "agent.tool.completed",
+        "agent.usage",
+        "agent.cost",
         "agent.completed",
         "check.output",
         "check.completed",
@@ -36,6 +43,11 @@ EVENT_TYPES = frozenset(
         "pr.created",
         "pr.failed",
         "system.recovered",
+        "session.adopted",
+        "session.resumed",
+        "session.takeover_ready",
+        "inbox.created",
+        "inbox.promoted",
     }
 )
 

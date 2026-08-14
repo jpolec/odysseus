@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tmux-codex-session-manager
+# Odysseus tmux integration
 #
 # List, monitor status, and jump across managed AI agent sessions from a
 # single popup. Codex remains the default lane and compatibility path. tpm runs

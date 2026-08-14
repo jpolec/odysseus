@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for tmux-codex-session-manager.
+# Shared helpers for Odysseus tmux integration.
 
 HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
