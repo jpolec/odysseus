@@ -28,7 +28,7 @@ from .worktrees import WorktreeManager
 
 RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
-PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)$")
+PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile))?$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
 EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
@@ -214,6 +214,20 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             except KeyError:
                 self._json_error(HTTPStatus.NOT_FOUND, "attention item not found")
             return
+        project_match = PROJECT_ROUTE.fullmatch(parsed.path)
+        if project_match:
+            try:
+                project_id = project_match.group("project_id")
+                action = project_match.group("action")
+                if action == "overview":
+                    self._json(self.server.app.store.knowledge.overview(project_id))
+                elif action == "profile":
+                    self._json(self.server.app.store.knowledge.profile(project_id))
+                else:
+                    self._json(self.server.app.store.projects.get(project_id))
+            except KeyError:
+                self._json_error(HTTPStatus.NOT_FOUND, "project not found")
+            return
         self._static(parsed.path)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
@@ -236,6 +250,10 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/projects":
                 self._json(self.server.app.store.projects.upsert(str(body.get("path") or ""), body), HTTPStatus.CREATED)
+                return
+            project_match = PROJECT_ROUTE.fullmatch(parsed.path)
+            if project_match and project_match.group("action") == "profile":
+                self._json(self.server.app.store.knowledge.update_profile(project_match.group("project_id"), body))
                 return
             if parsed.path == "/api/inbox":
                 self._json(self.server.app.store.inbox.create(body), HTTPStatus.CREATED)
@@ -343,7 +361,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             self._json_error(HTTPStatus.FORBIDDEN, "missing or invalid Odysseus token")
             return
         match = PROJECT_ROUTE.fullmatch(urlparse(self.path).path)
-        if not match:
+        if not match or match.group("action"):
             self._json_error(HTTPStatus.NOT_FOUND, "not found")
             return
         try:

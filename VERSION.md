@@ -2,7 +2,7 @@
 
 ## Current version
 
-**0.4.3 — 2026-08-14**
+**0.5.0 — 2026-08-14**
 
 Version 0.4 makes DAG edges carry code, not only scheduling state. Accepted
 tasks become durable local artifacts; downstream branches compose those
@@ -10,7 +10,19 @@ artifacts before implementation; draft pull requests enter a bounded GitHub CI
 repair loop. The operator sees merge risk, CI, liveness, budgets, and outcomes
 in the same attention-first control plane.
 
-## What is available in 0.4.3
+## What is available in 0.5.0
+
+### 0.5.0 Project Knowledge
+
+- Project Overview reads an existing repository README without modifying it,
+  detects common agent-instruction files and stack markers, and shows recent
+  Git commits beside Odysseus work.
+- A private Project Brief and operator notes live in Odysseus state, so teams
+  can add onboarding context without creating or rewriting repository files.
+- Significant events from every task are projected into one project timeline
+  that answers what changed, how it progressed, and where to inspect evidence.
+- Every displayed repository source includes its relative path and content
+  digest, laying the provenance foundation for later context receipts.
 
 ### 0.4.3 project-first workbench
 
@@ -127,7 +139,7 @@ in the same attention-first control plane.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.4.3` |
+| Application version | `0.5.0` |
 | Run snapshot schema | `4` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
@@ -152,7 +164,8 @@ the application, run-schema, event-envelope, and export-format markers.
   termination. Providers that omit a metric cannot be limited by that metric.
 - Worktrees isolate repository files, not ports, databases, environment files,
   credentials, CPU, RAM, or network access. Runtime isolation is next.
-- Search is local substring search, not semantic retrieval or project memory.
+- Project discovery is deterministic and read-only; semantic retrieval and
+  automatic knowledge extraction are not part of 0.5.0.
 
 ## Upgrade from 0.3
 
@@ -172,6 +185,12 @@ An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.5.0 — Project Knowledge
+
+Added evidence-backed Project Overview, README/instruction discovery, private
+project briefs, stack markers, recent Git commits, and a cross-run project
+activity timeline.
 
 ### 0.4.3 — project-first workbench
 

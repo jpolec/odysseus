@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.4.3](https://img.shields.io/badge/version-0.4.3-171a16)
+![Version: 0.5.0](https://img.shields.io/badge/version-0.5.0-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -45,6 +45,9 @@ available without occupying the first-use path.
   merge to the source branch, delete a worktree, or publish anything.
 - **Operate more than one repository.** Projects, tasks, tmux sessions, GitHub
   issues, and follow-ups share one local control plane.
+- **Onboard from evidence.** A project's Overview reads its existing README,
+  detects agent instructions and stack markers, shows recent commits, and
+  projects every significant task event into one human-readable timeline.
 - **Stay inspectable.** State is JSON plus append-only NDJSON. The runtime uses
   Python's standard library and browser-native JavaScript—no database, Redis,
   Node build, or mandatory container.

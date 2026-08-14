@@ -18,6 +18,7 @@ from .attention import AttentionQueue
 from .epics import EpicStore, VALID_ROLES
 from .inbox import Inbox
 from .notifications import NotificationManager
+from .project_knowledge import ProjectKnowledge
 from .projects import ProjectRegistry
 
 
@@ -147,6 +148,7 @@ class RunStore:
         if not self.config_path.exists():
             self._atomic_json(self.config_path, DEFAULT_CONFIG)
         self.projects = ProjectRegistry(self)
+        self.knowledge = ProjectKnowledge(self)
         self.inbox = Inbox(self)
         self.attention = AttentionQueue(self)
         self.epics = EpicStore(self)

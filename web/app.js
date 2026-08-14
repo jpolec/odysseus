@@ -4,6 +4,7 @@ const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
   stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
+  projectOverview: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -142,6 +143,41 @@ function selectProject(projectId = "all") {
   renderProjectTree();
   renderRuns();
   setView("work");
+  refreshProjectOverview().catch((error) => toast(error.message, true));
+}
+
+async function refreshProjectOverview() {
+  const project = activeProject();
+  if (!project) { state.projectOverview = null; renderProjectKnowledge(); return; }
+  state.projectOverview = await api(`/api/projects/${encodeURIComponent(project.id)}/overview`);
+  if (activeProject()?.id === project.id) renderProjectKnowledge();
+}
+
+function renderProjectKnowledge() {
+  const project = activeProject();
+  const overview = state.projectOverview;
+  const home = $("#projectHome");
+  home.classList.toggle("hidden", !project);
+  if (!project) return;
+  if (!overview || overview.project?.id !== project.id) {
+    $("#projectAbout").textContent = "Loading README, instructions, commits, and project activity…";
+    $("#projectAboutSource").textContent = "";
+    $("#projectContextSources").innerHTML = `<div class="empty-list">Discovering repository context…</div>`;
+    $("#projectCommitList").innerHTML = `<div class="empty-list">Loading Git history…</div>`;
+    $("#projectTimeline").innerHTML = `<div class="empty-list">Building project timeline…</div>`;
+    return;
+  }
+  $("#projectAbout").textContent = overview.about;
+  $("#projectAboutSource").textContent = overview.profile?.summary ? "Odysseus project brief" : overview.readme?.path ? `Read from ${overview.readme.path}` : "No README found";
+  $("#projectNotes").textContent = overview.profile?.notes || "";
+  $("#projectNotes").classList.toggle("hidden", !overview.profile?.notes);
+  $("#projectStack").innerHTML = (overview.stack || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("") || `<span>Stack not inferred</span>`;
+  const sources = [...(overview.readme ? [{...overview.readme, kind: "README"}] : []), ...(overview.instructions || []).map((item) => ({...item, kind: "Instructions"}))];
+  $("#projectContextCount").textContent = `${sources.length} source${sources.length === 1 ? "" : "s"}`;
+  $("#projectContextSources").innerHTML = sources.length ? sources.map((source) => `<div class="context-source"><span>${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.path)}</strong><small>${escapeHtml(source.summary || "Detected repository context")}</small></div><code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></div>`).join("") : `<div class="empty-list">No README or agent instruction files detected.</div>`;
+  $("#projectCommitList").innerHTML = (overview.commits || []).length ? overview.commits.map((commit) => `<div class="project-commit"><code>${escapeHtml(commit.short_sha)}</code><div><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.author)} · ${relativeTime(commit.ts)} ago</small></div></div>`).join("") : `<div class="empty-list">No Git commits found.</div>`;
+  $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Project activity will appear after its first task.</div>`;
+  $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
 }
 
 function renderWork() {
@@ -161,6 +197,7 @@ function renderWork() {
     [needs, "Needs you", needs ? "decisions waiting" : "nothing waiting"],
     [project ? terminals : complete, project ? "Terminals" : "Completed", project ? "agent panes" : "accepted changes"],
   ].map(([value, label, note]) => `<div class="work-stat"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
+  renderProjectKnowledge();
   $("#workPlanButton").classList.toggle("hidden", !project);
   $("#workListEyebrow").textContent = project ? "TASKS" : "PROJECTS";
   $("#workListTitle").textContent = project ? "Recent work" : "Your workspace";
@@ -564,6 +601,9 @@ async function runSearch(query = "") {
 }
 
 function bindDialogs() {
+  const projectProfileDialog = $("#projectProfileDialog");
+  $("#editProjectBrief").addEventListener("click", () => { const form = $("#projectProfileForm"); form.elements.summary.value = state.projectOverview?.profile?.summary || ""; form.elements.notes.value = state.projectOverview?.profile?.notes || ""; projectProfileDialog.showModal(); });
+  $("#projectProfileForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); try { submit.disabled = true; await api(`/api/projects/${encodeURIComponent(project.id)}/profile`, {method: "POST", body: JSON.stringify({summary: data.get("summary"), notes: data.get("notes")})}); projectProfileDialog.close(); await refreshProjectOverview(); toast("Project brief saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
   const taskDialog = $("#taskDialog");
   [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); taskDialog.showModal(); }));
   $("#taskProjectSelect").addEventListener("change", () => syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")));

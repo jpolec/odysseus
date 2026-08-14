@@ -63,6 +63,31 @@
           </header>
           <div class="work-meta" id="workMeta"></div>
           <div class="work-summary" id="workSummary"></div>
+          <section class="project-home hidden" id="projectHome" aria-label="Project knowledge">
+            <div class="project-home-grid">
+              <article class="project-knowledge-card project-about-card">
+                <header><div><p class="eyebrow">ABOUT</p><h2>Project brief</h2></div><button class="ghost compact" id="editProjectBrief" type="button">Edit brief</button></header>
+                <p class="project-about" id="projectAbout">Loading project context…</p>
+                <p class="project-source" id="projectAboutSource"></p>
+                <div class="project-notes hidden" id="projectNotes"></div>
+              </article>
+              <article class="project-knowledge-card">
+                <header><div><p class="eyebrow">REPOSITORY CONTEXT</p><h2>What agents can discover</h2></div><span class="quiet-badge" id="projectContextCount">0 sources</span></header>
+                <div class="context-stack" id="projectStack"></div>
+                <div class="context-source-list" id="projectContextSources"></div>
+              </article>
+            </div>
+            <div class="project-home-grid project-history-grid">
+              <article class="project-knowledge-card">
+                <header><div><p class="eyebrow">GIT</p><h2>Recent commits</h2></div></header>
+                <div class="project-commit-list" id="projectCommitList"></div>
+              </article>
+              <article class="project-knowledge-card">
+                <header><div><p class="eyebrow">PROJECT LOG</p><h2>What happened and how</h2></div></header>
+                <div class="project-timeline" id="projectTimeline"></div>
+              </article>
+            </div>
+          </section>
           <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">PROJECTS</p><h2 id="workListTitle">Your workspace</h2></div><button class="ghost" id="workSecondaryAction" type="button">Add project</button></div><div class="work-list" id="workList"></div></section>
         </section>
 
@@ -190,6 +215,14 @@
         </section>
       </section>
     </main>
+
+    <dialog id="projectProfileDialog"><form method="dialog" id="projectProfileForm">
+      <div class="dialog-head"><div><p class="eyebrow">PROJECT KNOWLEDGE</p><h2>Edit project brief</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>This lives in Odysseus, not in the repository.</strong><p>Leave the summary empty to use the repository README automatically. Notes are operator context and never overwrite project files.</p></div>
+      <label>Short description <span class="field-help">What this project is and why it exists.</span><textarea name="summary" rows="4" placeholder="Uses README automatically when empty."></textarea></label>
+      <label>Operator notes <span class="field-help">Important boundaries, current focus, or onboarding facts.</span><textarea name="notes" rows="7" placeholder="Optional project-specific context."></textarea></label>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Save brief</button></div>
+    </form></dialog>
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
       <div class="dialog-head"><div><p class="eyebrow">NEW TASK</p><h2>What should change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
