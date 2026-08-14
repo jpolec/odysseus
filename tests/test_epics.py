@@ -35,12 +35,30 @@ class EpicTests(unittest.TestCase):
 
             self.assertEqual(store.get(mapping["schema"])["status"], "queued")
             self.assertEqual(store.get(mapping["api"])["status"], "blocked")
+            self.assertEqual(store.attention.list(status="open"), [])
             self.assertIsNone(store.claim(mapping["api"], max_parallel=4))
 
             store.update(mapping["schema"], status="accepted")
             unblocked = store.epics.refresh_dag(epic["id"])
             self.assertCountEqual(unblocked, [mapping["api"], mapping["ui"]])
             self.assertEqual(store.get(mapping["api"])["dependencies_met"], [mapping["schema"]])
+
+    def test_failed_dependency_becomes_operator_attention(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, project = self._store(Path(temp))
+            epic = store.epics.create({"title": "Failure", "project_path": str(project)})
+            mapping = store.epics.create_task_batch(
+                epic["id"],
+                [
+                    {"task_key": "root", "task": "Root"},
+                    {"task_key": "child", "task": "Child", "depends_on": ["root"]},
+                ],
+            )
+            store.update(mapping["root"], status="failed")
+            store.epics.refresh_dag(epic["id"])
+            items = store.attention.list(status="open", run_id=mapping["child"])
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["type"], "blocked")
 
     def test_cycle_is_rejected_before_any_run_is_created(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

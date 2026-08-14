@@ -50,6 +50,7 @@ function setView(view) {
   $(`#${view}View`).classList.add("active");
   if (view !== "tasks") closeStream();
   if (view === "tasks" && state.selectedId) openStream(state.selectedId);
+  if (view === "tasks" && !state.selectedId && state.runs.length) selectRun(state.runs[0].id);
   if (view === "sessions") refreshSessions();
   if (view === "inbox") refreshInbox();
   if (view === "attention") refreshAttention();
@@ -81,7 +82,7 @@ async function refreshRuns() {
   const data = await api("/api/runs");
   state.runs = data.runs;
   renderRuns();
-  if (!state.selectedId && state.runs.length) await selectRun(state.runs[0].id);
+  if (!state.selectedId && state.runs.length && state.view === "tasks") await selectRun(state.runs[0].id);
   if (state.selectedId) {
     const current = state.runs.find((run) => run.id === state.selectedId);
     if (current && (!state.selected || current.updated_at !== state.selected.updated_at)) await refreshSelected();

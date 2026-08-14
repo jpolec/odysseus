@@ -403,6 +403,12 @@ class RunStore:
         if event_type in {"run.accepted", "pr.created", "run.cancelled"}:
             self.attention.resolve_for_run(str(run["id"]), resolution=event_type)
             return
+        if event_type == "dag.blocked" and not (
+            data.get("failed_dependencies") or data.get("missing_dependencies")
+        ):
+            # Waiting on healthy predecessors is normal scheduler state, not a
+            # reason to spend human attention.
+            return
         if event_type not in mapping:
             return
         item_type, priority, fallback_title = mapping[event_type]

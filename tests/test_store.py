@@ -98,6 +98,30 @@ class StoreTests(unittest.TestCase):
             )
             self.assertEqual(store.get(run["id"])["metrics"]["input_tokens"], 0)
 
+    def test_schema_two_snapshot_migrates_forward_without_rewriting_events(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Old snapshot", "project_path": str(project)})
+            path = store.runs_dir / f"{run['id']}.json"
+            legacy = json.loads(path.read_text())
+            legacy["schema_version"] = 2
+            legacy.pop("depends_on")
+            legacy.pop("evaluation")
+            path.write_text(json.dumps(legacy))
+            journal_before = (store.events_dir / f"{run['id']}.ndjson").read_text()
+
+            migrated = RunStore(store.root).get(run["id"])
+
+            self.assertEqual(migrated["schema_version"], 3)
+            self.assertEqual(migrated["depends_on"], [])
+            self.assertEqual(migrated["evaluation"], {})
+            self.assertEqual(
+                (store.events_dir / f"{run['id']}.ndjson").read_text(), journal_before
+            )
+
     def test_adopted_session_is_not_scheduler_eligible(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
