@@ -86,6 +86,8 @@ EVENT_TYPES = frozenset(
         "planner.started",
         "planner.completed",
         "planner.failed",
+        "skill.selected",
+        "skill.loaded",
     }
 )
 

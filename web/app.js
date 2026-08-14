@@ -4,7 +4,7 @@ const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
   stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
-  projectOverview: null,
+  projectOverview: null, projectSkills: null, taskSkillCatalog: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -148,9 +148,49 @@ function selectProject(projectId = "all") {
 
 async function refreshProjectOverview() {
   const project = activeProject();
-  if (!project) { state.projectOverview = null; renderProjectKnowledge(); return; }
-  state.projectOverview = await api(`/api/projects/${encodeURIComponent(project.id)}/overview`);
+  if (!project) { state.projectOverview = null; state.projectSkills = null; renderProjectKnowledge(); return; }
+  const [overview, skills] = await Promise.all([
+    api(`/api/projects/${encodeURIComponent(project.id)}/overview`),
+    api(`/api/projects/${encodeURIComponent(project.id)}/skills`),
+  ]);
+  state.projectOverview = overview;
+  state.projectSkills = skills;
   if (activeProject()?.id === project.id) renderProjectKnowledge();
+}
+
+async function refreshTaskSkillChoices() {
+  const projectId = $("#taskProjectSelect").value;
+  state.taskSkillCatalog = projectId ? await api(`/api/projects/${encodeURIComponent(projectId)}/skills`) : null;
+  renderTaskSkillChoices();
+}
+
+function renderTaskSkillChoices() {
+  const container = $("#taskSkillChoices");
+  const manual = $("#taskSkillMode").value === "manual";
+  container.classList.toggle("hidden", !manual);
+  if (!manual) return;
+  const skills = (state.taskSkillCatalog?.skills || []).filter((skill) => skill.mode !== "disabled");
+  container.innerHTML = skills.length ? skills.map((skill) => `<label class="task-skill-choice"><input type="checkbox" name="skills" value="${escapeHtml(skill.name)}" ${skill.mode === "required" ? "checked disabled" : ""}><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span>${skill.mode === "required" ? `<em>required</em>` : ""}</label>`).join("") : `<div class="empty-list">Choose a registered project to see its skills.</div>`;
+}
+
+function renderProjectSkills() {
+  const catalog = state.projectSkills;
+  const skills = catalog?.skills || [];
+  $("#projectSkillCount").textContent = `${skills.filter((skill) => skill.mode !== "disabled").length} enabled`;
+  $("#projectSkillList").innerHTML = skills.length ? skills.map((skill) => `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div><pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
+  $$('[data-skill-policy]').forEach((select) => {
+    select.addEventListener("click", (event) => event.stopPropagation());
+    select.addEventListener("change", async (event) => {
+      const project = activeProject();
+      if (!project) return;
+      const name = event.currentTarget.dataset.skillPolicy;
+      try {
+        state.projectSkills = await api(`/api/projects/${encodeURIComponent(project.id)}/skills`, {method: "POST", body: JSON.stringify({policies: {[name]: event.currentTarget.value}})});
+        renderProjectSkills();
+        toast(`${name} policy updated.`);
+      } catch (error) { toast(error.message, true); }
+    });
+  });
 }
 
 function renderProjectKnowledge() {
@@ -163,6 +203,7 @@ function renderProjectKnowledge() {
     $("#projectAbout").textContent = "Loading README, instructions, commits, and project activity…";
     $("#projectAboutSource").textContent = "";
     $("#projectContextSources").innerHTML = `<div class="empty-list">Discovering repository context…</div>`;
+    $("#projectSkillList").innerHTML = `<div class="empty-list">Loading project skills…</div>`;
     $("#projectCommitList").innerHTML = `<div class="empty-list">Loading Git history…</div>`;
     $("#projectTimeline").innerHTML = `<div class="empty-list">Building project timeline…</div>`;
     return;
@@ -177,6 +218,7 @@ function renderProjectKnowledge() {
   $("#projectContextSources").innerHTML = sources.length ? sources.map((source) => `<div class="context-source"><span>${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.path)}</strong><small>${escapeHtml(source.summary || "Detected repository context")}</small></div><code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></div>`).join("") : `<div class="empty-list">No README or agent instruction files detected.</div>`;
   $("#projectCommitList").innerHTML = (overview.commits || []).length ? overview.commits.map((commit) => `<div class="project-commit"><code>${escapeHtml(commit.short_sha)}</code><div><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.author)} · ${relativeTime(commit.ts)} ago</small></div></div>`).join("") : `<div class="empty-list">No Git commits found.</div>`;
   $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Project activity will appear after its first task.</div>`;
+  renderProjectSkills();
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
 }
 
@@ -308,6 +350,7 @@ function renderDetail(run, diff) {
     ["Agent session", run.agent_sessions?.agent || run.agent_session_id || "—"], ["tmux", run.tmux_target ? `${run.tmux_session} · ${run.tmux_target}` : run.tmux_session || "—"],
     ["Attempt", `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`], ["Role", run.role || "implementer"],
     ["Plan", run.epic_id || "—"], ["Depends on", (run.dependency_keys || []).join(", ") || "—"],
+    ["Skills", (run.skills_selected || []).map((skill) => skill.name || skill).join(", ") || "none"],
     ["Artifact", run.artifact_sha ? run.artifact_sha.slice(0, 12) : "—"], ["Priority", `P${run.priority ?? 50}`],
     ["Tool calls", compactNumber(metrics.tool_calls)], ["Cached tokens", compactNumber(metrics.cached_input_tokens)], ["Merge risk", run.merge_analysis?.risk || "none"],
     ["Stage", run.stage || statusLabel(run.status)], ["Heartbeat", run.last_heartbeat ? `${relativeTime(run.last_heartbeat)} ago` : "—"],
@@ -605,10 +648,11 @@ function bindDialogs() {
   $("#editProjectBrief").addEventListener("click", () => { const form = $("#projectProfileForm"); form.elements.summary.value = state.projectOverview?.profile?.summary || ""; form.elements.notes.value = state.projectOverview?.profile?.notes || ""; projectProfileDialog.showModal(); });
   $("#projectProfileForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); try { submit.disabled = true; await api(`/api/projects/${encodeURIComponent(project.id)}/profile`, {method: "POST", body: JSON.stringify({summary: data.get("summary"), notes: data.get("notes")})}); projectProfileDialog.close(); await refreshProjectOverview(); toast("Project brief saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
   const taskDialog = $("#taskDialog");
-  [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); taskDialog.showModal(); }));
-  $("#taskProjectSelect").addEventListener("change", () => syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")));
+  [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); taskDialog.showModal(); }));
+  $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); });
+  $("#taskSkillMode").addEventListener("change", renderTaskSkillChoices);
   $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
-  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
+  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); state.taskSkillCatalog = null; renderTaskSkillChoices(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });

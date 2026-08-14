@@ -77,6 +77,10 @@
                 <div class="context-source-list" id="projectContextSources"></div>
               </article>
             </div>
+            <article class="project-knowledge-card project-skills-card">
+              <header><div><p class="eyebrow">PROJECT SKILLS</p><h2>Reusable engineering guidance</h2><p class="card-description">Odysseus can load small, generic playbooks when a task matches. Project-local skills override the bundled catalog.</p></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
+              <div class="project-skill-list" id="projectSkillList"><div class="empty-list">Loading project skills…</div></div>
+            </article>
             <div class="project-home-grid project-history-grid">
               <article class="project-knowledge-card">
                 <header><div><p class="eyebrow">GIT</p><h2>Recent commits</h2></div></header>
@@ -245,6 +249,11 @@
           <span class="field-help">Leave the default unless this task needs a specific CLI.</span>
           <select name="lane" id="laneSelect"></select>
         </label>
+        <label>Engineering skills
+          <span class="field-help">Auto selects relevant project guidance. Manual lets you choose; None sends no skill playbooks.</span>
+          <select name="skill_mode" id="taskSkillMode"><option value="auto">Auto — recommended</option><option value="manual">Choose manually</option><option value="none">None</option></select>
+        </label>
+        <div class="task-skill-choices hidden" id="taskSkillChoices" aria-label="Choose task skills"></div>
         <label>Verification commands <span class="optional">optional</span>
           <span class="field-help">Trusted shell commands, one per line. Empty uses project defaults.</span>
           <textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea>

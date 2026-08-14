@@ -2,15 +2,28 @@
 
 ## Current version
 
-**0.5.0 — 2026-08-14**
+**0.5.1 — 2026-08-14**
 
-Version 0.4 makes DAG edges carry code, not only scheduling state. Accepted
-tasks become durable local artifacts; downstream branches compose those
-artifacts before implementation; draft pull requests enter a bounded GitHub CI
-repair loop. The operator sees merge risk, CI, liveness, budgets, and outcomes
-in the same attention-first control plane.
+Version 0.5 makes project context and reusable engineering guidance visible at
+the project level. Repository evidence remains read-only, while project briefs,
+skill policies, and exact per-run skill snapshots live in private Odysseus
+state.
 
-## What is available in 0.5.0
+## What is available in 0.5.1
+
+### 0.5.1 Generic Project Skills
+
+- A bundled catalog covers security, databases, tests, API contracts, frontend
+  accessibility, dependencies, performance, incidents, and documentation.
+- Project-local skills can live in `.agents/skills`, `.github/skills`, or
+  `.claude/skills`; they apply only to that repository and override a bundled
+  skill with the same name.
+- Project Overview previews every skill and controls its Auto, Required, or
+  Disabled policy. New Task keeps automatic selection as the default and puts
+  manual selection behind Advanced.
+- Selection reason, source, relative path, and SHA-256 digest are stored on the
+  run. The scheduler loads the immutable skill snapshot and records
+  `skill.selected` and `skill.loaded` events.
 
 ### 0.5.0 Project Knowledge
 
@@ -139,8 +152,8 @@ in the same attention-first control plane.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.5.0` |
-| Run snapshot schema | `4` |
+| Application version | `0.5.1` |
+| Run snapshot schema | `5` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
 | Export format | `odysseus-state-v1` |
@@ -165,7 +178,7 @@ the application, run-schema, event-envelope, and export-format markers.
 - Worktrees isolate repository files, not ports, databases, environment files,
   credentials, CPU, RAM, or network access. Runtime isolation is next.
 - Project discovery is deterministic and read-only; semantic retrieval and
-  automatic knowledge extraction are not part of 0.5.0.
+  automatic knowledge extraction are not part of 0.5.1.
 
 ## Upgrade from 0.3
 
@@ -185,6 +198,12 @@ An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.5.1 — Generic Project Skills
+
+Added generic bundled and project-local skills, preview and project policy,
+automatic or manual task assignment, immutable per-run skill snapshots, and
+auditable selection/load events.
 
 ### 0.5.0 — Project Knowledge
 

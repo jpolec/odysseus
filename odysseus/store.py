@@ -20,6 +20,7 @@ from .inbox import Inbox
 from .notifications import NotificationManager
 from .project_knowledge import ProjectKnowledge
 from .projects import ProjectRegistry
+from .skills import SkillRegistry, VALID_TASK_MODES
 
 
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -58,7 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 4
+RUN_SCHEMA_VERSION = 5
 
 
 def _safe_int(value: Any) -> int:
@@ -107,6 +108,10 @@ def _run_defaults() -> dict[str, Any]:
         "stage": "queued",
         "stage_started_at": None,
         "last_heartbeat": None,
+        "skill_mode": "auto",
+        "skills_requested": [],
+        "skills_selected": [],
+        "skill_context": [],
     }
 
 
@@ -149,6 +154,7 @@ class RunStore:
             self._atomic_json(self.config_path, DEFAULT_CONFIG)
         self.projects = ProjectRegistry(self)
         self.knowledge = ProjectKnowledge(self)
+        self.skills = SkillRegistry(self)
         self.inbox = Inbox(self)
         self.attention = AttentionQueue(self)
         self.epics = EpicStore(self)
@@ -333,6 +339,18 @@ class RunStore:
         except (TypeError, ValueError) as exc:
             raise ValueError("max_cost_usd must be numeric") from exc
         priority = max(0, min(100, _safe_int(request.get("priority", 50))))
+        skill_mode = str(request.get("skill_mode") or "auto")
+        if skill_mode not in VALID_TASK_MODES:
+            raise ValueError("skill mode must be auto, manual, or none")
+        skills_requested = request.get("skills") or []
+        if not isinstance(skills_requested, list) or not all(isinstance(item, str) for item in skills_requested):
+            raise ValueError("skills must be a list of skill names")
+        selected_skills = self.skills.select(
+            project_record,
+            task,
+            task_mode=skill_mode,
+            requested=skills_requested,
+        ) if kind != "tmux" else []
         run: dict[str, Any] = {
             "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
@@ -392,11 +410,28 @@ class RunStore:
             "blocked_reason": str(request.get("blocked_reason") or ""),
             "priority": priority,
             "budgets": budgets,
+            "skill_mode": skill_mode,
+            "skills_requested": list(dict.fromkeys(skills_requested)),
+            "skills_selected": [
+                {key: skill[key] for key in ("name", "description", "scope", "relative_path", "sha256", "reason", "policy")}
+                for skill in selected_skills
+            ],
+            "skill_context": [
+                {key: skill[key] for key in ("name", "description", "scope", "relative_path", "sha256", "reason", "content")}
+                for skill in selected_skills
+            ],
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)
         if initial_status == "queued":
             self.append_event(run_id, "run.queued", "odysseus", {"title": title})
+        for skill in selected_skills:
+            self.append_event(
+                run_id,
+                "skill.selected",
+                "odysseus",
+                {"name": skill["name"], "sha256": skill["sha256"], "scope": skill["scope"], "reason": skill["reason"]},
+            )
         return self.get(run_id)
 
     def create_external(self, request: Mapping[str, Any]) -> dict[str, Any]:
@@ -405,6 +440,7 @@ class RunStore:
         value.setdefault("status", "session")
         value.setdefault("workflow", "interactive")
         value.setdefault("checks", [])
+        value.setdefault("skill_mode", "none")
         return self.create(value)
 
     def update(self, run_id: str, **changes: Any) -> dict[str, Any]:

@@ -292,6 +292,8 @@ class Scheduler:
                 finished_at=None,
             )
             implement_prompt = self._implementation_prompt(run, attempt, cycle, failure_context)
+            for skill in run.get("skills_selected") or []:
+                emit("skill.loaded", "odysseus", {"name": skill.get("name"), "sha256": skill.get("sha256"), "phase": "agent"})
             emit(
                 "step.started",
                 "odysseus",
@@ -636,6 +638,11 @@ class Scheduler:
         if failure_context:
             label = "Review feedback" if attempt == 1 else "Failed check from the previous attempt"
             prompt += f"\n{label}:\n{failure_context[-20_000:]}\n"
+        skill_context = run.get("skill_context") if isinstance(run.get("skill_context"), list) else []
+        if skill_context:
+            prompt += "\nEngineering skills selected for this task:\n"
+            for skill in skill_context:
+                prompt += f"\n--- SKILL {skill.get('name')} ({skill.get('reason')}) ---\n{str(skill.get('content') or '')[:16_000]}\n"
         return prompt
 
     @staticmethod

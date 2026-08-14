@@ -73,6 +73,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="workView"', html)
                 self.assertIn('id="projectHome"', html)
                 self.assertIn('id="projectTimeline"', html)
+                self.assertIn('id="projectSkillList"', html)
+                self.assertIn('id="taskSkillMode"', html)
                 self.assertIn('data-section="summary"', html)
                 self.assertIn('data-section="evidence"', html)
 

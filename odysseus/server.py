@@ -28,7 +28,7 @@ from .worktrees import WorktreeManager
 
 RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
-PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile))?$")
+PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile|skills))?$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
 EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
@@ -223,6 +223,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     self._json(self.server.app.store.knowledge.overview(project_id))
                 elif action == "profile":
                     self._json(self.server.app.store.knowledge.profile(project_id))
+                elif action == "skills":
+                    self._json(self.server.app.store.skills.catalog(project_id))
                 else:
                     self._json(self.server.app.store.projects.get(project_id))
             except KeyError:
@@ -254,6 +256,9 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             project_match = PROJECT_ROUTE.fullmatch(parsed.path)
             if project_match and project_match.group("action") == "profile":
                 self._json(self.server.app.store.knowledge.update_profile(project_match.group("project_id"), body))
+                return
+            if project_match and project_match.group("action") == "skills":
+                self._json(self.server.app.store.skills.update_policy(project_match.group("project_id"), body))
                 return
             if parsed.path == "/api/inbox":
                 self._json(self.server.app.store.inbox.create(body), HTTPStatus.CREATED)
