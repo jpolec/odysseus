@@ -1,373 +1,280 @@
-# tmux-codex-session-manager
+# Odysseus
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
-![Shell: Bash](https://img.shields.io/badge/shell-bash-4EAA25)
 ![Python: 3.x stdlib](https://img.shields.io/badge/python-3.x%20stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
-![TPM ready](https://img.shields.io/badge/tpm-ready-blue)
 ![GitHub Repo stars](https://img.shields.io/github/stars/jpolec/tmux-codex-session-manager?style=social)
 
-A tmux-native session manager for AI agent CLIs. It started as a
-[Codex CLI](https://developers.openai.com/codex/cli) popup manager, and Codex
-remains the default lane and compatibility path.
+**A local control plane for coding agents: isolated worktrees, a persistent
+queue, reproducible checks, and a human review gate.**
 
-If you launch Codex per directory, or keep several Codex panes open while
-working across projects, you quickly end up with a stack of sessions and no
-single place to see which one is working, waiting, or finished. This plugin gives
-you one tmux-native control surface for them.
+Odysseus adds a thin web interface and a durable orchestration layer to the
+existing tmux-native agent session manager. Codex and Claude remain ordinary
+local CLIs. Git remains the source of truth. The UI is an operational view over
+small JSON and NDJSON files, not a second project-management system.
 
-What you get:
+The codebase is branded **Odysseus**. The repository URL remains
+`jpolec/tmux-codex-session-manager` for now so existing TPM installations do not
+break. A later GitHub rename can use `odysseus-agent-control-plane`; it is not
+required to use the new runtime.
 
-- Central switcher (`prefix` + `u`) listing managed agent popups and existing
-  Codex panes.
-- Live status per session or pane: `WORK`, `WAIT`, `IDLE`, or `????`.
-- Live preview of the selected agent screen inside the switcher.
-- Smart jump: selecting a managed session resumes it in a popup; selecting an
-  existing pane switches tmux directly to it.
-- Per-directory launcher (`prefix` + `y`) that opens or attaches a managed
-  default-lane session for the current project.
-- Quick kill (`ctrl-x`) for plugin-managed sessions only.
-- Codex metadata in the picker: latest prompt/title and approximate remaining
-  context from `~/.codex/sessions`.
+## What Odysseus Implements
 
-Status is optional. Without hooks, the switcher still lists, previews, jumps,
-and kills managed sessions; rows just fall back to `????` or metadata-inferred
-state where available.
+1. **One worktree per task.** Every queued run starts from a recorded Git commit
+   on its own `odysseus/<run-id>` branch.
+2. **A persistent queue with bounded concurrency.** Run state survives process
+   restarts under `~/.odysseus`; `max_parallel` defaults to `2`.
+3. **One event protocol for Codex and Claude.** Vendor streams are normalized
+   into versioned events such as `agent.output`, `check.completed`, and
+   `run.review_ready`.
+4. **Append-only NDJSON history.** Every run has a readable event journal that
+   can be replayed, tailed, or processed with `jq`.
+5. **A review gate.** The web detail view shows the full diff, check results,
+   reviewer output, and actions to **Accept**, **Send back**, or create a
+   **Draft PR**.
+6. **A bounded `agent -> check -> review` workflow.** Failed checks return to the
+   implementation agent with captured output, up to the configured retry limit.
+   Review runs in a read-only agent mode.
+7. **A thin Tasks UI with live detail over SSE.** The server and UI use only the
+   Python standard library and browser-native JavaScript. There is no Node build,
+   database, Redis, or container requirement.
 
-## Current Status
+The original tmux popup launcher and global session picker are still available
+and backward compatible.
 
-This project is in an incremental transition from a Codex-only tmux popup
-manager to a minimal tmux-native AI agent session manager.
+## Quick Start
 
-Implemented now:
+Requirements:
 
-- The existing Codex workflow remains the default and should behave as before.
-- `prefix` + `y` still opens the current project's Codex/default-lane popup.
-- Managed sessions now have lane metadata, role metadata, project path, command,
-  status, and optional prompt-file metadata.
-- The picker shows a compact lane column.
-- New lanes can be launched from the script with `--lane`.
-- Receipts are written as lightweight JSON under
-  `~/.tmux-ai-sessions/receipts`.
-- Example read-only review prompts live under `.agents/`.
-
-Partial in this iteration:
-
-- Codex has real status through the existing hook and JSONL metadata flow.
-- Claude, GLM, and custom lanes can be launched, but their status is generic and
-  may show `????`.
-- Prompt files are validated and recorded, but not injected into interactive
-  TUIs.
-- Roles are metadata only; they do not enforce permissions or change sandboxing.
-
-Not implemented yet:
-
-- Per-role permission policy.
-- Reliable prompt injection per agent CLI.
-- Native Claude/GLM status detection.
-- Worktree-per-job, scheduled jobs, daily scans, diff/test receipts, and
-  multi-lane comparison mode.
-
-## Screenshots
-
-![Codex switcher with status, source, context, path, title, target, and live preview](docs/picker.png)
-
-The switcher is the control surface: jump into a managed popup, switch to an
-existing Codex pane, preview output, or kill only plugin-managed sessions.
-
-![Managed Codex session running in the tmux popup](docs/popup.png)
-
-Managed sessions are normal tmux sessions named with the configured prefix. They
-survive detach, terminal restarts, SSH disconnects, and laptop sleep.
-
-## Features
-
-- Central switcher for every managed Codex popup and discovered Codex pane.
-- Per-directory launcher for persistent managed popup sessions.
-- Per-session and per-pane status, driven by Codex hooks when installed.
-- Latest prompt/title and approximate context remaining from Codex JSONL logs.
-- Lane and role metadata for managed agent sessions.
-- Lightweight JSON receipts under `~/.tmux-ai-sessions/receipts`.
-- Live `capture-pane` preview inside the switcher.
-- Safe navigation to existing Codex panes without killing normal tmux windows.
-- `ctrl-x` kill action for managed `codex-*` sessions only.
-- Hook installer and uninstaller that merge into existing Codex hooks with
-  backups.
-- TPM-compatible plugin, implemented with Bash plus Python 3 standard library
-  helpers.
-
-## Requirements
-
-- tmux >= 3.2, for `display-popup`
-- [fzf](https://github.com/junegunn/fzf)
-- [Codex CLI](https://developers.openai.com/codex/cli), available as `codex`,
-  for the default lane
-- Other agent CLIs only if you configure lanes for them
-- Bash
-- Python 3, standard library only
 - macOS or Linux
+- Python 3.10 or newer
+- Git
+- [Codex CLI](https://developers.openai.com/codex/cli) and/or Claude Code
+- `gh` authenticated with GitHub only when using **Draft PR**
+- tmux and fzf only for the legacy tmux controls
 
-## Install With TPM
+From a checkout:
 
-Add this to `~/.tmux.conf` or `~/.config/tmux/tmux.conf`:
+```sh
+bin/odysseus doctor
+bin/odysseus serve --open
+```
+
+Without `--open`, visit <http://127.0.0.1:8741/>.
+
+In the web UI:
+
+1. Select **New task**.
+2. Enter an absolute path to a Git repository and the task prompt.
+3. Choose `codex` or `claude` and optionally add one check command per line.
+4. Follow the live event stream.
+5. At the review gate, inspect the diff, checks, and reviewer output, then choose
+   **Accept**, **Send back**, or **Draft PR**.
+
+Accepting a run records the decision; it does not merge or delete anything.
+Sending it back reuses the same worktree and includes the feedback in the next
+bounded workflow cycle. Draft PR stages and commits the worktree, pushes its
+branch, and runs `gh pr create --draft`.
+
+## CLI Usage
+
+Keep `odysseus serve` running so the persistent scheduler can claim queued work.
+The same tasks can be created and inspected from another terminal:
+
+```sh
+bin/odysseus run \
+  --project /absolute/path/to/repository \
+  --lane codex \
+  --check "python3 -m unittest discover -s tests" \
+  --check "git diff --check" \
+  "Add the requested feature and cover it with tests"
+```
+
+Useful commands:
+
+```sh
+bin/odysseus runs
+bin/odysseus show RUN_ID
+bin/odysseus events RUN_ID
+bin/odysseus cancel RUN_ID
+bin/odysseus accept RUN_ID
+bin/odysseus send-back RUN_ID "Fix the race reported in review"
+bin/odysseus draft-pr RUN_ID
+bin/odysseus config --max-parallel 3
+```
+
+Use `-` to read a task or review feedback from standard input:
+
+```sh
+printf '%s\n' "Investigate and fix the flaky queue test" | bin/odysseus run --project "$PWD" -
+```
+
+## Project Configuration
+
+Checks can be provided per task or committed in a repository-level
+`.odysseus.json`:
+
+```json
+{
+  "checks": [
+    "python3 -m unittest discover -s tests -v",
+    "git diff --check"
+  ]
+}
+```
+
+CLI or web task checks take precedence over `.odysseus.json`. Commands are
+trusted project configuration and run through `/bin/sh -lc` inside the task
+worktree.
+
+Global configuration lives at `~/.odysseus/config.json`:
+
+```json
+{
+  "max_parallel": 2,
+  "default_lane": "codex",
+  "default_workflow": "agent-check-review",
+  "max_retries": 2,
+  "lanes": {
+    "local-reviewer": {
+      "command": ["my-agent", "--cwd", "{worktree}", "--prompt", "{prompt}"]
+    }
+  }
+}
+```
+
+Custom commands are argv arrays or shell-style strings. `{worktree}` and
+`{prompt}` placeholders are replaced directly; commands are not passed through
+a shell. Environment variables remain the right place for credentials and are
+not copied into run records.
+
+## Runtime Model
+
+```text
+queued task
+    |
+    v
+isolated worktree + odysseus/<run-id> branch
+    |
+    v
+implementation agent ----< failed check, retry <= limit
+    |                                      |
+    v                                      |
+project checks ----------------------------+
+    |
+    v
+read-only agent review
+    |
+    v
+human gate: Accept | Send back | Draft PR
+```
+
+Codex runs as `codex exec --json` with a workspace-write sandbox for
+implementation and a read-only sandbox for review. Claude runs non-interactively
+with `stream-json`, using `acceptEdits` for implementation and `plan` for review.
+Both streams become the same Odysseus event types.
+
+If the source checkout is dirty, Odysseus records a `worktree.dirty_base` event
+and creates the task from committed `HEAD`. It never silently copies uncommitted
+source changes into a new worktree.
+
+## Durable State and Event Protocol
+
+By default, state is kept here:
+
+```text
+~/.odysseus/
+├── config.json
+├── runs/<run-id>.json
+├── events/<run-id>.ndjson
+└── worktrees/<repository>-<sha>/<run-id>/
+```
+
+Override the root with `ODYSSEUS_HOME` or `--state-dir`.
+
+Every NDJSON line has the same envelope:
+
+```json
+{
+  "v": 1,
+  "seq": 14,
+  "ts": "2026-08-14T12:00:00Z",
+  "run_id": "20260814-120000-add-health-check-a1b2",
+  "type": "check.completed",
+  "source": "check",
+  "data": {"command": "python3 -m unittest", "returncode": 0}
+}
+```
+
+`seq` is monotonic within a run. The web UI replays existing events and then
+continues over Server-Sent Events, so a refresh does not lose history. See
+[docs/odysseus-protocol.md](docs/odysseus-protocol.md) for the event and HTTP API
+reference.
+
+## Local Web Security
+
+The server binds to `127.0.0.1` by default. It validates loopback Host and Origin
+headers and requires a per-process token on every mutating API request. The
+browser obtains that token through a same-origin bootstrap request. No CORS
+headers are enabled.
+
+`--allow-remote` intentionally removes the loopback checks. Put an authenticated
+reverse proxy in front of Odysseus before exposing it to another machine.
+
+## tmux Controls
+
+The repository started as `tmux-codex-session-manager`, and those controls remain:
+
+| Key | Action |
+| --- | --- |
+| `prefix` + `y` | Launch or reattach the current project's default interactive agent lane |
+| `prefix` + `u` | Open the global tmux agent-session picker |
+| `prefix` + `O` | Start Odysseus in a detached tmux session and open the local web UI |
+
+Install with TPM:
 
 ```tmux
 set -g @plugin 'jpolec/tmux-codex-session-manager'
 ```
 
-Then press `prefix` + `I`.
-
-Recommended: install the Codex hooks so status and metadata update naturally:
-
-```sh
-~/.tmux/plugins/tmux-codex-session-manager/scripts/install-hooks.sh
-```
-
-Start Codex and run `/hooks` if Codex asks you to review and trust the new hook
-commands.
-
-## Manual Install
-
-```sh
-git clone https://github.com/jpolec/tmux-codex-session-manager ~/clone/path
-```
-
-Add this to your tmux config, then reload tmux:
+Then press `prefix` + `I`. Optional settings must appear before the plugin line:
 
 ```tmux
-run-shell ~/clone/path/codex_session_manager.tmux
-```
-
-Install hooks from that checkout:
-
-```sh
-~/clone/path/scripts/install-hooks.sh
-```
-
-## Usage
-
-| Key            | Action                                                                       |
-| -------------- | ---------------------------------------------------------------------------- |
-| `prefix` + `y` | Launch or re-attach the current project's managed default-lane popup         |
-| `prefix` + `u` | Open the global agent picker                                                 |
-
-Inside the picker:
-
-| Key                 | Action                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `enter`             | Jump to the selected managed session or existing Codex pane                      |
-| `ctrl-x`            | Kill the highlighted managed `codex-*` session                                   |
-| `up` / `down`, type | fzf navigation and filtering                                                     |
-
-Picker columns:
-
-| Column | Meaning                                                            |
-| ------ | ------------------------------------------------------------------ |
-| state  | `WAIT`, `IDLE`, `WORK`, or `????`                                  |
-| lane   | Backend used for the managed session, such as `codex` or `claude`  |
-| kind   | `MGR` for plugin-managed popup sessions, `PANE` for existing panes |
-| age    | Time since the last hook event or matching Codex session event     |
-| ctx    | Approximate remaining context from recent Codex token events       |
-| path   | Current working directory                                          |
-| title  | Latest prompt/title recovered from `~/.codex/sessions`             |
-| target | tmux session name or `session:window.pane` locator                  |
-
-## Agent Lanes
-
-A lane is the backend used to run an AI coding session: Codex, Claude, GLM
-through a proxy, or a custom command. A role is the purpose of that session.
-
-Think of it this way:
-
-| Concept | Answers                         | Examples                         | Affects command? |
-| ------- | ------------------------------- | -------------------------------- | ---------------- |
-| lane    | Which agent runner starts?      | `codex`, `claude`, `glm52`       | Yes              |
-| role    | What is this session meant for? | `general`, `security`, `docs`    | No, metadata now |
-
-For example:
-
-```sh
-scripts/launch.sh --lane codex --role security
-```
-
-This starts the Codex runner and labels the session as a security-review job.
-It does not make Codex read-only by itself. To make the job read-only, use a
-read-only prompt such as `.agents/security-review.md` and enforce any stronger
-policy outside this plugin until role permissions are added.
-
-The default lane is `codex`, so existing Codex behavior and key bindings
-continue to work when you do not configure anything new.
-
-Configure lanes in tmux before the plugin loads:
-
-```tmux
-set -g @ai_session_default_lane "codex"
-set -g @ai_session_lanes "codex claude glm52"
-
-set -g @ai_session_lane_codex_command "codex"
-set -g @ai_session_lane_claude_command "claude"
-set -g @ai_session_lane_glm52_command "claude"
-set -g @ai_session_lane_glm52_env "ANTHROPIC_BASE_URL=http://localhost:4141 ANTHROPIC_AUTH_TOKEN=sk-local-only"
-```
-
-The old Codex options still work. If `@ai_session_lane_codex_command` is not set,
-the Codex lane uses `@codex_command`, then falls back to `codex`.
-When `@ai_session_lanes` is set, launches are limited to those lane names; when
-it is unset, any lane name is accepted and its command defaults to the lane name.
-
-Launch lanes from the plugin checkout:
-
-```sh
-scripts/launch.sh --lane codex
-scripts/launch.sh --lane claude
-scripts/launch.sh --lane glm52 --role tests
-scripts/launch.sh launch --lane codex --role security --prompt-file .agents/security-review.md
-```
-
-Roles are metadata describing the job purpose, such as `general`, `security`,
-`docs`, `tests`, `review`, or `architecture`. They are stored on the tmux session
-and in the receipt, but do not enforce permissions yet.
-
-Prompt files are validated and recorded in metadata and receipts. Automatic
-prompt injection into interactive TUIs is intentionally not enabled in this
-iteration because it is CLI-specific and easy to make brittle.
-
-Every managed session writes a JSON receipt:
-
-```text
-~/.tmux-ai-sessions/receipts/<tmux-session>.json
-```
-
-Receipts include the tmux session, project path, lane, role, command, prompt
-file, timestamps, status, and `managed: true`. Lane environment values are not
-stored, so configured tokens are not copied into receipts.
-
-Current limitations:
-
-- Codex has the richest status and metadata through hooks and JSONL logs.
-- Claude, GLM, and custom lanes currently use conservative generic status
-  detection and may show `????`.
-- Prompt files are recorded, not pasted into the TUI.
-- The picker discovers existing Codex panes, not arbitrary existing agent panes.
-
-## Status And Metadata
-
-The plugin uses two sources of information.
-
-Codex hooks update tmux options in real time:
-
-| Codex hook          | State  | Meaning                                   |
-| ------------------- | ------ | ----------------------------------------- |
-| `UserPromptSubmit`  | `WORK` | Codex started a turn                      |
-| `PermissionRequest` | `WAIT` | Codex is asking for approval              |
-| `PostToolUse`       | `WORK` | Codex resumed work after a tool completed |
-| `Stop`              | `IDLE` | The turn finished                         |
-| `SessionStart`      | `IDLE` | A Codex TUI session started or resumed    |
-
-Codex JSONL logs under `~/.codex/sessions` provide a fallback and richer picker
-metadata: latest prompt/title, last activity age, inferred state, and estimated
-remaining context.
-
-For non-Codex managed lanes, status detection is intentionally small: explicit
-tmux state wins, otherwise an existing pane process reports as unknown instead
-of guessing that the agent is working.
-
-Install or refresh hooks:
-
-```sh
-~/.tmux/plugins/tmux-codex-session-manager/scripts/install-hooks.sh
-```
-
-Remove only this plugin's hooks:
-
-```sh
-~/.tmux/plugins/tmux-codex-session-manager/scripts/uninstall-hooks.sh
-```
-
-Both scripts preserve unrelated Codex hooks and create timestamped backups
-before changing the hooks file.
-
-To print the raw hook snippet instead:
-
-```sh
-~/.tmux/plugins/tmux-codex-session-manager/scripts/print-hooks.sh
-```
-
-## Options
-
-Set any of these before the plugin loads:
-
-```tmux
-set -g @codex_launch_key     'y'        # prefix key: launch/open for current dir
-set -g @codex_list_key       'u'        # prefix key: open the picker
-set -g @codex_command        'codex'    # legacy Codex command option
-set -g @codex_session_prefix 'codex-'   # tmux session name prefix
-set -g @codex_popup_width    '90%'      # popup width
-set -g @codex_popup_height   '90%'      # popup height
-set -g @codex_include_existing_panes 'on' # show Codex already running in tmux panes
-
+set -g @odysseus_web_key 'O'
+set -g @odysseus_web_port '8741'
 set -g @ai_session_default_lane 'codex'
-set -g @ai_session_lanes 'codex claude glm52'
-set -g @ai_session_prefix 'ai-' # non-Codex sessions become ai-<lane>-<hash>
-set -g @ai_session_lane_codex_command 'codex'
-set -g @ai_session_lane_claude_command 'claude'
-set -g @ai_session_lane_glm52_command 'claude'
-set -g @ai_session_lane_glm52_env 'ANTHROPIC_BASE_URL=http://localhost:4141 ANTHROPIC_AUTH_TOKEN=sk-local-only'
-set -g @ai_session_receipts_dir '~/.tmux-ai-sessions/receipts'
+set -g @ai_session_lanes 'codex claude'
 ```
 
-Example:
+The tmux picker shows managed interactive sessions and discovered Codex panes,
+including status, lane, project path, recent title, and live `capture-pane`
+output. Existing Codex hook support and receipts under
+`~/.tmux-ai-sessions/receipts` are unchanged; they are separate from durable
+Odysseus task runs.
 
-```tmux
-set -g @codex_command 'codex --search'
+Install or refresh the optional Codex TUI hooks:
+
+```sh
+~/.tmux/plugins/tmux-codex-session-manager/scripts/install-hooks.sh
 ```
-
-## How It Works
-
-The launcher creates a detached tmux session for the requested lane, records the
-origin window and metadata, writes a receipt, and attaches to it in a popup.
-Codex keeps the historical `codex-<hash-of-dir>` name. Other lanes use
-`ai-<lane>-<hash-of-dir>` by default.
-
-The picker lists all managed sessions plus existing tmux panes that have a Codex
-process below the pane PID. For each row, it reads tmux hook state and recent
-Codex JSONL metadata, then opens a live `capture-pane` preview.
-
-When you press `prefix` + `u` from inside a managed Codex popup, the plugin
-detaches that popup first and opens the picker on the outer tmux client.
-
-## Roadmap
-
-- Worktree per job.
-- Scheduled read-only jobs.
-- Daily security scan lane.
-- Diff and test receipts.
-- Multi-lane benchmark mode.
-- Claude, Codex, and GLM comparison views.
 
 ## Development
 
-Useful local checks:
+The runtime has no third-party Python or JavaScript dependencies.
 
 ```sh
-scripts/picker.sh --list
-scripts/session-meta.py --path "$PWD"
-scripts/print-hooks.sh | jq empty
+python3 -m unittest discover -s tests -v
+python3 -m compileall -q odysseus
+node --check web/app.js
+git diff --check
 ```
+
+The test suite covers durable run/event storage, isolated Git worktrees and
+diffs, bounded workflow retries, the review gate, and token-protected HTTP
+creation.
 
 ## License
 
-MIT. This project is adapted from
+MIT. The original tmux session manager was adapted from
 [craftzdog/tmux-claude-session-manager](https://github.com/craftzdog/tmux-claude-session-manager),
 also MIT licensed.
-
-## GitHub Signals
-
-GitHub does not expose a public share counter for repositories. The public
-signals closest to that are stars, forks, watchers, issues, and recent activity:
-
-![GitHub Repo stars](https://img.shields.io/github/stars/jpolec/tmux-codex-session-manager?style=social)
-![GitHub forks](https://img.shields.io/github/forks/jpolec/tmux-codex-session-manager?style=social)
-![GitHub watchers](https://img.shields.io/github/watchers/jpolec/tmux-codex-session-manager?style=social)
-![GitHub issues](https://img.shields.io/github/issues/jpolec/tmux-codex-session-manager)
-![GitHub last commit](https://img.shields.io/github/last-commit/jpolec/tmux-codex-session-manager)

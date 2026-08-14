@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Odysseus — Agent Control Plane</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Odysseus task list">
+        <span class="brand-mark" aria-hidden="true">O</span>
+        <span>
+          <strong>ODYSSEUS</strong>
+          <small>AGENT CONTROL PLANE</small>
+        </span>
+      </a>
+      <div class="topbar-status">
+        <span class="connection"><i id="connectionDot"></i><span id="connectionLabel">Connecting</span></span>
+        <span class="parallel" id="parallelLabel">— slots</span>
+        <button class="primary compact" id="newTaskButton" type="button">New task</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <aside class="task-rail">
+        <div class="rail-head">
+          <div>
+            <p class="eyebrow">MISSIONS</p>
+            <h1>Tasks</h1>
+          </div>
+          <span class="count" id="runCount">0</span>
+        </div>
+        <div class="filters" role="group" aria-label="Filter tasks">
+          <button class="filter active" data-filter="all" type="button">All</button>
+          <button class="filter" data-filter="active" type="button">Active</button>
+          <button class="filter" data-filter="review" type="button">Review</button>
+        </div>
+        <div class="task-list" id="taskList" aria-live="polite"></div>
+      </aside>
+
+      <section class="workspace">
+        <div class="empty-state" id="emptyState">
+          <div class="orbit" aria-hidden="true"><span>O</span></div>
+          <p class="eyebrow">LOCAL-FIRST ORCHESTRATION</p>
+          <h2>Give every agent a clean voyage.</h2>
+          <p>Each task gets an isolated worktree, a durable event trail, bounded checks, and a human review gate.</p>
+          <button class="primary" id="emptyNewTask" type="button">Queue the first task</button>
+        </div>
+
+        <article class="run-detail hidden" id="runDetail">
+          <header class="detail-head">
+            <div class="detail-heading">
+              <div class="status-row">
+                <span class="status-pill" id="detailStatus">—</span>
+                <span class="run-id" id="detailId">—</span>
+              </div>
+              <h2 id="detailTitle">—</h2>
+              <p id="detailTask">—</p>
+            </div>
+            <div class="actions" id="runActions"></div>
+          </header>
+
+          <div class="metadata" id="metadata"></div>
+
+          <ol class="workflow-strip" aria-label="Workflow progress">
+            <li id="stageWorktree"><span>01</span><div><strong>Isolate</strong><small>Git worktree</small></div></li>
+            <li id="stageAgent"><span>02</span><div><strong>Agent</strong><small>Implement</small></div></li>
+            <li id="stageCheck"><span>03</span><div><strong>Check</strong><small>Bounded retry</small></div></li>
+            <li id="stageReview"><span>04</span><div><strong>Review</strong><small>Human gate</small></div></li>
+          </ol>
+
+          <div class="detail-grid">
+            <section class="panel activity-panel">
+              <div class="panel-head">
+                <div><p class="eyebrow">LIVE NDJSON</p><h3>Activity</h3></div>
+                <span class="live-badge"><i></i> SSE</span>
+              </div>
+              <div class="event-log" id="eventLog"></div>
+            </section>
+
+            <section class="panel inspector-panel">
+              <div class="tabs" role="tablist">
+                <button class="tab active" data-tab="diff" type="button">Diff</button>
+                <button class="tab" data-tab="checks" type="button">Checks</button>
+                <button class="tab" data-tab="review" type="button">Review</button>
+              </div>
+              <div class="tab-pane active" id="tab-diff">
+                <pre class="diff-stat" id="diffStat">No diff yet.</pre>
+                <pre class="code" id="diffPatch">The worktree will appear here after the task starts.</pre>
+              </div>
+              <div class="tab-pane" id="tab-checks"><div id="checkResults"></div></div>
+              <div class="tab-pane" id="tab-review"><pre class="review-copy" id="reviewSummary">Review has not run yet.</pre></div>
+            </section>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <dialog id="taskDialog">
+      <form method="dialog" id="taskForm">
+        <div class="dialog-head">
+          <div><p class="eyebrow">NEW MISSION</p><h2>Queue a task</h2></div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button>
+        </div>
+        <label>Task <textarea name="task" rows="5" required placeholder="Implement the feature, fix the bug, or investigate the issue…"></textarea></label>
+        <div class="form-row">
+          <label>Project path <input name="project_path" required placeholder="/absolute/path/to/repo"></label>
+          <label>Lane <select name="lane" id="laneSelect"><option value="codex">codex</option><option value="claude">claude</option></select></label>
+        </div>
+        <div class="form-row">
+          <label>Title <input name="title" placeholder="Derived from task when empty"></label>
+          <label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label>
+        </div>
+        <label>Checks <textarea name="checks" rows="3" placeholder="One shell command per line, e.g. python3 -m unittest"></textarea></label>
+        <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Queue task</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="feedbackDialog">
+      <form method="dialog" id="feedbackForm">
+        <div class="dialog-head"><div><p class="eyebrow">REVIEW GATE</p><h2>Send back to agent</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+        <label>What needs to change? <textarea name="feedback" rows="6" required placeholder="Be concrete; this becomes context for the next agent cycle."></textarea></label>
+        <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="danger" value="default" type="submit">Send back</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

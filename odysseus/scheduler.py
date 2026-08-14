@@ -1,0 +1,466 @@
+"""Persistent bounded-concurrency scheduler and agent-check-review workflow."""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+import traceback
+from pathlib import Path
+from typing import Any, Mapping
+
+from .events import now_iso
+from .runners import AgentRunner, CheckRunner, ProcessResult
+from .store import RunStore
+from .worktrees import WorktreeManager
+
+
+class Scheduler:
+    def __init__(
+        self,
+        store: RunStore,
+        *,
+        agent_runner: AgentRunner | None = None,
+        check_runner: CheckRunner | None = None,
+        poll_seconds: float = 0.35,
+    ) -> None:
+        self.store = store
+        config = store.config()
+        self.agent_runner = agent_runner or AgentRunner(config.get("lanes", {}))
+        self.check_runner = check_runner or CheckRunner()
+        self.worktrees = WorktreeManager(store.worktrees_dir)
+        self.poll_seconds = poll_seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._active: dict[str, tuple[threading.Thread, threading.Event]] = {}
+        self._guard = threading.Lock()
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self.store.recover_interrupted()
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, name="odysseus-scheduler", daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout: float = 10) -> None:
+        self._stop.set()
+        with self._guard:
+            active = list(self._active.values())
+        for _, cancel in active:
+            cancel.set()
+        deadline = time.monotonic() + timeout
+        if self._thread:
+            self._thread.join(timeout=max(0, deadline - time.monotonic()))
+        for worker, _ in active:
+            worker.join(timeout=max(0, deadline - time.monotonic()))
+
+    def active_count(self) -> int:
+        with self._guard:
+            return len(self._active)
+
+    def cancel(self, run_id: str) -> dict[str, Any]:
+        run = self.store.request_cancel(run_id)
+        with self._guard:
+            active = self._active.get(run_id)
+        if active:
+            active[1].set()
+        return run
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            self._reap_and_cancel()
+            config = self.store.config()
+            available = int(config["max_parallel"]) - self.active_count()
+            if available > 0:
+                queued = [run for run in reversed(self.store.list()) if run.get("status") == "queued"]
+                for candidate in queued[:available]:
+                    run_id = str(candidate["id"])
+                    claimed = self.store.claim(run_id, max_parallel=int(config["max_parallel"]))
+                    if claimed is not None:
+                        self._start_worker(run_id)
+            self._stop.wait(self.poll_seconds)
+
+    def _start_worker(self, run_id: str) -> None:
+        cancel = threading.Event()
+        worker = threading.Thread(
+            target=self._worker,
+            args=(run_id, cancel),
+            name=f"odysseus-{run_id}",
+            daemon=True,
+        )
+        with self._guard:
+            self._active[run_id] = (worker, cancel)
+        worker.start()
+
+    def _reap_and_cancel(self) -> None:
+        with self._guard:
+            active = list(self._active.items())
+        finished: list[str] = []
+        for run_id, (thread, cancel) in active:
+            if not thread.is_alive():
+                finished.append(run_id)
+                continue
+            try:
+                run = self.store.get(run_id)
+            except KeyError:
+                cancel.set()
+                continue
+            if run.get("cancel_requested"):
+                cancel.set()
+        if finished:
+            with self._guard:
+                for run_id in finished:
+                    self._active.pop(run_id, None)
+
+    def _emit(self, run_id: str, event_type: str, source: str, data: Mapping[str, Any]) -> None:
+        self.store.append_event(run_id, event_type, source, data)
+
+    def _worker(self, run_id: str, cancel: threading.Event) -> None:
+        try:
+            self._execute(run_id, cancel)
+        except Exception as exc:  # worker boundary: persist every unexpected failure
+            message = str(exc) or exc.__class__.__name__
+            self.store.transition(
+                run_id,
+                "failed",
+                event_type="run.failed",
+                last_error=message,
+                worker_pid=None,
+                data={"message": message, "trace": traceback.format_exc(limit=8)},
+            )
+        finally:
+            self.store.update(run_id, worker_pid=None)
+
+    def _is_cancelled(self, run_id: str, cancel: threading.Event) -> bool:
+        if cancel.is_set() or self._stop.is_set():
+            return True
+        try:
+            return bool(self.store.get(run_id).get("cancel_requested"))
+        except KeyError:
+            return True
+
+    def _cancel_run(self, run_id: str) -> None:
+        self.store.transition(
+            run_id,
+            "cancelled",
+            event_type="run.cancelled",
+            cancel_requested=False,
+            worker_pid=None,
+        )
+
+    def _finish_interruption(self, run_id: str) -> None:
+        run = self.store.get(run_id)
+        if self._stop.is_set() and not run.get("cancel_requested"):
+            self.store.update(
+                run_id,
+                status="queued",
+                cancel_requested=False,
+                worker_pid=None,
+                last_error="Scheduler stopped; the persistent run was re-queued.",
+            )
+            self.store.append_event(
+                run_id,
+                "system.recovered",
+                "odysseus",
+                {"reason": "scheduler_stopped"},
+            )
+            return
+        self._cancel_run(run_id)
+
+    @staticmethod
+    def _project_options(worktree: Path) -> dict[str, Any]:
+        path = worktree / ".odysseus.json"
+        if not path.is_file():
+            return {}
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid {path}: {exc}") from exc
+        if not isinstance(value, dict):
+            raise ValueError(f"{path} must contain a JSON object")
+        return value
+
+    def _execute(self, run_id: str, cancel: threading.Event) -> None:
+        run = self.store.get(run_id)
+        if run.get("workflow") != "agent-check-review":
+            raise ValueError(f"unsupported workflow: {run.get('workflow')}")
+
+        emit = lambda event_type, source, data: self._emit(run_id, event_type, source, data)
+        worktree_info = self.worktrees.create(run, emit)
+        run = self.store.update(run_id, **worktree_info)
+        worktree = Path(str(run["worktree_path"]))
+        options = self._project_options(worktree)
+        checks = run.get("checks") or options.get("checks") or []
+        if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
+            raise ValueError("checks must be a JSON array of command strings")
+
+        max_retries = int(run.get("max_retries", 2))
+        feedback = str(run.get("feedback") or "").strip()
+        failure_context = feedback
+        cycle = int(run.get("review_cycle", 0))
+
+        for attempt in range(1, max_retries + 2):
+            if self._is_cancelled(run_id, cancel):
+                self._finish_interruption(run_id)
+                return
+            self.store.update(
+                run_id,
+                status="running",
+                attempt=attempt,
+                worker_pid=os.getpid(),
+                finished_at=None,
+            )
+            implement_prompt = self._implementation_prompt(run, attempt, cycle, failure_context)
+            emit(
+                "step.started",
+                "odysseus",
+                {"step": "agent", "attempt": attempt, "lane": run["lane"]},
+            )
+            agent_result = self.agent_runner.run(
+                str(run["lane"]),
+                worktree,
+                implement_prompt,
+                review=False,
+                emit=emit,
+                cancelled=lambda: self._is_cancelled(run_id, cancel),
+            )
+            if agent_result.cancelled or self._is_cancelled(run_id, cancel):
+                self._finish_interruption(run_id)
+                return
+            if agent_result.returncode != 0:
+                self._fail_process(run_id, "agent", agent_result)
+                return
+            emit(
+                "agent.completed",
+                str(run["lane"]),
+                {"attempt": attempt, "duration_seconds": agent_result.duration_seconds},
+            )
+            emit("step.completed", "odysseus", {"step": "agent", "attempt": attempt})
+
+            self.store.update(run_id, status="checking")
+            emit(
+                "step.started",
+                "odysseus",
+                {"step": "check", "attempt": attempt, "commands": checks},
+            )
+            check_results, failing = self._run_checks(run_id, worktree, checks, cancel, emit)
+            self.store.update(run_id, check_results=check_results)
+            if self._is_cancelled(run_id, cancel):
+                self._finish_interruption(run_id)
+                return
+            if failing is not None:
+                if attempt <= max_retries:
+                    failure_context = self._retry_context(failing)
+                    emit(
+                        "workflow.retry",
+                        "odysseus",
+                        {
+                            "attempt": attempt,
+                            "next_attempt": attempt + 1,
+                            "max_retries": max_retries,
+                            "command": failing["command"],
+                        },
+                    )
+                    continue
+                message = f"Checks still fail after {max_retries} retries: {failing['command']}"
+                self.store.transition(
+                    run_id,
+                    "failed",
+                    event_type="run.failed",
+                    last_error=message,
+                    review_status="checks_failed",
+                    data={"message": message},
+                )
+                return
+            emit("step.completed", "odysseus", {"step": "check", "attempt": attempt})
+
+            self.store.update(run_id, status="reviewing")
+            emit(
+                "step.started",
+                "odysseus",
+                {"step": "review", "lane": run["review_lane"]},
+            )
+            review_result = self.agent_runner.run(
+                str(run["review_lane"]),
+                worktree,
+                self._review_prompt(run, check_results),
+                review=True,
+                emit=emit,
+                cancelled=lambda: self._is_cancelled(run_id, cancel),
+            )
+            if review_result.cancelled or self._is_cancelled(run_id, cancel):
+                self._finish_interruption(run_id)
+                return
+            if review_result.returncode != 0:
+                self._fail_process(run_id, "review", review_result)
+                return
+            emit("step.completed", "odysseus", {"step": "review"})
+            self.store.transition(
+                run_id,
+                "review",
+                event_type="run.review_ready",
+                review_summary=review_result.output[-40_000:],
+                review_status="waiting",
+                feedback="",
+                last_error="",
+                data={"message": "Diff and checks are ready for a human decision."},
+            )
+            return
+
+    def _run_checks(
+        self,
+        run_id: str,
+        worktree: Path,
+        checks: list[str],
+        cancel: threading.Event,
+        emit: Any,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        results: list[dict[str, Any]] = []
+        if not checks:
+            result = {"command": "", "returncode": 0, "output": "No checks configured.", "skipped": True}
+            emit("check.completed", "check", result)
+            return [result], None
+        for command in checks:
+            result = self.check_runner.run(
+                command,
+                worktree,
+                emit=emit,
+                cancelled=lambda: self._is_cancelled(run_id, cancel),
+            )
+            record = {
+                "command": command,
+                "returncode": result.returncode,
+                "output": result.output[-30_000:],
+                "duration_seconds": result.duration_seconds,
+            }
+            results.append(record)
+            emit("check.completed", "check", record)
+            if result.cancelled or result.returncode != 0:
+                return results, record
+        return results, None
+
+    def _fail_process(self, run_id: str, step: str, result: ProcessResult) -> None:
+        message = f"{step} process exited with code {result.returncode}"
+        self.store.append_event(
+            run_id,
+            "step.failed",
+            "odysseus",
+            {"step": step, "returncode": result.returncode, "output": result.output[-10_000:]},
+        )
+        self.store.transition(
+            run_id,
+            "failed",
+            event_type="run.failed",
+            last_error=message,
+            data={"message": message},
+        )
+
+    @staticmethod
+    def _implementation_prompt(
+        run: Mapping[str, Any], attempt: int, cycle: int, failure_context: str
+    ) -> str:
+        prompt = (
+            "You are the implementation agent in an Odysseus workflow. Work only in the current "
+            "git worktree. Implement the task completely, inspect existing conventions, and leave "
+            "the working tree ready for checks and review. Do not create a pull request.\n\n"
+            f"Task:\n{run['task']}\n"
+        )
+        if cycle:
+            prompt += f"\nThis is human review cycle {cycle + 1}.\n"
+        if failure_context:
+            label = "Review feedback" if attempt == 1 else "Failed check from the previous attempt"
+            prompt += f"\n{label}:\n{failure_context[-20_000:]}\n"
+        return prompt
+
+    @staticmethod
+    def _review_prompt(run: Mapping[str, Any], checks: list[dict[str, Any]]) -> str:
+        check_lines = [
+            f"- {item.get('command') or 'No checks configured'}: exit {item.get('returncode', 0)}"
+            for item in checks
+        ]
+        return (
+            "You are the read-only review agent in an Odysseus workflow. Inspect the complete diff "
+            "against the base commit and the repository context. Do not edit files. Report concrete "
+            "correctness, security, regression, and test concerns, ordered by severity. If there are "
+            "no material concerns, say so explicitly.\n\n"
+            f"Original task:\n{run['task']}\n\nChecks:\n" + "\n".join(check_lines)
+        )
+
+    @staticmethod
+    def _retry_context(failing: Mapping[str, Any]) -> str:
+        return (
+            f"Command: {failing.get('command')}\n"
+            f"Exit code: {failing.get('returncode')}\n"
+            f"Output:\n{str(failing.get('output') or '')[-18_000:]}"
+        )
+
+
+class ReviewActions:
+    def __init__(self, store: RunStore, scheduler: Scheduler) -> None:
+        self.store = store
+        self.scheduler = scheduler
+
+    def accept(self, run_id: str) -> dict[str, Any]:
+        run = self.store.get(run_id)
+        if run.get("status") != "review":
+            raise ValueError("only a run waiting for review can be accepted")
+        self.store.append_event(run_id, "review.accepted", "user", {})
+        return self.store.transition(
+            run_id,
+            "accepted",
+            event_type="run.accepted",
+            review_status="accepted",
+        )
+
+    def send_back(self, run_id: str, feedback: str) -> dict[str, Any]:
+        feedback = feedback.strip()
+        if not feedback:
+            raise ValueError("feedback is required")
+        run = self.store.get(run_id)
+        if run.get("status") not in {"review", "failed"}:
+            raise ValueError("only a review or failed run can be sent back")
+        cycle = int(run.get("review_cycle", 0)) + 1
+        self.store.update(
+            run_id,
+            status="queued",
+            feedback=feedback,
+            review_cycle=cycle,
+            review_status="sent_back",
+            cancel_requested=False,
+            finished_at=None,
+            worker_pid=None,
+        )
+        self.store.append_event(
+            run_id,
+            "review.sent_back",
+            "user",
+            {"feedback": feedback, "review_cycle": cycle},
+        )
+        self.store.append_event(run_id, "run.queued", "odysseus", {"reason": "review_feedback"})
+        return self.store.get(run_id)
+
+    def draft_pr(self, run_id: str) -> dict[str, Any]:
+        run = self.store.get(run_id)
+        if run.get("pull_request_url"):
+            return run
+        if run.get("status") not in {"review", "accepted"}:
+            raise ValueError("a draft PR can only be created from review or accepted state")
+        previous_status = str(run["status"])
+        self.store.update(run_id, status="publishing", worker_pid=os.getpid())
+        self.store.append_event(run_id, "pr.creating", "user", {})
+        try:
+            url = WorktreeManager.draft_pr(self.store.get(run_id))
+        except Exception as exc:
+            self.store.update(run_id, status=previous_status, worker_pid=None, last_error=str(exc))
+            self.store.append_event(run_id, "pr.failed", "git", {"message": str(exc)})
+            raise
+        self.store.append_event(run_id, "pr.created", "git", {"url": url})
+        return self.store.transition(
+            run_id,
+            "pr_created",
+            pull_request_url=url,
+            review_status="published",
+            worker_pid=None,
+        )

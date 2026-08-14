@@ -12,6 +12,7 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 launch_key="$(get_tmux_option @codex_launch_key 'y')"
 list_key="$(get_tmux_option @codex_list_key 'u')"
+web_key="$(get_tmux_option @odysseus_web_key 'O')"
 
 # Launch (or re-attach to) the default-lane session for the current pane's
 # directory.
@@ -24,3 +25,7 @@ tmux bind-key "$launch_key" \
 # closes that popup first so the picker opens full-size on the outer client.
 tmux bind-key "$list_key" \
   run-shell "$CURRENT_DIR/scripts/list.sh '#{client_name}'"
+
+# Start the durable scheduler and open the local Odysseus web control plane.
+tmux bind-key "$web_key" \
+  run-shell "$CURRENT_DIR/scripts/web.sh"
