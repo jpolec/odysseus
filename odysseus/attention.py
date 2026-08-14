@@ -184,4 +184,3 @@ class AttentionQueue:
             if changed:
                 self.store._atomic_json(self.path, values)
         return changed
-

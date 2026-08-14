@@ -165,4 +165,3 @@ class EvaluationEngine:
             "human_review_required": human_review_required,
             "decision": "human_review" if human_review_required else "auto_accept_eligible",
         }
-

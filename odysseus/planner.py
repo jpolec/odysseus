@@ -96,7 +96,6 @@ class EpicPlanner:
             planner_events=planner_events,
             planner_error="",
         )
-
     def approve(self, epic_id: str) -> dict[str, Any]:
         epic = self.epics.get(epic_id)
         if epic.get("status") != "proposed":
@@ -206,4 +205,3 @@ class EpicPlanner:
             f"Default checks: {json.dumps(checks)}\n\n"
             f"Requirement:\n{requirement}\n"
         )
-
