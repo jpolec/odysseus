@@ -77,7 +77,13 @@ class Scheduler:
             config = self.store.config()
             available = int(config["max_parallel"]) - self.active_count()
             if available > 0:
-                queued = [run for run in reversed(self.store.list()) if run.get("status") == "queued"]
+                queued = [run for run in self.store.list() if run.get("status") == "queued"]
+                queued.sort(
+                    key=lambda run: (
+                        -int(run.get("priority", 50)),
+                        str(run.get("created_at") or ""),
+                    )
+                )
                 for candidate in queued[:available]:
                     run_id = str(candidate["id"])
                     claimed = self.store.claim(run_id, max_parallel=int(config["max_parallel"]))
@@ -159,6 +165,50 @@ class Scheduler:
             worker_pid=None,
         )
 
+    def _budget_reason(self, run_id: str) -> str:
+        run = self.store.get(run_id)
+        budgets = run.get("budgets") if isinstance(run.get("budgets"), dict) else {}
+        metrics = run.get("metrics") if isinstance(run.get("metrics"), dict) else {}
+        tokens = sum(
+            int(metrics.get(key) or 0)
+            for key in ("input_tokens", "output_tokens", "reasoning_output_tokens")
+        )
+        max_tokens = int(budgets.get("max_tokens") or 0)
+        if max_tokens and tokens >= max_tokens:
+            return f"Token budget exceeded: {tokens:,} / {max_tokens:,}."
+        tools = int(metrics.get("tool_calls") or 0)
+        max_tools = int(budgets.get("max_tool_calls") or 0)
+        if max_tools and tools >= max_tools:
+            return f"Tool-call budget exceeded: {tools} / {max_tools}."
+        try:
+            cost = float(metrics.get("cost_usd") or 0.0)
+            max_cost = float(budgets.get("max_cost_usd") or 0.0)
+        except (TypeError, ValueError):
+            cost, max_cost = 0.0, 0.0
+        if max_cost and cost >= max_cost:
+            return f"Cost budget exceeded: ${cost:.4f} / ${max_cost:.4f}."
+        return ""
+
+    def _fail_budget(self, run_id: str, reason: str) -> None:
+        self.store.update(run_id, budget_status={"state": "exceeded", "reason": reason})
+        self.store.transition(
+            run_id,
+            "failed",
+            event_type="run.budget_exceeded",
+            last_error=reason,
+            data={"message": reason},
+        )
+
+    def _fail_liveness(self, run_id: str, result: ProcessResult) -> None:
+        reason = "Process timed out." if result.stop_reason == "timeout" else "Process stopped after an output stall."
+        self.store.update(
+            run_id,
+            status="failed",
+            finished_at=now_iso(),
+            worker_pid=None,
+            last_error=reason,
+        )
+
     def _finish_interruption(self, run_id: str) -> None:
         run = self.store.get(run_id)
         if self._stop.is_set() and not run.get("cancel_requested"):
@@ -199,6 +249,10 @@ class Scheduler:
         emit = lambda event_type, source, data: self._emit(run_id, event_type, source, data)
         worktree_info = self.worktrees.create(run, emit)
         run = self.store.update(run_id, **worktree_info)
+        dependencies = [self.store.get(str(item)) for item in run.get("depends_on") or []]
+        if dependencies:
+            integration = self.worktrees.integrate(run, dependencies, emit)
+            run = self.store.update(run_id, **integration)
         worktree = Path(str(run["worktree_path"]))
         options = self._project_options(worktree)
         checks = run.get("checks") or options.get("checks") or []
@@ -211,6 +265,20 @@ class Scheduler:
         cycle = int(run.get("review_cycle", 0))
         sessions = run.get("agent_sessions") if isinstance(run.get("agent_sessions"), dict) else {}
         implementation_session = str(sessions.get("agent") or "")
+        budget_stop = {"reason": ""}
+
+        def should_stop() -> bool:
+            if self._is_cancelled(run_id, cancel):
+                return True
+            reason = self._budget_reason(run_id)
+            if reason:
+                budget_stop["reason"] = reason
+                return True
+            return False
+
+        budgets = run.get("budgets") if isinstance(run.get("budgets"), dict) else {}
+        timeout_seconds = float(budgets.get("timeout_seconds") or 0)
+        stall_seconds = float(budgets.get("stall_seconds") or 0)
 
         for attempt in range(1, max_retries + 2):
             if self._is_cancelled(run_id, cancel):
@@ -235,10 +303,18 @@ class Scheduler:
                 implement_prompt,
                 review=False,
                 emit=emit,
-                cancelled=lambda: self._is_cancelled(run_id, cancel),
+                cancelled=should_stop,
                 resume_session_id=implementation_session,
                 phase="agent",
+                timeout_seconds=timeout_seconds,
+                stall_seconds=stall_seconds,
             )
+            if budget_stop["reason"]:
+                self._fail_budget(run_id, budget_stop["reason"])
+                return
+            if agent_result.stop_reason in {"timeout", "stall"}:
+                self._fail_liveness(run_id, agent_result)
+                return
             if agent_result.cancelled or self._is_cancelled(run_id, cancel):
                 self._finish_interruption(run_id)
                 return
@@ -282,8 +358,11 @@ class Scheduler:
                 "odysseus",
                 {"step": "check", "attempt": attempt, "commands": checks},
             )
-            check_results, failing = self._run_checks(run_id, worktree, checks, cancel, emit)
+            check_results, failing = self._run_checks(run_id, worktree, checks, cancel, emit, should_stop)
             self.store.update(run_id, check_results=check_results)
+            if budget_stop["reason"]:
+                self._fail_budget(run_id, budget_stop["reason"])
+                return
             if self._is_cancelled(run_id, cancel):
                 self._finish_interruption(run_id)
                 return
@@ -319,6 +398,7 @@ class Scheduler:
                 options.get("evaluators") or [],
                 cancel,
                 emit,
+                should_stop,
             )
             self.store.update(run_id, verifier_results=verifier_results)
 
@@ -342,9 +422,17 @@ class Scheduler:
                 self._review_prompt(run, check_results),
                 review=True,
                 emit=emit,
-                cancelled=lambda: self._is_cancelled(run_id, cancel),
+                cancelled=should_stop,
                 phase="review",
+                timeout_seconds=timeout_seconds,
+                stall_seconds=stall_seconds,
             )
+            if budget_stop["reason"]:
+                self._fail_budget(run_id, budget_stop["reason"])
+                return
+            if review_result.stop_reason in {"timeout", "stall"}:
+                self._fail_liveness(run_id, review_result)
+                return
             if review_result.cancelled or self._is_cancelled(run_id, cancel):
                 self._finish_interruption(run_id)
                 return
@@ -384,6 +472,35 @@ class Scheduler:
                     "missing_evaluators": evaluation["missing_evaluators"],
                 },
             )
+            current = self.store.get(run_id)
+            if current.get("ci_retry_active") and current.get("pull_request_url") and evaluation["eligible"]:
+                artifact_sha = self.worktrees.push_update(current)
+                artifact_value = {**current, "artifact_sha": artifact_sha}
+                artifact = {
+                    "artifact_sha": artifact_sha,
+                    "artifact_files": self.worktrees.changed_files(artifact_value),
+                }
+                ci = dict(current.get("ci") or {})
+                ci.update({"status": "pending", "summary": "Repair pushed; waiting for GitHub checks.", "updated_at": now_iso()})
+                self.store.update(
+                    run_id,
+                    **artifact,
+                    artifact_created_at=now_iso(),
+                    ci=ci,
+                    ci_retry_active=False,
+                    review_summary=review_result.output[-40_000:],
+                    review_status="ci_repair_pushed",
+                )
+                emit("artifact.created", "git", artifact)
+                self.store.transition(
+                    run_id,
+                    "pr_created",
+                    event_type="ci.retry_pushed",
+                    worker_pid=None,
+                    last_error="",
+                    data={"attempt": ci.get("attempt"), "artifact_sha": artifact_sha},
+                )
+                return
             final = self.store.transition(
                 run_id,
                 "review",
@@ -395,6 +512,9 @@ class Scheduler:
                 data={"message": "Diff and checks are ready for a human decision."},
             )
             if evaluation["decision"] == "auto_accept_eligible":
+                artifact = self.worktrees.snapshot(self.store.get(run_id), reason="policy accepted")
+                self.store.update(run_id, **artifact, artifact_created_at=now_iso())
+                emit("artifact.created", "git", artifact)
                 self.store.append_event(run_id, "review.accepted", "policy", {"confidence": evaluation["confidence"]})
                 self.store.transition(
                     run_id,
@@ -413,6 +533,7 @@ class Scheduler:
         checks: list[str],
         cancel: threading.Event,
         emit: Any,
+        should_stop: Any,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         results: list[dict[str, Any]] = []
         if not checks:
@@ -424,7 +545,7 @@ class Scheduler:
                 command,
                 worktree,
                 emit=emit,
-                cancelled=lambda: self._is_cancelled(run_id, cancel),
+                cancelled=should_stop,
             )
             record = {
                 "command": command,
@@ -445,6 +566,7 @@ class Scheduler:
         raw_verifiers: Any,
         cancel: threading.Event,
         emit: Any,
+        should_stop: Any,
     ) -> list[dict[str, Any]]:
         if not isinstance(raw_verifiers, list):
             raise ValueError("evaluators must be a JSON array")
@@ -458,7 +580,7 @@ class Scheduler:
                 command,
                 worktree,
                 emit=emit,
-                cancelled=lambda: self._is_cancelled(run_id, cancel),
+                cancelled=should_stop,
             )
             record = {
                 "id": str(value.get("id") or f"evaluator-{index + 1}"),
@@ -550,6 +672,9 @@ class ReviewActions:
         run = self.store.get(run_id)
         if run.get("status") != "review":
             raise ValueError("only a run waiting for review can be accepted")
+        artifact = self.scheduler.worktrees.snapshot(run, reason="accepted")
+        self.store.update(run_id, **artifact, artifact_created_at=now_iso())
+        self.store.append_event(run_id, "artifact.created", "git", artifact)
         self.store.append_event(run_id, "review.accepted", "user", {})
         self.store.attention.resolve_for_run(run_id, resolution="accepted")
         return self.store.transition(
@@ -587,12 +712,31 @@ class ReviewActions:
         self.store.append_event(run_id, "run.queued", "odysseus", {"reason": "review_feedback"})
         return self.store.get(run_id)
 
-    def resume(self, run_id: str, prompt: str) -> dict[str, Any]:
+    def resume(
+        self,
+        run_id: str,
+        prompt: str,
+        *,
+        strategy: str = "resume",
+        lane: str = "",
+    ) -> dict[str, Any]:
         feedback = prompt.strip() or "Continue this task from the existing agent session and address any remaining work."
         run = self.store.get(run_id)
-        if run.get("status") not in {"review", "failed", "accepted", "attention"}:
-            raise ValueError("only a reviewed, failed, accepted, or attention run can be resumed")
+        if run.get("status") not in {"review", "failed", "accepted", "attention", "pr_created"}:
+            raise ValueError("only a reviewed, failed, accepted, attention, or published run can be resumed")
+        if strategy not in {"resume", "switch", "clean"}:
+            raise ValueError("strategy must be resume, switch, or clean")
+        if strategy == "switch" and not lane.strip():
+            raise ValueError("switch strategy requires a lane")
         cycle = int(run.get("review_cycle", 0)) + 1
+        sessions = dict(run.get("agent_sessions") or {})
+        changes: dict[str, Any] = {}
+        if strategy in {"switch", "clean"}:
+            sessions.pop("agent", None)
+            changes["agent_sessions"] = sessions
+            changes["agent_session_id"] = ""
+        if strategy == "switch":
+            changes["lane"] = lane.strip()
         self.store.update(
             run_id,
             status="queued",
@@ -602,12 +746,19 @@ class ReviewActions:
             cancel_requested=False,
             finished_at=None,
             worker_pid=None,
+            **changes,
         )
         self.store.append_event(
             run_id,
             "run.queued",
             "user",
-            {"reason": "resume", "prompt": feedback, "review_cycle": cycle},
+            {
+                "reason": "resume",
+                "prompt": feedback,
+                "review_cycle": cycle,
+                "strategy": strategy,
+                "lane": lane.strip() or run.get("lane"),
+            },
         )
         self.store.attention.resolve_for_run(run_id, resolution="resumed")
         return self.store.get(run_id)
@@ -618,6 +769,14 @@ class ReviewActions:
         if not run_id:
             return {"attention": item}
         run = self.store.get(run_id)
+        if item.get("type") == "review_comment":
+            if response.strip().lower() in {"ignore", "reject", "resolve"}:
+                self.store.attention.resolve(item_id, resolution="ignored")
+                return {"attention": self.store.attention.get(item_id), "run": run}
+            response = (
+                "Address this pull request review feedback in the existing branch and session:\n\n"
+                f"{item.get('message', '')}\n\nOperator decision: {response}"
+            )
         self.store.append_event(
             run_id,
             "attention.answered",
@@ -641,6 +800,9 @@ class ReviewActions:
         if run.get("status") not in {"review", "accepted"}:
             raise ValueError("a draft PR can only be created from review or accepted state")
         previous_status = str(run["status"])
+        artifact = self.scheduler.worktrees.snapshot(run, reason="published")
+        self.store.update(run_id, **artifact, artifact_created_at=now_iso())
+        self.store.append_event(run_id, "artifact.created", "git", artifact)
         self.store.update(run_id, status="publishing", worker_pid=os.getpid())
         self.store.append_event(run_id, "pr.creating", "user", {})
         try:
@@ -650,10 +812,13 @@ class ReviewActions:
             self.store.append_event(run_id, "pr.failed", "git", {"message": str(exc)})
             raise
         self.store.append_event(run_id, "pr.created", "git", {"url": url})
+        ci = dict(self.store.get(run_id).get("ci") or {})
+        ci.update({"status": "pending", "summary": "Waiting for GitHub checks.", "updated_at": now_iso()})
         return self.store.transition(
             run_id,
             "pr_created",
             pull_request_url=url,
+            ci=ci,
             review_status="published",
             worker_pid=None,
         )

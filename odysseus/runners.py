@@ -49,6 +49,7 @@ class ProcessResult:
     duration_seconds: float
     cancelled: bool = False
     session_id: str = ""
+    stop_reason: str = ""
 
 
 def _extract_text(value: Any) -> str:
@@ -199,6 +200,8 @@ class AgentRunner:
         cancelled: Cancelled,
         resume_session_id: str = "",
         phase: str = "agent",
+        timeout_seconds: float = 0,
+        stall_seconds: float = 0,
     ) -> ProcessResult:
         args = self.command(
             lane,
@@ -217,6 +220,8 @@ class AgentRunner:
             parse_json=True,
             phase=phase,
             resumed=bool(resume_session_id),
+            timeout_seconds=timeout_seconds,
+            stall_seconds=stall_seconds,
         )
 
 
@@ -446,6 +451,8 @@ def _stream_process(
     parse_json: bool,
     phase: str,
     resumed: bool,
+    timeout_seconds: float = 0,
+    stall_seconds: float = 0,
 ) -> ProcessResult:
     started = time.monotonic()
     try:
@@ -485,10 +492,40 @@ def _stream_process(
     output: list[str] = []
     output_size = 0
     was_cancelled = False
+    stop_reason = ""
+    last_activity = started
+    next_heartbeat = started + 15
     while completed_streams < 2 or process.poll() is None:
-        if cancelled() and process.poll() is None:
+        current = time.monotonic()
+        if timeout_seconds > 0 and current - started >= timeout_seconds and process.poll() is None:
             was_cancelled = True
+            stop_reason = "timeout"
+            emit(
+                "run.stalled",
+                "odysseus",
+                {"message": f"{phase} exceeded its {timeout_seconds:g}s timeout.", "reason": "timeout", "phase": phase},
+            )
             _terminate(process)
+        elif stall_seconds > 0 and current - last_activity >= stall_seconds and process.poll() is None:
+            was_cancelled = True
+            stop_reason = "stall"
+            emit(
+                "run.stalled",
+                "odysseus",
+                {"message": f"{phase} produced no output for {stall_seconds:g}s.", "reason": "stall", "phase": phase},
+            )
+            _terminate(process)
+        elif cancelled() and process.poll() is None:
+            was_cancelled = True
+            stop_reason = "cancelled"
+            _terminate(process)
+        if current >= next_heartbeat and process.poll() is None:
+            emit(
+                "run.heartbeat",
+                "odysseus",
+                {"phase": phase, "elapsed_seconds": round(current - started, 1), "idle_seconds": round(current - last_activity, 1)},
+            )
+            next_heartbeat = current + 15
         try:
             stream_name, line = lines.get(timeout=0.2)
         except queue.Empty:
@@ -496,6 +533,7 @@ def _stream_process(
         if line is None:
             completed_streams += 1
             continue
+        last_activity = time.monotonic()
         data: dict[str, Any] = {"stream": stream_name}
         text = line
         vendor: Any = None
@@ -537,4 +575,5 @@ def _stream_process(
         duration_seconds=round(time.monotonic() - started, 3),
         cancelled=was_cancelled,
         session_id=normalizer.session_id,
+        stop_reason=stop_reason,
     )

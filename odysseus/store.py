@@ -17,6 +17,7 @@ from .events import Event, now_iso
 from .attention import AttentionQueue
 from .epics import EpicStore, VALID_ROLES
 from .inbox import Inbox
+from .notifications import NotificationManager
 from .projects import ProjectRegistry
 
 
@@ -34,6 +35,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "planner_lane": "",
     "review_lane": "",
     "lanes": {},
+    "budgets": {
+        "timeout_seconds": 0,
+        "stall_seconds": 900,
+        "max_tokens": 0,
+        "max_tool_calls": 0,
+        "max_cost_usd": 0.0,
+    },
+    "ci": {
+        "watch": True,
+        "auto_resume": True,
+        "max_attempts": 2,
+        "poll_seconds": 30,
+    },
+    "notifications": [],
     "evaluation_policy": {
         "min_confidence": 0.85,
         "require_human_review": True,
@@ -42,7 +57,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 3
+RUN_SCHEMA_VERSION = 4
 
 
 def _safe_int(value: Any) -> int:
@@ -52,7 +67,7 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def _run_v3_defaults() -> dict[str, Any]:
+def _run_defaults() -> dict[str, Any]:
     return {
         "epic_id": "",
         "task_key": "",
@@ -70,6 +85,27 @@ def _run_v3_defaults() -> dict[str, Any]:
         "policy_decision": "human_review",
         "human_review_required": True,
         "pending_operator_response": "",
+        "priority": 50,
+        "artifact_sha": "",
+        "artifact_files": [],
+        "artifact_created_at": None,
+        "integration_sources": [],
+        "integration_head": "",
+        "merge_analysis": {"risk": "none", "source_count": 0, "overlaps": [], "files": []},
+        "ci": {
+            "status": "not_started",
+            "attempt": 0,
+            "checks": [],
+            "summary": "",
+            "updated_at": None,
+        },
+        "ci_retry_active": False,
+        "github_feedback_seen": [],
+        "budgets": {},
+        "budget_status": {"state": "within", "reason": ""},
+        "stage": "queued",
+        "stage_started_at": None,
+        "last_heartbeat": None,
     }
 
 
@@ -114,6 +150,7 @@ class RunStore:
         self.inbox = Inbox(self)
         self.attention = AttentionQueue(self)
         self.epics = EpicStore(self)
+        self.notifications = NotificationManager(self)
         self._migrate_runs()
 
     def _migrate_runs(self) -> None:
@@ -128,7 +165,7 @@ class RunStore:
                 if not isinstance(run, dict):
                     continue
                 changed = False
-                for key, value in _run_v3_defaults().items():
+                for key, value in _run_defaults().items():
                     if key not in run:
                         run[key] = value
                         changed = True
@@ -175,6 +212,16 @@ class RunStore:
             merged.update(value)
         merged["max_parallel"] = max(1, _safe_int(merged.get("max_parallel", 2)) or 2)
         merged["max_retries"] = max(0, _safe_int(merged.get("max_retries", 2)))
+        ci = dict(DEFAULT_CONFIG["ci"])
+        if isinstance(merged.get("ci"), dict):
+            ci.update(merged["ci"])
+        ci["max_attempts"] = max(0, _safe_int(ci.get("max_attempts", 2)))
+        ci["poll_seconds"] = max(5, _safe_int(ci.get("poll_seconds", 30)) or 30)
+        merged["ci"] = ci
+        budgets = dict(DEFAULT_CONFIG["budgets"])
+        if isinstance(merged.get("budgets"), dict):
+            budgets.update(merged["budgets"])
+        merged["budgets"] = budgets
         return merged
 
     def update_config(self, changes: Mapping[str, Any]) -> dict[str, Any]:
@@ -187,6 +234,9 @@ class RunStore:
             "review_lane",
             "lanes",
             "evaluation_policy",
+            "budgets",
+            "ci",
+            "notifications",
         }
         unknown = set(changes) - allowed
         if unknown:
@@ -223,7 +273,7 @@ class RunStore:
             raise RuntimeError(f"corrupt run record: {path}") from exc
         if not isinstance(value, dict):
             raise RuntimeError(f"invalid run record: {path}")
-        for key, default in _run_v3_defaults().items():
+        for key, default in _run_defaults().items():
             value.setdefault(key, default)
         return value
 
@@ -235,7 +285,7 @@ class RunStore:
             except (OSError, json.JSONDecodeError):
                 continue
             if isinstance(value, dict):
-                for key, default in _run_v3_defaults().items():
+                for key, default in _run_defaults().items():
                     value.setdefault(key, default)
                 runs.append(value)
         return sorted(runs, key=lambda item: str(item.get("created_at", "")), reverse=True)
@@ -269,6 +319,18 @@ class RunStore:
             if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
                 raise ValueError(f"{key} must be a list of run ids or task keys")
             graph_lists[key] = list(dict.fromkeys(raw))
+        raw_budgets = request.get("budgets") or {}
+        if not isinstance(raw_budgets, dict):
+            raise ValueError("budgets must be an object")
+        budgets = dict(config.get("budgets") or {})
+        budgets.update(raw_budgets)
+        for key in ("timeout_seconds", "stall_seconds", "max_tokens", "max_tool_calls"):
+            budgets[key] = max(0, _safe_int(budgets.get(key)))
+        try:
+            budgets["max_cost_usd"] = max(0.0, float(budgets.get("max_cost_usd") or 0.0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("max_cost_usd must be numeric") from exc
+        priority = max(0, min(100, _safe_int(request.get("priority", 50))))
         run: dict[str, Any] = {
             "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
@@ -316,7 +378,7 @@ class RunStore:
                 "cost_usd": 0.0,
                 "session_usage": {},
             },
-            **_run_v3_defaults(),
+            **_run_defaults(),
             "epic_id": str(request.get("epic_id") or ""),
             "task_key": str(request.get("task_key") or ""),
             "role": role,
@@ -326,6 +388,8 @@ class RunStore:
             "block_keys": graph_lists["block_keys"],
             "parallelizable": bool(request.get("parallelizable", True)),
             "blocked_reason": str(request.get("blocked_reason") or ""),
+            "priority": priority,
+            "budgets": budgets,
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)
@@ -380,6 +444,7 @@ class RunStore:
             self._aggregate_event(run, event_type, data or {})
             self._atomic_json(self._path(run_id), run)
         self._route_attention(run, event_type, data or {})
+        self.notifications.notify(run, event_type, data or {})
         return value
 
     def _route_attention(
@@ -399,8 +464,14 @@ class RunStore:
             "agent.permission_request": ("permission_request", "high", "Permission required"),
             "agent.blocked": ("blocked", "high", "Agent blocked"),
             "agent.decision_required": ("decision_required", "medium", "Decision required"),
+            "integration.conflict": ("merge_conflict", "high", "Integration conflict"),
+            "ci.failed": ("ci_failed", "high", "CI failed"),
+            "ci.retry_exhausted": ("ci_failed", "critical", "CI retry budget exhausted"),
+            "run.stalled": ("stalled", "high", "Agent stalled"),
+            "run.budget_exceeded": ("budget", "high", "Run budget exceeded"),
+            "review.comment": ("review_comment", "medium", "Pull request feedback"),
         }
-        if event_type in {"run.accepted", "pr.created", "run.cancelled"}:
+        if event_type in {"run.accepted", "pr.created", "run.cancelled", "ci.passed"}:
             self.attention.resolve_for_run(str(run["id"]), resolution=event_type)
             return
         if event_type == "dag.blocked" and not (
@@ -446,6 +517,11 @@ class RunStore:
 
     @staticmethod
     def _aggregate_event(run: dict[str, Any], event_type: str, data: Mapping[str, Any]) -> None:
+        if event_type == "step.started":
+            run["stage"] = str(data.get("step") or "running")
+            run["stage_started_at"] = now_iso()
+        if event_type in {"run.heartbeat", "agent.output", "agent.message", "agent.reasoning", "agent.tool.started", "agent.tool.completed", "check.output"}:
+            run["last_heartbeat"] = now_iso()
         if event_type == "agent.session":
             session_id = str(data.get("session_id") or "")
             if session_id:

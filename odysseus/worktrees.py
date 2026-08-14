@@ -14,6 +14,10 @@ class GitError(RuntimeError):
     pass
 
 
+class IntegrationError(GitError):
+    """Raised when accepted dependency artifacts cannot be composed safely."""
+
+
 def _run(
     args: Sequence[str],
     *,
@@ -125,6 +129,145 @@ class WorktreeManager:
         return result
 
     @staticmethod
+    def changed_files(run: Mapping[str, Any]) -> list[str]:
+        """Return the complete artifact surface relative to the run base."""
+
+        worktree = Path(str(run.get("worktree_path") or ""))
+        base_sha = str(run.get("base_sha") or "")
+        artifact_sha = str(run.get("artifact_sha") or "HEAD")
+        if not worktree.is_dir() or not base_sha:
+            return []
+        tracked = _run(
+            [
+                "git",
+                "-C",
+                str(worktree),
+                "diff",
+                "--name-only",
+                "--diff-filter=ACDMRTUXB",
+                base_sha,
+                artifact_sha,
+            ],
+            check=False,
+        ).stdout.splitlines()
+        untracked = _run(
+            ["git", "-C", str(worktree), "ls-files", "--others", "--exclude-standard"],
+            check=False,
+        ).stdout.splitlines()
+        return sorted({item.strip() for item in [*tracked, *untracked] if item.strip()})
+
+    @staticmethod
+    def snapshot(run: Mapping[str, Any], *, reason: str = "accepted") -> dict[str, Any]:
+        """Create a durable local commit without pushing or merging it elsewhere."""
+
+        worktree = Path(str(run.get("worktree_path") or ""))
+        if not worktree.is_dir():
+            raise GitError("run has no worktree to snapshot")
+        _run(["git", "-C", str(worktree), "add", "-A"])
+        dirty = _run(["git", "-C", str(worktree), "status", "--porcelain"]).stdout.strip()
+        if dirty:
+            title = str(run.get("title") or run.get("id") or "task")[:70]
+            _run(["git", "-C", str(worktree), "commit", "-m", f"Odysseus {reason}: {title}"])
+        sha = _run(["git", "-C", str(worktree), "rev-parse", "HEAD"]).stdout.strip()
+        value = dict(run)
+        value["artifact_sha"] = sha
+        return {"artifact_sha": sha, "artifact_files": WorktreeManager.changed_files(value)}
+
+    @staticmethod
+    def analyze_dependencies(dependencies: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        """Predict cross-task file overlap before attempting an integration merge."""
+
+        surfaces: dict[str, set[str]] = {}
+        for dependency in dependencies:
+            run_id = str(dependency.get("id") or "")
+            files = dependency.get("artifact_files")
+            if not isinstance(files, list) or not files:
+                files = WorktreeManager.changed_files(dependency)
+            surfaces[run_id] = {str(item) for item in files if str(item)}
+        overlaps: list[dict[str, Any]] = []
+        ids = list(surfaces)
+        for index, left in enumerate(ids):
+            for right in ids[index + 1 :]:
+                common = sorted(surfaces[left] & surfaces[right])
+                if common:
+                    overlaps.append({"left": left, "right": right, "files": common})
+        source_count = len(dependencies)
+        risk = "high" if overlaps else "medium" if source_count > 1 else "low" if source_count else "none"
+        return {
+            "risk": risk,
+            "source_count": source_count,
+            "overlaps": overlaps,
+            "files": sorted({item for values in surfaces.values() for item in values}),
+        }
+
+    @staticmethod
+    def integrate(
+        run: Mapping[str, Any],
+        dependencies: Sequence[Mapping[str, Any]],
+        emit: Callable[[str, str, Mapping[str, Any]], None],
+    ) -> dict[str, Any]:
+        """Merge accepted dependency artifacts into the downstream task branch."""
+
+        worktree = Path(str(run.get("worktree_path") or ""))
+        if not worktree.is_dir():
+            raise IntegrationError("run has no worktree for dependency integration")
+        analysis = WorktreeManager.analyze_dependencies(dependencies)
+        sources: list[dict[str, str]] = []
+        emit("integration.started", "git", analysis)
+        for dependency in dependencies:
+            dependency_id = str(dependency.get("id") or "")
+            sha = str(dependency.get("artifact_sha") or "")
+            if not sha:
+                raise IntegrationError(f"dependency {dependency_id} has no durable artifact")
+            if Path(str(dependency.get("project_path") or "")).resolve() != Path(
+                str(run.get("project_path") or "")
+            ).resolve():
+                raise IntegrationError(f"dependency {dependency_id} belongs to another repository")
+            ancestor = _run(
+                ["git", "-C", str(worktree), "merge-base", "--is-ancestor", sha, "HEAD"],
+                check=False,
+            )
+            if ancestor.returncode != 0:
+                result = _run(
+                    [
+                        "git",
+                        "-C",
+                        str(worktree),
+                        "merge",
+                        "--no-ff",
+                        "-m",
+                        f"Odysseus integrate {dependency_id}",
+                        sha,
+                    ],
+                    check=False,
+                    timeout=180,
+                )
+                if result.returncode != 0:
+                    conflicts = _run(
+                        ["git", "-C", str(worktree), "diff", "--name-only", "--diff-filter=U"],
+                        check=False,
+                    ).stdout.splitlines()
+                    _run(["git", "-C", str(worktree), "merge", "--abort"], check=False)
+                    detail = {
+                        **analysis,
+                        "dependency_run_id": dependency_id,
+                        "conflicts": [item for item in conflicts if item],
+                        "message": f"Dependency artifact {dependency_id} conflicts with the integration branch.",
+                    }
+                    emit("integration.conflict", "git", detail)
+                    raise IntegrationError(detail["message"])
+            sources.append({"run_id": dependency_id, "artifact_sha": sha})
+            emit(
+                "integration.artifact_applied",
+                "git",
+                {"dependency_run_id": dependency_id, "artifact_sha": sha},
+            )
+        head = _run(["git", "-C", str(worktree), "rev-parse", "HEAD"]).stdout.strip()
+        result = {"integration_sources": sources, "integration_head": head, "merge_analysis": analysis}
+        emit("integration.completed", "git", {**analysis, "integration_head": head})
+        return result
+
+    @staticmethod
     def diff(run: Mapping[str, Any], limit: int = 600_000) -> dict[str, Any]:
         worktree = Path(str(run.get("worktree_path") or ""))
         base_sha = str(run.get("base_sha") or "")
@@ -220,3 +363,15 @@ class WorktreeManager:
         if not url.startswith("http"):
             raise GitError(result.stderr.strip() or "gh did not return a pull request URL")
         return url
+
+    @staticmethod
+    def push_update(run: Mapping[str, Any]) -> str:
+        """Snapshot and push a new attempt to an already published task branch."""
+
+        worktree = Path(str(run.get("worktree_path") or ""))
+        branch = str(run.get("branch") or "")
+        if not worktree.is_dir() or not branch or not run.get("pull_request_url"):
+            raise GitError("run has no existing pull request branch")
+        artifact = WorktreeManager.snapshot(run, reason="CI retry")
+        _run(["git", "-C", str(worktree), "push", "origin", branch], timeout=300)
+        return str(artifact["artifact_sha"])

@@ -16,15 +16,17 @@ from typing import Any, Mapping
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
+from .ci import CIWatcher
 from .planner import EpicPlanner
 from .scheduler import ReviewActions, Scheduler
+from .search import search, statistics
 from .github import GitHubBridge
 from .store import RunStore
 from .tmux import TmuxBridge
 from .worktrees import WorktreeManager
 
 
-RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|send-back|resume|takeover|draft-pr))?$")
+RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
 PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
@@ -58,6 +60,7 @@ class OdysseusApp:
         self.planner = EpicPlanner(store)
         self.tmux = TmuxBridge(store)
         self.github = GitHubBridge()
+        self.ci = CIWatcher(store, self.actions, bridge=self.github)
         self.auth_user = auth_user
         self.auth_password = auth_password
         self.httpd: OdysseusHTTPServer | None = None
@@ -66,6 +69,7 @@ class OdysseusApp:
         if self.httpd is not None:
             return self.httpd.server_address[:2]
         self.scheduler.start()
+        self.ci.start()
         self.httpd = OdysseusHTTPServer((self.host, self.port), OdysseusHandler, self)
         return self.httpd.server_address[:2]
 
@@ -75,6 +79,7 @@ class OdysseusApp:
         self.httpd.serve_forever(poll_interval=0.35)
 
     def stop(self) -> None:
+        self.ci.stop()
         if self.httpd is not None:
             self.httpd.shutdown()
             self.httpd.server_close()
@@ -122,6 +127,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "lanes": list(dict.fromkeys(lanes)),
                     "tmux_available": self.server.app.tmux.available(),
                     "repository_url": "https://github.com/jpolec/odysseus",
+                    "ci": config.get("ci") or {},
                 }
             )
             return
@@ -137,11 +143,29 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                         1 for run in self.server.app.store.list() if run.get("status") == "blocked"
                     ),
                     "needs_attention": len(self.server.app.store.attention.list(status="open")),
+                    "ci_red": sum(
+                        1 for run in self.server.app.store.list() if (run.get("ci") or {}).get("status") == "failed"
+                    ),
                 }
             )
             return
         if parsed.path == "/api/runs":
-            self._json({"runs": self.server.app.store.list()})
+            query = parse_qs(parsed.query)
+            runs = self.server.app.store.list()
+            project_id = str(query.get("project_id", [""])[0])
+            status = str(query.get("status", [""])[0])
+            if project_id:
+                runs = [run for run in runs if str(run.get("project_id")) == project_id]
+            if status:
+                runs = [run for run in runs if str(run.get("status")) == status]
+            self._json({"runs": runs})
+            return
+        if parsed.path == "/api/search":
+            query = parse_qs(parsed.query)
+            self._json({"results": search(self.server.app.store, str(query.get("q", [""])[0]))})
+            return
+        if parsed.path == "/api/stats":
+            self._json(statistics(self.server.app.store))
             return
         if parsed.path == "/api/projects":
             self._json({"projects": self.server.app.store.projects.list()})
@@ -284,11 +308,22 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             elif action == "send-back":
                 self._json(self.server.app.actions.send_back(run_id, str(body.get("feedback", ""))))
             elif action == "resume":
-                self._json(self.server.app.actions.resume(run_id, str(body.get("prompt", ""))), HTTPStatus.ACCEPTED)
+                self._json(
+                    self.server.app.actions.resume(
+                        run_id,
+                        str(body.get("prompt", "")),
+                        strategy=str(body.get("strategy") or "resume"),
+                        lane=str(body.get("lane") or ""),
+                    ),
+                    HTTPStatus.ACCEPTED,
+                )
             elif action == "takeover":
                 self._json(self.server.app.tmux.takeover(self.server.app.store.get(run_id)), HTTPStatus.CREATED)
             elif action == "draft-pr":
                 self._json(self.server.app.actions.draft_pr(run_id))
+            elif action == "ci-poll":
+                self.server.app.ci.poll_once(force=True, run_id=run_id)
+                self._json(self.server.app.store.get(run_id))
             else:
                 self._json_error(HTTPStatus.NOT_FOUND, "unknown action")
         except KeyError:

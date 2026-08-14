@@ -119,7 +119,8 @@ class SchedulerTests(unittest.TestCase):
             store.update(run["id"], status="review")
             accepted = actions.accept(run["id"])
             self.assertEqual(accepted["status"], "accepted")
-            self.assertEqual(accepted["event_seq"], sent_back["event_seq"] + 2)
+            self.assertEqual(accepted["event_seq"], sent_back["event_seq"] + 3)
+            self.assertTrue(accepted["artifact_sha"])
             with mock.patch.object(
                 WorktreeManager,
                 "draft_pr",

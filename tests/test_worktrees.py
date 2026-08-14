@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from odysseus.worktrees import WorktreeManager
+from odysseus.worktrees import IntegrationError, WorktreeManager
 
 
 def git(repo: Path, *args: str) -> str:
@@ -53,6 +53,72 @@ class WorktreeTests(unittest.TestCase):
                 lambda _event_type, _source, _data: None,
             )
             self.assertEqual(recovered["worktree_path"], info["worktree_path"])
+
+    def test_accepted_artifacts_are_composed_into_a_downstream_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-b", "main")
+            git(repo, "config", "user.name", "Odysseus Test")
+            git(repo, "config", "user.email", "odysseus@example.test")
+            (repo / "base.txt").write_text("base\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-m", "base")
+            manager = WorktreeManager(root / "worktrees")
+            emit = lambda *_args: None
+
+            left = manager.create({"id": "left", "project_path": str(repo)}, emit)
+            (Path(left["worktree_path"]) / "backend.txt").write_text("backend\n")
+            left.update(manager.snapshot(left))
+            left["id"] = "left"
+
+            right = manager.create({"id": "right", "project_path": str(repo)}, emit)
+            (Path(right["worktree_path"]) / "frontend.txt").write_text("frontend\n")
+            right.update(manager.snapshot(right))
+            right["id"] = "right"
+
+            downstream = manager.create({"id": "integration", "project_path": str(repo)}, emit)
+            downstream["id"] = "integration"
+            result = manager.integrate(downstream, [left, right], emit)
+            target = Path(downstream["worktree_path"])
+
+            self.assertEqual((target / "backend.txt").read_text(), "backend\n")
+            self.assertEqual((target / "frontend.txt").read_text(), "frontend\n")
+            self.assertEqual(result["merge_analysis"]["risk"], "medium")
+            self.assertEqual(len(result["integration_sources"]), 2)
+
+    def test_conflicting_artifacts_stop_on_the_isolated_integration_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-b", "main")
+            git(repo, "config", "user.name", "Odysseus Test")
+            git(repo, "config", "user.email", "odysseus@example.test")
+            (repo / "shared.txt").write_text("base\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-m", "base")
+            manager = WorktreeManager(root / "worktrees")
+            events: list[tuple[str, dict]] = []
+            emit = lambda event, _source, data: events.append((event, dict(data)))
+
+            artifacts = []
+            for run_id, content in (("one", "one\n"), ("two", "two\n")):
+                item = manager.create({"id": run_id, "project_path": str(repo)}, emit)
+                (Path(item["worktree_path"]) / "shared.txt").write_text(content)
+                item.update(manager.snapshot(item))
+                item["id"] = run_id
+                artifacts.append(item)
+            downstream = manager.create({"id": "join", "project_path": str(repo)}, emit)
+            downstream["id"] = "join"
+
+            with self.assertRaises(IntegrationError):
+                manager.integrate(downstream, artifacts, emit)
+
+            conflict = [data for event, data in events if event == "integration.conflict"][-1]
+            self.assertEqual(conflict["conflicts"], ["shared.txt"])
+            self.assertEqual(conflict["risk"], "high")
 
 
 if __name__ == "__main__":

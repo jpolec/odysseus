@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from .planner import EpicPlanner
+from .ci import CIWatcher
+from .search import search, statistics
 from .scheduler import ReviewActions, Scheduler
 from .server import OdysseusApp
 from .store import RunStore, default_state_root
@@ -79,6 +81,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     task = args.task
     if task == "-":
         task = sys.stdin.read()
+    budget_values = {
+        "timeout_seconds": args.timeout,
+        "stall_seconds": args.stall_timeout,
+        "max_tokens": args.max_tokens,
+        "max_tool_calls": args.max_tool_calls,
+        "max_cost_usd": args.max_cost,
+    }
     run = _store(args).create(
         {
             "task": task,
@@ -90,6 +99,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             "checks": args.check,
             "max_retries": args.max_retries,
             "base_ref": args.base,
+            "priority": args.priority,
+            "budgets": {key: value for key, value in budget_values.items() if value is not None},
         }
     )
     if args.json:
@@ -206,7 +217,7 @@ def cmd_draft_pr(args: argparse.Namespace) -> int:
 def cmd_resume(args: argparse.Namespace) -> int:
     _, actions = _actions(args)
     prompt = args.prompt if args.prompt != "-" else sys.stdin.read()
-    _print_json(actions.resume(args.run_id, prompt))
+    _print_json(actions.resume(args.run_id, prompt, strategy=args.strategy, lane=args.lane or ""))
     return 0
 
 
@@ -275,6 +286,46 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ci(args: argparse.Namespace) -> int:
+    store, actions = _actions(args)
+    watcher = CIWatcher(store, actions)
+    changed = watcher.poll_once(force=True, run_id=args.run_id or "")
+    _print_json({"checked": args.run_id or "all published runs", "changed": changed})
+    return 0
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    _print_json({"results": search(_store(args), args.query, limit=args.limit)})
+    return 0
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    _print_json(statistics(_store(args)))
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    store = _store(args)
+    payload = {
+        "format": "odysseus-state-v1",
+        "config": store.config(),
+        "projects": store.projects.list(),
+        "epics": store.epics.list(),
+        "runs": [{**run, "events": store.events(str(run["id"]), limit=100_000)} for run in store.list()],
+        "attention": store.attention.list(),
+        "inbox": store.inbox.list(),
+        "stats": statistics(store),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if args.output:
+        target = Path(args.output).expanduser()
+        target.write_text(encoded, encoding="utf-8")
+        print(target)
+    else:
+        print(encoded, end="")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     store = _store(args)
     lanes = store.config().get("lanes", {})
@@ -321,6 +372,12 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--check", action="append", default=[], help="check command; repeat as needed")
     run.add_argument("--max-retries", type=int, default=2)
     run.add_argument("--base", default="")
+    run.add_argument("--priority", type=int, default=50, help="scheduler priority from 0 to 100")
+    run.add_argument("--timeout", type=int, help="agent/reviewer timeout in seconds (0 disables)")
+    run.add_argument("--stall-timeout", type=int, help="stop after this many seconds without output")
+    run.add_argument("--max-tokens", type=int, help="hard token budget (0 disables)")
+    run.add_argument("--max-tool-calls", type=int, help="hard tool-call budget (0 disables)")
+    run.add_argument("--max-cost", type=float, help="reported USD cost budget (0 disables)")
     run.add_argument("--json", action="store_true")
     run.set_defaults(func=cmd_run)
 
@@ -384,6 +441,8 @@ def parser() -> argparse.ArgumentParser:
     resume = sub.add_parser("resume", help="continue a review/failed run in its existing agent session")
     resume.add_argument("run_id")
     resume.add_argument("prompt", nargs="?", default="", help="continuation prompt, or - to read stdin")
+    resume.add_argument("--strategy", choices=["resume", "switch", "clean"], default="resume")
+    resume.add_argument("--lane", help="new lane when --strategy switch is selected")
     resume.set_defaults(func=cmd_resume)
 
     sessions = sub.add_parser("sessions", help="list automatically discovered tmux sessions")
@@ -416,6 +475,22 @@ def parser() -> argparse.ArgumentParser:
     config = sub.add_parser("config", help="show or change scheduler configuration")
     config.add_argument("--max-parallel", type=int)
     config.set_defaults(func=cmd_config)
+
+    ci = sub.add_parser("ci", help="poll GitHub checks now and run the configured repair loop")
+    ci.add_argument("run_id", nargs="?")
+    ci.set_defaults(func=cmd_ci)
+
+    search_parser = sub.add_parser("search", help="search runs, events, epics, projects, attention, and inbox")
+    search_parser.add_argument("query")
+    search_parser.add_argument("--limit", type=int, default=100)
+    search_parser.set_defaults(func=cmd_search)
+
+    stats_parser = sub.add_parser("stats", help="show engineering outcome and agent economics totals")
+    stats_parser.set_defaults(func=cmd_stats)
+
+    export_parser = sub.add_parser("export", help="export inspectable state and event history as JSON")
+    export_parser.add_argument("--output")
+    export_parser.set_defaults(func=cmd_export)
 
     doctor = sub.add_parser("doctor", help="show local tool availability")
     doctor.set_defaults(func=cmd_doctor)
