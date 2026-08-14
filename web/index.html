@@ -24,7 +24,7 @@
         <button class="nav-button" data-view="github" type="button">GitHub</button>
       </nav>
       <div class="topbar-status">
-        <label class="global-search"><span aria-hidden="true">⌕</span><input id="globalSearch" type="search" placeholder="Search missions, events…" aria-label="Search Odysseus"></label>
+        <label class="global-search" title="Press Enter to search all local Odysseus history"><span aria-hidden="true">⌕</span><input id="globalSearch" type="search" placeholder="Search all history ↵" aria-label="Search all Odysseus history"></label>
         <a class="github-button" id="githubButton" href="https://github.com/jpolec/odysseus" target="_blank" rel="noreferrer" aria-label="Open on GitHub" title="Open Odysseus on GitHub">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg>
         </a>
@@ -59,7 +59,7 @@
         </section>
 
         <section class="view-panel collection-view" id="epicsView">
-          <div class="page-head"><div><p class="eyebrow">REQUIREMENT → DAG</p><h1>Epics</h1><p>A read-only planner proposes the graph. Nothing executes until you approve it.</p></div><button class="primary" id="newEpicButton" type="button">Plan an epic</button></div>
+          <div class="page-head"><div><p class="eyebrow">LARGE FEATURE → REVIEWABLE TASK GRAPH</p><h1>Epics</h1><p>Break multi-part work into dependent and parallel agent tasks. The planner only proposes; nothing executes until you approve the graph.</p></div><button class="primary" id="newEpicButton" type="button">Plan multi-task work</button></div>
           <div class="stack-list" id="epicList"></div>
         </section>
 
@@ -80,6 +80,18 @@
               </div>
               <div class="actions" id="runActions"></div>
             </header>
+            <section class="observed-session hidden" id="observedSession">
+              <div>
+                <p class="eyebrow">TRACKED TERMINAL · NOT AN ODYSSEUS RUN</p>
+                <h3>This agent is still controlled by its original tmux pane.</h3>
+                <p>Odysseus did not start this work and cannot reconstruct its tokens, tools, diff, checks, or CI. Tracking only keeps a durable shortcut and activity record.</p>
+              </div>
+              <div class="observed-steps">
+                <span><b>1</b> Click <strong>Copy tmux command</strong></span>
+                <span><b>2</b> Paste it in a terminal</span>
+                <span><b>3</b> Continue with the agent there</span>
+              </div>
+            </section>
             <div class="metrics" id="metrics"></div>
             <div class="metadata" id="metadata"></div>
             <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
@@ -90,7 +102,7 @@
               <li id="stageReview"><span>05</span><div><strong>Review</strong><small>Evidence gate</small></div></li>
               <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
             </ol>
-            <div class="detail-grid">
+            <div class="detail-grid" id="detailGrid">
               <section class="panel activity-panel">
                 <div class="panel-head"><div><p class="eyebrow">LIVE EVENT STREAM</p><h3>Activity</h3></div><span class="live-badge"><i></i> SSE</span></div>
                 <div class="event-log" id="eventLog"></div>
@@ -111,12 +123,17 @@
         </div>
 
         <section class="view-panel collection-view" id="sessionsView">
-          <div class="page-head"><div><p class="eyebrow">AUTO-DISCOVERED</p><h1>tmux sessions</h1><p>Managed sessions appear here automatically. Adopt only when you want durable Odysseus history.</p></div><button class="ghost" id="refreshSessions" type="button">Refresh</button></div>
+          <div class="page-head"><div><p class="eyebrow">AUTO-DISCOVERED · NO IMPORT NEEDED</p><h1>Agent terminals</h1><p>Codex and Claude panes already running in tmux appear here automatically. Viewing this page does not change or control them.</p></div><button class="ghost" id="refreshSessions" type="button">Refresh now</button></div>
+          <div class="how-it-works session-guide" aria-label="How tmux discovery works">
+            <div><span>01</span><strong>See</strong><p>Odysseus detects agent panes and refreshes this page automatically.</p></div>
+            <div><span>02</span><strong>Track</strong><p>Add a durable entry to Tasks. The original pane keeps running unchanged.</p></div>
+            <div><span>03</span><strong>Open</strong><p>Copy the exact tmux command, paste it in a terminal, and continue there.</p></div>
+          </div>
           <div class="card-grid" id="sessionList"></div>
         </section>
 
         <section class="view-panel collection-view" id="inboxView">
-          <div class="page-head"><div><p class="eyebrow">FOLLOW-UPS</p><h1>Inbox</h1><p>Work discovered by agents and notes captured by humans, across every project.</p></div><button class="primary" id="newInboxButton" type="button">Add follow-up</button></div>
+          <div class="page-head"><div><p class="eyebrow">PARK WORK FOR LATER</p><h1>Inbox</h1><p>Agents and humans put follow-up ideas here without starting work. “Queue as task” is the explicit step that launches an agent workflow.</p></div><button class="primary" id="newInboxButton" type="button">Add follow-up</button></div>
           <div class="stack-list" id="inboxList"></div>
         </section>
 
@@ -139,25 +156,62 @@
     </main>
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
-      <div class="dialog-head"><div><p class="eyebrow">NEW MISSION</p><h2>Queue a task</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <label>Task <textarea name="task" rows="5" required placeholder="Implement the feature, fix the bug, or investigate the issue…"></textarea></label>
-      <div class="form-row"><label>Project <select name="project_id" id="taskProjectSelect"><option value="">Custom path</option></select></label><label>Lane <select name="lane" id="laneSelect"></select></label></div>
-      <label>Custom project path <input name="project_path" placeholder="/absolute/path/to/repo"></label>
-      <div class="form-row"><label>Title <input name="title" placeholder="Derived from task when empty"></label><label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label></div>
-      <div class="form-row"><label>Priority (0–100) <input name="priority" type="number" min="0" max="100" value="50"></label><label>Stall timeout (seconds) <input name="stall_timeout" type="number" min="0" value="900"></label></div>
-      <details class="advanced"><summary>Budgets and hard limits</summary><div class="form-row"><label>Process timeout <input name="timeout" type="number" min="0" value="0"></label><label>Max tokens <input name="max_tokens" type="number" min="0" value="0"></label></div><div class="form-row"><label>Max tool calls <input name="max_tool_calls" type="number" min="0" value="0"></label><label>Max reported cost (USD) <input name="max_cost" type="number" min="0" step="0.01" value="0"></label></div></details>
-      <label>Checks <textarea name="checks" rows="3" placeholder="One shell command per line, e.g. python3 -m unittest"></textarea></label>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Queue task</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">ONE OUTCOME · ONE AGENT</p><h2>Start a task</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Write the request as you would to an engineer.</strong><p>Odysseus creates an isolated Git worktree, starts the selected agent, runs your checks, and stops at a review gate. It never edits your main checkout directly.</p></div>
+      <label>What should the agent accomplish?
+        <span class="field-help">Include the desired outcome, constraints, and what “done” means. Natural language is enough.</span>
+        <textarea name="task" rows="5" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
+      </label>
+      <details class="prompt-example"><summary>Show a good task example</summary><p>Update the setup command in README, verify every referenced path exists, and run the documentation checks. Do not change application behavior.</p></details>
+      <div class="form-row"><label>Repository
+        <span class="field-help">Where the agent will work.</span>
+        <select name="project_id" id="taskProjectSelect"><option value="">Other repository path…</option></select>
+      </label><label>Implementation agent
+        <span class="field-help">CLI used for this task.</span>
+        <select name="lane" id="laneSelect"></select>
+      </label></div>
+      <label class="custom-project" id="taskCustomProject">Absolute repository path
+        <span class="field-help">A local Git repository visible to the Odysseus server.</span>
+        <input name="project_path" placeholder="/Users/me/code/my-project">
+      </label>
+      <label>Verification commands <span class="optional">optional</span>
+        <span class="field-help">Trusted shell commands run after the agent, one per line. Leave empty to use project defaults.</span>
+        <textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea>
+      </label>
+      <details class="advanced"><summary>Advanced: title, priority, retries, and budgets</summary>
+        <div class="form-row"><label>Display title <input name="title" placeholder="Generated from the request"></label><label>Priority (0–100) <input name="priority" type="number" min="0" max="100" value="50"></label></div>
+        <div class="form-row"><label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label><label>Stall timeout (seconds) <input name="stall_timeout" type="number" min="0" value="900"></label></div>
+        <div class="form-row"><label>Process timeout <input name="timeout" type="number" min="0" value="0"></label><label>Max tokens <input name="max_tokens" type="number" min="0" value="0"></label></div>
+        <div class="form-row"><label>Max tool calls <input name="max_tool_calls" type="number" min="0" value="0"></label><label>Max reported cost (USD) <input name="max_cost" type="number" min="0" step="0.01" value="0"></label></div>
+      </details>
+      <p class="submit-note">Starts immediately when a scheduler slot is free. For work that needs several agents or parallel steps, use <strong>Epics → Plan work</strong>.</p>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Start agent task</button></div>
     </form></dialog>
 
     <dialog id="epicDialog"><form method="dialog" id="epicForm">
-      <div class="dialog-head"><div><p class="eyebrow">READ-ONLY PLANNER</p><h2>Plan an epic</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <label>Requirement <textarea name="requirement" rows="7" required placeholder="Implement passkey authentication end to end…"></textarea></label>
-      <div class="form-row"><label>Project <select name="project_id" id="epicProjectSelect"><option value="">Custom path</option></select></label><label>Planner lane <select name="planner_lane" id="plannerLaneSelect"></select></label></div>
-      <label>Custom project path <input name="project_path" placeholder="/absolute/path/to/repo"></label>
-      <div class="form-row"><label>Implementation lane <select name="lane" id="epicLaneSelect"></select></label><label>Review lane <select name="review_lane" id="epicReviewLaneSelect"></select></label></div>
-      <label>Checks <textarea name="checks" rows="3" placeholder="One shell command per line"></textarea></label>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create proposal</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">PLAN ONLY · NOTHING RUNS YET</p><h2>Break work into agent tasks</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Use this for a feature with multiple dependent or parallel parts.</strong><p>A planner reads the repository and proposes a task graph. You see the complete plan and must approve it before any implementation agent starts.</p></div>
+      <div class="flow-preview" aria-label="Epic planning flow"><span><b>1</b> Requirement</span><i>→</i><span><b>2</b> Proposed task graph</span><i>→</i><span><b>3</b> Your approval</span><i>→</i><span><b>4</b> Agents run</span></div>
+      <label>What should the finished feature do?
+        <span class="field-help">Describe the end state and constraints. Do not decompose it yourself—the planner will do that.</span>
+        <textarea name="requirement" rows="6" required placeholder="Add passkey sign-in end to end. Keep password login working, include the schema migration, browser flow, integration tests, and a security review."></textarea>
+      </label>
+      <details class="prompt-example"><summary>When should I use this?</summary><p>Use an Epic when work can be split into backend, frontend, migration, tests, or independent review tasks. For one focused change, choose “New task” instead.</p></details>
+      <label>Repository
+        <span class="field-help">The planner inspects this repository read-only.</span>
+        <select name="project_id" id="epicProjectSelect"><option value="">Other repository path…</option></select>
+      </label>
+      <label class="custom-project" id="epicCustomProject">Absolute repository path
+        <span class="field-help">A local Git repository visible to the Odysseus server.</span>
+        <input name="project_path" placeholder="/Users/me/code/my-project">
+      </label>
+      <details class="advanced"><summary>Advanced: choose agents and verification commands</summary>
+        <div class="form-row"><label>Planning agent <select name="planner_lane" id="plannerLaneSelect"></select></label><label>Implementation agent <select name="lane" id="epicLaneSelect"></select></label></div>
+        <label>Independent review agent <select name="review_lane" id="epicReviewLaneSelect"></select></label>
+        <label>Verification commands <span class="optional">optional</span><span class="field-help">Trusted shell commands, one per line, inherited by proposed tasks.</span><textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea></label>
+      </details>
+      <p class="submit-note">This button only creates a proposal. No implementation begins until you inspect the graph and click <strong>Approve &amp; queue DAG</strong>.</p>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Generate task plan</button></div>
     </form></dialog>
 
     <dialog id="feedbackDialog"><form method="dialog" id="feedbackForm">

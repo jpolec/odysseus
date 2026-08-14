@@ -154,7 +154,7 @@ class CIWatcher:
                     "url": item.get("url") or run.get("pull_request_url"),
                     "options": [
                         {"id": "fix", "label": "Send to agent"},
-                        {"id": "takeover", "label": "Take over in tmux"},
+                        {"id": "takeover", "label": "Continue in terminal"},
                         {"id": "ignore", "label": "Resolve without changes"},
                     ],
                 },
@@ -177,7 +177,7 @@ class CIWatcher:
                 "max_attempts": maximum,
                 "options": [
                     {"id": "resume", "label": "Resume original agent"},
-                    {"id": "takeover", "label": "Take over in tmux"},
+                    {"id": "takeover", "label": "Continue in terminal"},
                 ],
             },
         )

@@ -12,7 +12,7 @@ Versions describe independently useful product increments, not promised dates.
 - One Git branch and worktree per autonomous run.
 - Implementation, deterministic checks, read-only review, and a human gate.
 - Codex and Claude lanes with saved-thread resume and tmux takeover.
-- Automatic tmux discovery plus explicit adoption.
+- Automatic tmux discovery plus explicit durable tracking.
 - Multi-project web UI, Inbox, GitHub issue intake, and draft PR creation.
 - Normalized NDJSON events for messages, reasoning, tool calls, tokens, cache,
   reported cost, checks, review, and operator decisions.

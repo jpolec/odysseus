@@ -408,7 +408,7 @@ class _VendorNormalizer:
                                 "tool": tool,
                                 "tool_call_id": item_id,
                                 "options": [
-                                    {"id": "takeover", "label": "Take over in tmux"},
+                                    {"id": "takeover", "label": "Continue in terminal"},
                                     {"id": "retry", "label": "Retry with guidance"},
                                     {"id": "reject", "label": "Reject"},
                                 ],

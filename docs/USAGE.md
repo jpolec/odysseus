@@ -10,13 +10,14 @@ Odysseus manages two connected kinds of work:
    worktree, run through implementation/check/review, and wait for a human or
    enter the bounded PR/CI repair loop.
 2. **Interactive sessions** start in tmux. They are discovered automatically
-   and remain ordinary terminal sessions until you explicitly adopt them.
+   and remain ordinary terminal sessions until you explicitly track them.
 3. **Epics** start as a requirement. A read-only Planner proposes a task DAG;
    the graph is inert until an operator approves it.
 
-An autonomous task can become interactive through **Take over in tmux**. An
-interactive session can gain durable Odysseus history through **Adopt**. Neither
-transition discards the existing agent thread.
+An autonomous task can become interactive through **Continue in terminal**. An
+interactive session can gain durable Odysseus history through **Track in
+Odysseus**. Neither transition discards the existing agent thread. The CLI
+retains the compatibility commands `takeover` and `adopt`.
 
 ## Installation
 
@@ -205,7 +206,7 @@ bin/odysseus answer ATTENTION_ID "Retain NULL for legacy accounts"
 ```
 
 An answer is recorded as `attention.answered` and supplied to the saved
-implementation session in the same worktree. **Take over in tmux** is an option
+implementation session in the same worktree. **Continue in terminal** is an option
 when the decision is easier to make interactively. Resolving an item without an
 answer closes the notification but does not invent agent guidance.
 
@@ -291,16 +292,16 @@ bin/odysseus sessions
 The picker combines managed sessions with existing panes whose foreground
 process is recognized as Codex or Claude. Use Enter to jump to a session.
 
-### Make an interactive session durable
+### Track an interactive session durably
 
-Open **Sessions** in the web UI and select **Adopt**, or run:
+Open **Sessions** in the web UI and select **Track in Odysseus**, or run:
 
 ```sh
 bin/odysseus adopt TMUX_SESSION
 ```
 
-Adoption creates a durable run/event record. It does not restart the agent,
-move the pane, or inject keystrokes.
+Tracking creates a durable run/event record. It does not restart the agent,
+move the pane, inject keystrokes, or invent telemetry from before tracking.
 
 ## Work across projects
 
@@ -335,7 +336,7 @@ Resolve an item without creating a task:
 bin/odysseus inbox --resolve ITEM_ID
 ```
 
-In the web UI, **Promote** converts an open item into a queued autonomous task.
+In the web UI, **Queue as agent task** converts an open item into a queued autonomous task.
 Agents can submit follow-ups with `.odysseus-followups.json`; Odysseus imports
 the file after the implementation phase and removes it before review.
 

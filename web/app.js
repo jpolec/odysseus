@@ -41,6 +41,23 @@ function compactNumber(value) { return new Intl.NumberFormat("en", {notation: "c
 function statusClass(status) { return `status-${String(status || "unknown").replace(/[^a-z_]/g, "")}`; }
 function statusLabel(status) { return String(status || "unknown").replaceAll("_", " "); }
 function projectById(id) { return state.projects.find((project) => project.id === id); }
+function discoveredSessionForRun(run) { return state.sessions.find((session) => session.adopted_run_id === run.id); }
+function preferredProjectId() {
+  const candidates = [state.selected?.project_id, state.projectFilter !== "all" ? state.projectFilter : "", state.runs[0]?.project_id, state.projects[0]?.id];
+  return candidates.find((id) => id && projectById(id)) || "";
+}
+function syncCustomProject(select, container) {
+  const custom = !select.value;
+  container.classList.toggle("hidden", !custom);
+  const input = container.querySelector("input");
+  input.required = custom;
+  if (!custom) input.value = "";
+}
+function prepareProjectSelect(select, container) {
+  const preferred = preferredProjectId();
+  if (preferred && [...select.options].some((option) => option.value === preferred)) select.value = preferred;
+  syncCustomProject(select, container);
+}
 
 function setView(view) {
   state.view = view;
@@ -70,13 +87,20 @@ function filteredRuns() {
 function renderRuns() {
   const runs = filteredRuns();
   $("#runCount").textContent = runs.length;
-  $("#taskList").innerHTML = runs.length ? runs.map((run) => `
-    <button class="task-card ${run.id === state.selectedId ? "selected" : ""}" data-run-id="${escapeHtml(run.id)}" type="button">
-      <div class="task-card-top"><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
-      <h3>${escapeHtml(run.title)}</h3>
-      <div class="task-card-meta"><span>${escapeHtml(run.lane)} · P${escapeHtml(run.priority ?? 50)}</span><span>${escapeHtml(projectById(run.project_id)?.name || run.kind || run.workflow)}</span></div>
-      <div class="task-signals"><span class="risk-${escapeHtml(run.merge_analysis?.risk || "none")}">${escapeHtml(run.merge_analysis?.risk || "none")} merge risk</span>${run.ci?.status && run.ci.status !== "not_started" ? `<span class="ci-${escapeHtml(run.ci.status)}">CI ${escapeHtml(run.ci.status)}</span>` : ""}</div>
-    </button>`).join("") : `<div class="empty-list">No tasks in this view.</div>`;
+  $("#taskList").innerHTML = runs.length ? runs.map((run) => {
+    const session = run.kind === "tmux" ? discoveredSessionForRun(run) : null;
+    const title = session?.title || session?.window_name || run.title;
+    const status = run.kind === "tmux" ? "tracked terminal" : statusLabel(run.status);
+    const signals = run.kind === "tmux"
+      ? `<span>tmux ${escapeHtml(session?.tmux_session || run.tmux_session || "session")} · ${escapeHtml(session?.tmux_target || run.tmux_target || "pane")}</span>`
+      : `<span class="risk-${escapeHtml(run.merge_analysis?.risk || "none")}">${escapeHtml(run.merge_analysis?.risk || "none")} merge risk</span>${run.ci?.status && run.ci.status !== "not_started" ? `<span class="ci-${escapeHtml(run.ci.status)}">CI ${escapeHtml(run.ci.status)}</span>` : ""}`;
+    return `<button class="task-card ${run.id === state.selectedId ? "selected" : ""}" data-run-id="${escapeHtml(run.id)}" type="button">
+      <div class="task-card-top"><span class="mini-status ${statusClass(run.status)}">${escapeHtml(status)}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
+      <h3>${escapeHtml(title)}</h3>
+      <div class="task-card-meta"><span>${escapeHtml(run.lane)}${run.kind === "tmux" ? "" : ` · P${escapeHtml(run.priority ?? 50)}`}</span><span>${escapeHtml(projectById(run.project_id)?.name || run.kind || run.workflow)}</span></div>
+      <div class="task-signals">${signals}</div>
+    </button>`;
+  }).join("") : `<div class="empty-list">No tasks in this view.</div>`;
   $$(".task-card[data-run-id]").forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.runId)));
 }
 
@@ -114,9 +138,16 @@ async function refreshSelected(loadEvents = false) {
 function renderDetail(run, diff) {
   $("#emptyState").classList.add("hidden");
   $("#runDetail").classList.remove("hidden");
+  const interactive = run.kind === "tmux";
+  const discovered = interactive ? discoveredSessionForRun(run) : null;
   const status = $("#detailStatus");
-  status.textContent = statusLabel(run.status); status.className = `status-pill ${statusClass(run.status)}`;
-  $("#detailId").textContent = run.id; $("#detailTitle").textContent = run.title; $("#detailTask").textContent = run.task;
+  status.textContent = interactive ? "tracked tmux terminal" : statusLabel(run.status); status.className = `status-pill ${statusClass(run.status)}`;
+  $("#detailId").textContent = run.id;
+  $("#detailTitle").textContent = discovered?.title || discovered?.window_name || run.title;
+  $("#detailTask").textContent = interactive ? `Existing ${run.lane} session in tmux ${discovered?.tmux_session || run.tmux_session || "—"}${(discovered?.tmux_target || run.tmux_target) ? `, pane ${discovered?.tmux_target || run.tmux_target}` : ""}.` : run.task;
+  $("#observedSession").classList.toggle("hidden", !interactive);
+  $("#metrics").classList.toggle("hidden", interactive);
+  $("#detailGrid").classList.toggle("hidden", interactive);
   const metrics = run.metrics || {};
   $("#metrics").innerHTML = [
     ["Input", compactNumber(metrics.input_tokens)], ["Cached", compactNumber(metrics.cached_input_tokens)],
@@ -124,16 +155,21 @@ function renderDetail(run, diff) {
     ["Cost", metrics.cost_usd ? `$${Number(metrics.cost_usd).toFixed(4)}` : "—"], ["Confidence", run.confidence === null || run.confidence === undefined ? "—" : `${Math.round(Number(run.confidence) * 100)}%`],
     ["Merge risk", run.merge_analysis?.risk || "none"], ["GitHub CI", run.ci?.status || "not started"],
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
-  $("#metadata").innerHTML = [
+  const metadata = interactive ? [
+    ["Agent", run.lane], ["Repository", projectById(run.project_id)?.name || run.project_path],
+    ["tmux location", `${discovered?.tmux_session || run.tmux_session || "—"} · ${discovered?.tmux_target || run.tmux_target || "—"}`],
+    ["Live pane state", discovered?.status || "not currently visible"], ["Tracking", "durable shortcut"], ["Control", "original terminal"],
+  ] : [
     ["Lane", run.lane], ["Workflow", run.workflow], ["Project", projectById(run.project_id)?.name || run.project_path],
-    ["Branch", run.branch || (run.kind === "tmux" ? "interactive" : "waiting")], ["Worktree", run.worktree_path || run.project_path],
+    ["Branch", run.branch || "waiting"], ["Worktree", run.worktree_path || run.project_path],
     ["Agent session", run.agent_sessions?.agent || run.agent_session_id || "—"], ["tmux", run.tmux_target ? `${run.tmux_session} · ${run.tmux_target}` : run.tmux_session || "—"],
-    ["Attempt", run.kind === "tmux" ? "interactive" : `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`], ["Role", run.role || "implementer"],
+    ["Attempt", `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`], ["Role", run.role || "implementer"],
     ["Epic", run.epic_id || "—"], ["Depends on", (run.dependency_keys || []).join(", ") || "—"],
     ["Artifact", run.artifact_sha ? run.artifact_sha.slice(0, 12) : "—"], ["Priority", `P${run.priority ?? 50}`],
     ["Stage", run.stage || statusLabel(run.status)], ["Heartbeat", run.last_heartbeat ? `${relativeTime(run.last_heartbeat)} ago` : "—"],
-  ].map(([label, value]) => `<div class="meta"><small>${escapeHtml(label)}</small><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
-  $("#workflowStrip").classList.toggle("hidden", run.kind === "tmux");
+  ];
+  $("#metadata").innerHTML = metadata.map(([label, value]) => `<div class="meta"><small>${escapeHtml(label)}</small><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
+  $("#workflowStrip").classList.toggle("hidden", interactive);
   renderActions(run); renderWorkflow(run); renderEvents();
   $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
   renderIntegration(run); renderChecks(run.check_results || []); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
@@ -144,7 +180,7 @@ function renderActions(run) {
   if (run.status === "review") actions.push(`<button class="action-button accept" data-action="accept" type="button">Accept</button>`);
   if (["attention", "review", "failed", "accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Resume agent</button>`);
   if (["review", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="draft-pr" type="button">Draft PR</button>`);
-  if (run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) actions.push(`<button class="action-button" data-action="takeover" type="button">Take over in tmux</button>`);
+  if (run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) actions.push(`<button class="action-button" data-action="takeover" type="button" title="Copies a command that opens this agent in your terminal">${run.kind === "tmux" ? "Copy tmux command" : "Continue in terminal"}</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
   if (run.pull_request_url) actions.push(`<a class="action-button accept" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open PR</a>`);
   if (run.pull_request_url) actions.push(`<button class="action-button" data-action="ci-poll" type="button">Poll CI</button>`);
@@ -257,7 +293,7 @@ async function refreshAttention() {
   $("#attentionList").innerHTML = state.attention.length ? state.attention.map((item) => {
     const options = (item.options || []).map((option) => `<button class="${option.id === "takeover" ? "ghost" : "primary"}" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
     return `<article class="stack-card attention-card priority-${escapeHtml(item.priority)}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(item.type)}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.message)}</p><div class="card-actions">${options}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">Answer…</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></article>`;
-  }).join("") : `<div class="attention-zero"><strong>Inbox zero.</strong><p>No agent currently needs you. Odysseus will keep working within its policy.</p></div>`;
+  }).join("") : `<div class="attention-zero"><strong>Nothing needs you.</strong><p>Agents can keep working. Questions, permission requests, failures, and review gates will appear here automatically.</p></div>`;
   $$('[data-attention-answer]').forEach((button) => button.addEventListener("click", () => respondAttention(button.dataset.attentionAnswer, button.dataset.answer)));
   $$('[data-attention-custom]').forEach((button) => button.addEventListener("click", () => { const response = window.prompt("Answer the agent or add guidance:"); if (response) respondAttention(button.dataset.attentionCustom, response); }));
   $$('[data-attention-resolve]').forEach((button) => button.addEventListener("click", async () => { await api(`/api/attention/${encodeURIComponent(button.dataset.attentionResolve)}/resolve`, {method: "POST", body: "{}"}); await refreshAttention(); }));
@@ -289,8 +325,12 @@ async function refreshProjects() {
   state.projects = (await api("/api/projects")).projects;
   const projectOptions = state.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join("");
   $("#projectFilter").innerHTML = `<option value="all">All projects</option>${projectOptions}`; $("#projectFilter").value = state.projectFilter;
-  $("#taskProjectSelect").innerHTML = `<option value="">Custom path</option>${projectOptions}`;
-  $("#epicProjectSelect").innerHTML = `<option value="">Custom path</option>${projectOptions}`;
+  const preferred = preferredProjectId();
+  $("#taskProjectSelect").innerHTML = `${projectOptions}<option value="">Other repository path…</option>`;
+  $("#epicProjectSelect").innerHTML = `${projectOptions}<option value="">Other repository path…</option>`;
+  if (preferred) { $("#taskProjectSelect").value = preferred; $("#epicProjectSelect").value = preferred; }
+  syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject"));
+  syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject"));
   $("#inboxProjectSelect").innerHTML = `<option value="">No project</option>${projectOptions}`;
   $("#githubProject").innerHTML = state.projects.filter((project) => project.github_url).map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join("") || `<option value="">No GitHub projects</option>`;
   renderProjects(); renderRuns(); updateGitHubLink();
@@ -316,19 +356,29 @@ async function refreshSessions() {
 }
 
 function renderSessions() {
-  $("#sessionList").innerHTML = state.sessions.length ? state.sessions.map((session) => `
-    <article class="collection-card"><div class="card-row"><span class="mini-status ${statusClass(session.status)}">${escapeHtml(session.status)}</span><span class="run-id">${session.attached ? "attached" : "detached"}</span></div>
-      <h3>${escapeHtml(session.title && session.title !== "-" ? session.title : session.tmux_session)}</h3><p>${escapeHtml(session.project_path || "Unknown project")}</p>
-      <div class="card-meta"><span>${escapeHtml(session.lane)}</span><span>${escapeHtml(session.id)}</span><span>${escapeHtml(session.context_remaining || "—")} context</span>${session.managed ? "<span>managed</span>" : "<span>existing pane</span>"}</div>
-      <div class="card-actions">${session.adopted_run_id ? `<button class="ghost" data-open-run="${escapeHtml(session.adopted_run_id)}" type="button">Open task</button>` : `<button class="primary" data-adopt="${escapeHtml(session.id)}" type="button">Adopt</button>`}<button class="ghost" data-attach="${escapeHtml(session.tmux_session)}" data-pane-target="${escapeHtml(session.tmux_target || "")}" type="button">Copy attach command</button></div></article>`).join("") : `<div class="empty-card">No tmux server or sessions are visible. Sessions launched with prefix + y appear here automatically.</div>`;
+  const groups = new Map();
+  state.sessions.forEach((session) => { const key = session.tmux_session || "unknown"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(session); });
+  $("#sessionList").innerHTML = state.sessions.length ? [...groups.entries()].map(([name, sessions]) => {
+    const attached = sessions.some((session) => session.attached);
+    const cards = sessions.map((session) => {
+      const title = session.title && session.title !== "-" ? session.title : session.window_name || `${session.lane} agent`;
+      const location = [session.window_name ? `window ${session.window_name}` : "", session.tmux_target ? `pane ${session.tmux_target}` : ""].filter(Boolean).join(" · ");
+      const context = session.context_remaining && session.metadata_confidence === "exact" ? `<span>${escapeHtml(session.context_remaining)} context</span>` : "";
+      return `<article class="collection-card session-card"><div class="card-row"><span class="mini-status ${statusClass(session.status)}">${escapeHtml(statusLabel(session.status))}</span><span class="run-id">${escapeHtml(location || session.id)}</span></div>
+        <h3 title="${escapeHtml(title)}">${escapeHtml(title)}</h3><p class="session-location" title="${escapeHtml(session.project_path || "")}">${escapeHtml(session.project_path || "Unknown repository")}</p>
+        <div class="card-meta"><span>${escapeHtml(session.lane)}</span>${context}${session.managed ? "<span>Odysseus-managed</span>" : "<span>discovered tmux pane</span>"}</div>
+        <div class="card-actions">${session.adopted_run_id ? `<button class="ghost" data-open-run="${escapeHtml(session.adopted_run_id)}" type="button">Open tracked entry</button>` : `<button class="primary" data-adopt="${escapeHtml(session.id)}" type="button" title="Adds this pane to Tasks without changing it">Track in Odysseus</button>`}<button class="ghost" data-attach="${escapeHtml(session.tmux_session)}" data-pane-target="${escapeHtml(session.tmux_target || "")}" type="button">Copy tmux command</button></div></article>`;
+    }).join("");
+    return `<section class="session-group"><div class="session-group-head"><h2>tmux session ${escapeHtml(name)}</h2><span>${sessions.length} agent pane${sessions.length === 1 ? "" : "s"} · ${attached ? "attached" : "detached"}</span></div><div class="session-group-grid">${cards}</div></section>`;
+  }).join("") : `<div class="empty-card"><strong>No agent terminals found.</strong><br>Start Codex or Claude inside tmux; it will appear here automatically within a few seconds. There is no import button.</div>`;
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
   $$('[data-attach]').forEach((button) => button.addEventListener("click", () => copyCommand(button.dataset.paneTarget ? `tmux select-pane -t ${button.dataset.paneTarget} \\; attach-session -t ${button.dataset.attach}` : `tmux attach-session -t ${button.dataset.attach}`)));
-  $$('[data-adopt]').forEach((button) => button.addEventListener("click", async () => { try { const run = await api(`/api/tmux/sessions/${encodeURIComponent(button.dataset.adopt)}/adopt`, {method: "POST", body: "{}"}); toast("Session adopted into durable history."); await Promise.all([refreshSessions(), refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } }));
+  $$('[data-adopt]').forEach((button) => button.addEventListener("click", async () => { try { const run = await api(`/api/tmux/sessions/${encodeURIComponent(button.dataset.adopt)}/adopt`, {method: "POST", body: "{}"}); toast("Now tracking this pane. The original tmux session was not changed."); await Promise.all([refreshSessions(), refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } }));
 }
 
 async function refreshInbox() { state.inbox = (await api("/api/inbox")).items; renderInbox(); $("#inboxNavCount").textContent = state.inbox.filter((item) => item.status === "open").length || ""; }
 function renderInbox() {
-  $("#inboxList").innerHTML = state.inbox.length ? state.inbox.map((item) => `<article class="stack-card"><div class="card-row"><span class="mini-status ${item.status === "open" ? "status-queued" : "status-accepted"}">${escapeHtml(item.status)}</span><span class="run-id">${relativeTime(item.updated_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.task)}</p><div class="card-meta"><span>${escapeHtml(item.source)}</span><span>${escapeHtml(projectById(item.project_id)?.name || "no project")}</span><span>${escapeHtml(item.priority)}</span></div><div class="card-actions">${item.status === "open" && item.project_path ? `<button class="primary" data-promote="${escapeHtml(item.id)}" type="button">Queue task</button>` : ""}${item.status === "open" ? `<button class="ghost" data-resolve="${escapeHtml(item.id)}" type="button">Resolve</button>` : ""}</div></article>`).join("") : `<div class="empty-card">Inbox zero. Agents can add follow-ups without changing the project diff.</div>`;
+  $("#inboxList").innerHTML = state.inbox.length ? state.inbox.map((item) => `<article class="stack-card"><div class="card-row"><span class="mini-status ${item.status === "open" ? "status-queued" : "status-accepted"}">${escapeHtml(item.status)}</span><span class="run-id">${relativeTime(item.updated_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.task)}</p><div class="card-meta"><span>${escapeHtml(item.source)}</span><span>${escapeHtml(projectById(item.project_id)?.name || "no project")}</span><span>${escapeHtml(item.priority)}</span></div><div class="card-actions">${item.status === "open" && item.project_path ? `<button class="primary" data-promote="${escapeHtml(item.id)}" type="button">Queue as agent task</button>` : ""}${item.status === "open" ? `<button class="ghost" data-resolve="${escapeHtml(item.id)}" type="button">Resolve</button>` : ""}</div></article>`).join("") : `<div class="empty-card"><strong>No parked follow-ups.</strong><br>Use “Add follow-up” to save work for later. Adding an item does not start an agent; “Queue as agent task” does.</div>`;
   $$('[data-resolve]').forEach((button) => button.addEventListener("click", async () => { await api(`/api/inbox/${encodeURIComponent(button.dataset.resolve)}/resolve`, {method: "POST", body: "{}"}); await refreshInbox(); }));
   $$('[data-promote]').forEach((button) => button.addEventListener("click", async () => { const run = await api(`/api/inbox/${encodeURIComponent(button.dataset.promote)}/promote`, {method: "POST", body: "{}"}); await Promise.all([refreshInbox(), refreshRuns()]); await selectRun(run.id); }));
 }
@@ -372,10 +422,13 @@ async function runSearch(query = "") {
 }
 
 function bindDialogs() {
-  const taskDialog = $("#taskDialog"); [$("#newTaskButton"), $("#emptyNewTask")].forEach((button) => button.addEventListener("click", () => taskDialog.showModal()));
-  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); toast(`Queued ${run.id}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } });
-  $("#newEpicButton").addEventListener("click", () => $("#epicDialog").showModal());
-  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Planning…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Planner proposal is ready for approval."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Create proposal"; } });
+  const taskDialog = $("#taskDialog");
+  [$("#newTaskButton"), $("#emptyNewTask")].forEach((button) => button.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); taskDialog.showModal(); }));
+  $("#taskProjectSelect").addEventListener("change", () => syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")));
+  $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
+  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start agent task"; } });
+  $("#newEpicButton").addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); });
+  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
   $("#newInboxButton").addEventListener("click", () => $("#inboxDialog").showModal());
   $("#inboxForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); await api("/api/inbox", {method: "POST", body: JSON.stringify({title: data.get("title"), task: data.get("task"), project_id: project?.id || "", project_path: project?.path || ""})}); $("#inboxDialog").close(); event.currentTarget.reset(); await refreshInbox(); });

@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-171a16)
+![Version: 0.4.1](https://img.shields.io/badge/version-0.4.1-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -12,7 +12,7 @@ already use.**
 Odysseus turns requirements into approval-gated task DAGs, runs isolated agent
 work, evaluates the evidence, and shows only exceptions in a central **Needs
 You** queue. Its light web UI is also a live window into existing tmux sessions:
-discovery is automatic, while adoption and takeover stay explicit.
+discovery is automatic, while tracking and terminal handoff stay explicit.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
@@ -86,15 +86,31 @@ to `docs/screenshots/` and removes its temporary state when finished.
 | --- | --- |
 | **New task** in the web UI | A branch and worktree are created, then the bounded agent/check/review workflow runs. |
 | `bin/odysseus run ...` | The same workflow is queued from a terminal or script. |
-| **Plan an epic** / `bin/odysseus plan ...` | A read-only planner proposes a DAG; tasks exist only after explicit approval. |
+| **Plan multi-task work** / `bin/odysseus plan ...` | A read-only planner proposes a DAG; tasks exist only after explicit approval. |
 | Existing Codex/Claude tmux pane | It appears in **Sessions** automatically; no import button is required. |
-| **Adopt** on a tmux session | A durable Odysseus record is created without interrupting the pane. |
-| Inbox **Promote** | A human or agent follow-up becomes a queued task in its project. |
+| **Track in Odysseus** on a tmux pane | A durable shortcut is created without restarting, controlling, or interrupting the pane. |
+| Inbox **Queue as agent task** | A human or agent follow-up becomes a queued task in its project. |
 | GitHub **Queue issue** | An open issue becomes a queued task through authenticated `gh`. |
 
 Automatic discovery does not silently turn arbitrary panes into autonomous
-jobs. Use **Adopt** only when an interactive session should have durable
-Odysseus history.
+jobs. Existing panes are visible without pressing anything. Use **Track in
+Odysseus** only when an interactive pane should also appear in Tasks and have a
+durable Odysseus shortcut.
+
+### What to enter in the web forms
+
+- **New task** is for one focused outcome. Write the request in natural
+  language, choose the repository and agent, and optionally add trusted test
+  commands. Odysseus creates the branch/worktree and starts when a scheduler
+  slot is free.
+- **Epics -> Plan multi-task work** is for a feature that should become several
+  dependent or parallel tasks. Describe the finished feature, not the task
+  breakdown. The Planner proposes the graph and nothing runs before approval.
+- **Sessions** requires no input. It discovers existing Codex/Claude tmux panes.
+  Tracking one does not provide historical tool/token data that Odysseus never
+  observed.
+- **Inbox** parks follow-up work. Adding an item does not launch an agent;
+  **Queue as agent task** does.
 
 ## The autonomous workflow
 
@@ -141,12 +157,13 @@ At the review gate:
 | --- | --- |
 | **Accept** | Records approval and a durable local artifact commit; it does not push, merge to the source branch, or delete the worktree. |
 | **Resume agent** | Sends feedback to the saved implementation thread in the same worktree. |
-| **Take over in tmux** | Resumes the exact implementation thread in a managed interactive session. |
+| **Continue in terminal** | Resumes the exact implementation thread in a managed tmux session and copies its open command. |
 | **Draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request. |
 
-**Take over** does not steal or recreate work. It opens the exact saved agent
-thread in tmux, inside the existing task worktree, so the human can continue
-interactively. **Resume agent** continues that same thread autonomously.
+**Continue in terminal** does not steal or recreate work. It prepares the exact
+saved agent thread in tmux, inside the existing task worktree, then copies the
+command you paste into a terminal. **Resume agent** continues that same thread
+autonomously.
 
 ## tmux controls
 
@@ -183,8 +200,10 @@ Optional Codex TUI status hooks:
 ~/.tmux/plugins/odysseus/scripts/install-hooks.sh
 ```
 
-The web UI never injects keystrokes into an arbitrary pane. Adoption, resume,
-and takeover are explicit, auditable transitions.
+The web UI never injects keystrokes into an arbitrary pane. Tracking, resume,
+and terminal handoff are explicit, auditable transitions. **Copy tmux command**
+means exactly that: Odysseus copies a safe command which you paste into your own
+terminal to open the same pane.
 
 ## Projects, inbox, and GitHub
 

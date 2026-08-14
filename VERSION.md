@@ -2,7 +2,7 @@
 
 ## Current version
 
-**0.4.0 — 2026-08-14**
+**0.4.1 — 2026-08-14**
 
 Version 0.4 makes DAG edges carry code, not only scheduling state. Accepted
 tasks become durable local artifacts; downstream branches compose those
@@ -10,7 +10,25 @@ artifacts before implementation; draft pull requests enter a bounded GitHub CI
 repair loop. The operator sees merge risk, CI, liveness, budgets, and outcomes
 in the same attention-first control plane.
 
-## What is available in 0.4.0
+## What is available in 0.4.1
+
+### 0.4.1 operator clarity patch
+
+- The task form starts with the natural-language outcome; repository and agent
+  are explicit, while retries, priority, and budgets stay under Advanced.
+- Registered repositories are selected automatically. The absolute-path field
+  appears only when **Other repository path** is chosen.
+- Epic planning now explains requirement -> proposal -> approval -> execution
+  in the dialog and states twice that the button does not start implementation.
+- Existing tmux panes are grouped by tmux session and use real window/pane
+  labels instead of duplicating the latest Codex prompt for every pane sharing
+  a directory.
+- **Track in Odysseus** replaces the ambiguous Adopt label. A tracked terminal
+  gets a deliberately reduced detail view and never displays invented zeros,
+  diff, CI, confidence, or agent-session telemetry.
+- Terminal handoff actions say whether they copy a tmux command, Inbox explains
+  when work starts, and empty navigation counters no longer look like status
+  lights.
 
 ### Artifact DAG and merge intelligence
 
@@ -74,7 +92,7 @@ in the same attention-first control plane.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.4.0` |
+| Application version | `0.4.1` |
 | Run snapshot schema | `4` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
@@ -119,6 +137,12 @@ An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.4.1 — operator clarity
+
+Removed misleading inferred tmux metadata, grouped discovered panes, added a
+purpose-built tracked-terminal view, simplified task/Epic input, and documented
+exactly which actions start work or only copy a terminal command.
 
 ### 0.4.0 — artifacts reach green
 

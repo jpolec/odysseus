@@ -22,7 +22,7 @@ records, while SSE transports new events without inventing a second schema.
 | `accepted` | Human accepted the review result |
 | `publishing` | Branch is being committed and pushed |
 | `pr_created` | Draft pull request was created |
-| `session` | Adopted interactive tmux session; not scheduler-eligible |
+| `session` | Durably tracked interactive tmux session; not scheduler-eligible |
 
 A server restart recovers orphaned active states to `queued`. It does not erase
 their existing event history or worktree.

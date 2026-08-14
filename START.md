@@ -53,8 +53,13 @@ In the web UI:
 1. Select **New task**.
 2. Choose a registered project or enter its absolute path.
 3. Choose `codex` or `claude`.
-4. Add one check command per line.
-5. Select **Queue task**.
+4. Optionally add one trusted check command per line.
+5. Select **Start agent task**.
+
+The large text box is the only creative input. Write the desired result as you
+would to an engineer, including constraints and what “done” means. Repository,
+agent, and checks tell Odysseus where and how to run that request; retries,
+priority, and budgets stay under **Advanced**.
 
 The equivalent CLI command is:
 
@@ -77,7 +82,7 @@ gate unless an explicit project policy permits auto-accept eligibility.
 
 ## 5. Or plan a larger requirement
 
-Select **Epics** -> **Plan an epic**, or run:
+Select **Epics** -> **Plan multi-task work**, or run:
 
 ```sh
 bin/odysseus plan \
@@ -107,8 +112,9 @@ Then choose one action:
   push, merge into your source branch, or delete anything.
 - **Resume agent** sends feedback into the saved implementation thread and the
   same worktree.
-- **Take over in tmux** resumes that exact thread interactively and copies the
-  safe attach command.
+- **Continue in terminal** resumes that exact thread interactively and copies
+  the safe tmux command. Paste the command into a terminal to enter the agent;
+  the browser never injects keystrokes into tmux.
 - **Draft PR** commits and pushes the task branch, then asks `gh` to create a
   draft pull request.
 
@@ -141,16 +147,21 @@ Reload tmux, press `prefix` + `I`, then use:
 - `prefix` + `O` to start or open the web UI.
 
 The web **Sessions** view discovers managed sessions and existing Codex/Claude
-panes automatically. Select **Adopt** only when you want a durable Odysseus
-record for an interactive pane.
+panes automatically; you do not press anything to import them. Select **Track
+in Odysseus** only when you want a durable entry under Tasks. Tracking leaves
+the original pane untouched and cannot recreate tokens, tools, checks, or diffs
+that Odysseus did not observe. **Copy tmux command** copies the exact command to
+open that pane in your terminal.
 
-## 8. Confirm resume and takeover
+## 8. Confirm resume, terminal handoff, and tracking
 
 The important distinction is:
 
 - **Resume agent** continues the saved thread autonomously.
-- **Take over in tmux** continues the saved thread interactively.
-- **Adopt** attaches durable history to a session that started in tmux.
+- **Continue in terminal** continues the saved thread interactively and copies
+  the tmux command you paste into your terminal.
+- **Track in Odysseus** adds a durable shortcut for a session that started in
+  tmux; the CLI command keeps its compatibility name `adopt`.
 
 List the resulting state from any terminal:
 
@@ -160,9 +171,9 @@ bin/odysseus sessions
 bin/odysseus events RUN_ID
 ```
 
-Takeover is not a new agent or a copy of its files: Odysseus starts or returns a
-managed tmux session in the existing task worktree and resumes the recorded
-agent session id.
+Terminal handoff is not a new agent or a copy of its files: Odysseus starts or
+returns a managed tmux session in the existing task worktree and resumes the
+recorded agent session id.
 
 ## 9. Continue from here
 

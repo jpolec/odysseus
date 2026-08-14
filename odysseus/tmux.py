@@ -107,16 +107,47 @@ class TmuxBridge:
                 "list-panes",
                 "-a",
                 "-F",
-                "#{session_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}",
+                "#{session_name}\t#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}",
             )
         except (OSError, subprocess.TimeoutExpired):
             return []
         panes: list[dict[str, str]] = []
         for line in result.stdout.splitlines():
             fields = line.split("\t")
-            if len(fields) >= 5:
-                panes.append(dict(zip(("session", "target", "pid", "command", "path"), fields[:5])))
+            if len(fields) >= 8:
+                panes.append(
+                    dict(
+                        zip(
+                            ("session", "window_index", "window_name", "target", "pid", "command", "path", "pane_title"),
+                            fields[:8],
+                        )
+                    )
+                )
         return panes
+
+    @staticmethod
+    def _pane_status(title: str) -> str:
+        lowered = title.strip().lower()
+        if "action required" in lowered or "waiting" in lowered:
+            return "waiting"
+        if "working" in lowered or any(spinner in title for spinner in "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
+            return "working"
+        return "unknown"
+
+    @staticmethod
+    def _pane_display_title(pane: Mapping[str, str], lane: str) -> str:
+        path_name = Path(str(pane.get("path") or "")).name.lower()
+        generic = {"", "tmux", "working", "zsh", "bash", "sh", "fish", "jakub", path_name}
+        pane_title = str(pane.get("pane_title") or "").strip()
+        if lane == "claude" and pane_title.startswith("✳"):
+            return pane_title.lstrip("✳ ")
+        window_name = str(pane.get("window_name") or "").strip()
+        if window_name.lower() not in generic and not window_name.isdigit():
+            return window_name
+        pane_title = pane_title.lstrip("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ ")
+        if pane_title.lower() not in generic and not any(suffix in pane_title.lower() for suffix in (".local", ".home")):
+            return pane_title
+        return f"{lane.capitalize()} pane {pane.get('target') or ''}".strip()
 
     @staticmethod
     def _agent_roots(panes: list[dict[str, str]]) -> dict[str, str]:
@@ -245,6 +276,7 @@ class TmuxBridge:
                 "tmux_target": "",
                 "kind": "session",
                 "adopted_run_id": adopted.get((name, "")),
+                "metadata_confidence": "heuristic" if meta else "tmux",
                 **meta,
             }
             sessions.append(record)
@@ -260,18 +292,22 @@ class TmuxBridge:
             if not lane or pane["session"] in managed_names:
                 continue
             detail = session_details.get(pane["session"], [])
-            meta = codex_metadata(pane["path"]) if lane == "codex" else {}
             identifier = f"pane-{pane['target'].lstrip('%')}"
+            pane_title = str(pane.get("pane_title") or "")
             record = {
                 "id": identifier,
                 "tmux_session": pane["session"],
                 "tmux_target": pane["target"],
                 "kind": "pane",
+                "window_index": int(pane["window_index"]) if pane.get("window_index", "").isdigit() else None,
+                "window_name": str(pane.get("window_name") or ""),
+                "pane_title": pane_title,
+                "title": self._pane_display_title(pane, lane),
                 "project_path": pane["path"],
                 "lane": lane,
                 "role": "existing",
                 "command": pane["command"],
-                "status": meta.get("detected_status") or "unknown",
+                "status": self._pane_status(pane_title),
                 "managed": False,
                 "attached": len(detail) > 4 and detail[4] != "0",
                 "windows": int(detail[3]) if len(detail) > 3 and detail[3].isdigit() else 0,
@@ -279,7 +315,7 @@ class TmuxBridge:
                 "activity_at_epoch": int(detail[2]) if len(detail) > 2 and detail[2].isdigit() else 0,
                 "pane_pid": int(pane["pid"]) if pane["pid"].isdigit() else None,
                 "adopted_run_id": adopted.get((pane["session"], pane["target"])),
-                **meta,
+                "metadata_confidence": "tmux",
             }
             sessions.append(record)
             self._register_project(pane["path"])
@@ -342,6 +378,8 @@ class TmuxBridge:
             target = str(run.get("tmux_target") or "")
             if any(item["tmux_session"] == existing and str(item.get("tmux_target") or "") == target for item in self.list()):
                 return {"tmux_session": existing, "tmux_target": target, "command": self.attach_command(existing, target), "created": False}
+            if run.get("kind") == "tmux":
+                raise ValueError("the tracked tmux pane is no longer available; Odysseus will not guess which agent thread to resume")
         lane = str(run.get("lane") or "codex")
         sessions = run.get("agent_sessions") if isinstance(run.get("agent_sessions"), dict) else {}
         session_id = str(sessions.get("agent") or run.get("agent_session_id") or "")
