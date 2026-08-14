@@ -58,7 +58,11 @@ Current event types:
 run.queued              run.started             run.status
 run.cancel_requested    run.cancelled           run.failed
 run.attention           run.review_ready        run.accepted
+run.heartbeat           run.stalled             run.budget_exceeded
 worktree.creating       worktree.ready          worktree.dirty_base
+artifact.created
+integration.started     integration.artifact_applied
+integration.completed   integration.conflict
 step.started            step.completed          step.failed
 agent.output            agent.message           agent.reasoning
 agent.session           agent.tool.started      agent.tool.completed
@@ -66,8 +70,11 @@ agent.usage             agent.cost              agent.completed
 agent.question          agent.permission_request
 agent.blocked           agent.decision_required
 check.output            check.completed         workflow.retry
-review.sent_back        review.accepted
+review.sent_back        review.accepted         review.comment
 pr.creating             pr.created              pr.failed
+ci.started              ci.passed               ci.failed
+ci.poll_failed          ci.retry_queued         ci.retry_pushed
+ci.retry_exhausted
 system.recovered
 session.adopted         session.resumed         session.takeover_ready
 inbox.created           inbox.promoted
@@ -87,18 +94,21 @@ The default origin is `http://127.0.0.1:8741`.
 | --- | --- | --- |
 | `GET` | `/api/bootstrap` | UI metadata and the per-process mutation token |
 | `GET` | `/api/health` | Scheduler health plus active, queued, blocked, and attention counts |
-| `GET` | `/api/runs` | All current run snapshots, newest first |
+| `GET` | `/api/runs?project_id=&status=` | Current run snapshots with optional exact filters |
 | `POST` | `/api/runs` | Create a queued run |
 | `GET` | `/api/runs/:id` | One run snapshot |
 | `GET` | `/api/runs/:id/events?after=N` | Replay normalized events |
 | `GET` | `/api/runs/:id/stream?after=N` | Continue with Server-Sent Events |
 | `GET` | `/api/runs/:id/diff` | Unified patch, stat, and untracked file list |
 | `POST` | `/api/runs/:id/cancel` | Request cancellation |
-| `POST` | `/api/runs/:id/accept` | Accept at the human review gate |
+| `POST` | `/api/runs/:id/accept` | Accept and create a durable local artifact commit |
 | `POST` | `/api/runs/:id/send-back` | Requeue with `{ "feedback": "..." }` |
-| `POST` | `/api/runs/:id/resume` | Continue the saved implementation thread with `{ "prompt": "..." }` |
+| `POST` | `/api/runs/:id/resume` | Continue with `{ "prompt": "...", "strategy": "resume|switch|clean", "lane": "..." }` |
 | `POST` | `/api/runs/:id/takeover` | Create/return a managed interactive tmux continuation |
 | `POST` | `/api/runs/:id/draft-pr` | Commit, push, and create a draft PR |
+| `POST` | `/api/runs/:id/ci-poll` | Poll GitHub checks for this published run now |
+| `GET` | `/api/search?q=...` | Search runs, recent events, Epics, projects, attention, and Inbox |
+| `GET` | `/api/stats` | Aggregate outcomes, observed economics, interventions, CI, and merge risk |
 | `GET` | `/api/projects` | Registered projects and Git/GitHub metadata |
 | `POST` | `/api/projects` | Register or refresh a project |
 | `DELETE` | `/api/projects/:id` | Remove a registry entry (does not delete files) |
@@ -135,7 +145,15 @@ Example create request:
   "workflow": "agent-check-review",
   "checks": ["python3 -m unittest"],
   "max_retries": 2,
-  "base_ref": "main"
+  "base_ref": "main",
+  "priority": 70,
+  "budgets": {
+    "timeout_seconds": 1800,
+    "stall_seconds": 300,
+    "max_tokens": 80000,
+    "max_tool_calls": 120,
+    "max_cost_usd": 8.0
+  }
 }
 ```
 
@@ -176,7 +194,11 @@ lanes; unknown or malformed markers never become implicit approval.
 - The scheduler validates readiness again while claiming, closing the race
   between graph refresh and worker start.
 - `parallelizable: false` excludes overlap with active siblings in the Epic.
-- Version 0.3 does not merge predecessor worktree artifacts automatically.
+- `accepted` records an `artifact_sha` and `artifact_files` surface.
+- Before a downstream agent starts, artifacts are merged in `depends_on` order
+  into that run's worktree. Applied sources and resulting head are recorded.
+- Pairwise file overlap produces `merge_analysis`; a real Git conflict emits
+  `integration.conflict`, aborts the merge, and fails the downstream run.
 
 ## Review and Git Semantics
 
@@ -184,8 +206,21 @@ lanes; unknown or malformed markers never become implicit approval.
   checkout changes.
 - Diff output compares the complete worktree, index, and task-branch commits to
   `base_sha`; readable untracked files are included.
-- Accept is a durable decision only. It does not merge or remove the worktree.
-- Resume/send back preserves the branch/worktree and uses the recorded Codex or
-  Claude implementation session id for the new cycle.
+- Accept stages the complete task worktree and creates a local artifact commit.
+  It does not push, merge to the source branch, or remove the worktree.
+- Resume/send back preserves the branch/worktree. `resume` reuses the recorded
+  implementation session; `switch` clears it and changes lane; `clean` clears
+  it without changing lane.
 - Draft PR runs `git add -A`, creates a commit when needed, pushes the task
   branch, and invokes `gh pr create --draft`.
+- Published runs carry normalized `ci.status`, check records, failed logs, and
+  attempt count. Eligible automatic repairs push to the same PR branch; retry
+  exhaustion creates attention and never auto-merges.
+
+## Run snapshot schema 4 additions
+
+Schema 4 adds `priority`, `artifact_sha`, `artifact_files`,
+`artifact_created_at`, `integration_sources`, `integration_head`,
+`merge_analysis`, `ci`, `ci_retry_active`, `github_feedback_seen`, `budgets`,
+`budget_status`, `stage`, `stage_started_at`, and `last_heartbeat`. Store open
+migrates old snapshots by adding defaults; it never rewrites event journals.

@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.3.0](https://img.shields.io/badge/version-0.3.0-171a16)
+![Version: 0.4.0](https://img.shields.io/badge/version-0.4.0-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -23,8 +23,10 @@ discovery is automatic, while adoption and takeover stay explicit.
 
 - **Keep tmux.** Existing Codex and Claude panes appear automatically and stay
   usable from the terminal.
-- **Run safely in parallel.** Every autonomous task receives its own branch and
-  Git worktree; a persistent scheduler enforces the global concurrency limit.
+- **Compose parallel work.** Accepted predecessor tasks become durable local
+  Git artifacts that are merged into the downstream task's isolated branch.
+- **Reach green.** Published draft PRs are watched; failed logs return to the
+  original session, fixes are pushed, and retry budgets stop infinite loops.
 - **Plan before spending.** A read-only Planner proposes an acyclic task graph;
   the operator approves it before ready tasks can run.
 - **See only what needs you.** Questions, permissions, broken dependencies,
@@ -34,8 +36,8 @@ discovery is automatic, while adoption and takeover stay explicit.
 - **See the work.** The UI exposes normalized messages, reasoning summaries,
   tool calls/results, token and cache usage, checks, independent evaluation,
   confidence, policy, and live activity.
-- **Keep control.** Accept only records approval. Creating a draft pull request
-  is a separate, explicit action.
+- **Keep control.** Accept creates a local artifact commit but does not push,
+  merge to the source branch, delete a worktree, or publish anything.
 - **Operate more than one repository.** Projects, tasks, tmux sessions, GitHub
   issues, and follow-ups share one local control plane.
 - **Stay inspectable.** State is JSON plus append-only NDJSON. The runtime uses
@@ -66,7 +68,17 @@ scripts/demo.py --serve
 ```
 
 Open <http://127.0.0.1:8742/>. The disposable state demonstrates Needs You,
-an Epic DAG, blocked/ready work, tool telemetry, checks, and evaluation.
+an Epic DAG, blocked/ready work, merge risk, artifact composition, a failed CI
+repair loop, tool telemetry, checks, evaluation, search, and outcome metrics.
+
+Reproduce the web screenshots from that exact state with local Chrome/Chromium:
+
+```sh
+scripts/capture-web-screenshots.sh
+```
+
+The script writes the Attention, Epic DAG, Integration/CI, and Insights views
+to `docs/screenshots/` and removes its temporary state when finished.
 
 ## Where tasks come from
 
@@ -96,7 +108,8 @@ For a larger requirement:
 
 ```text
 requirement -> read-only Planner -> proposed DAG -> operator approval
-            -> ready tasks fan out -> dependency gates -> integration/review
+            -> ready tasks fan out -> accepted artifacts -> isolated fan-in
+            -> integration checks -> review -> draft PR -> CI repair -> green
 ```
 
 ```sh
@@ -126,7 +139,7 @@ At the review gate:
 
 | Action | Result |
 | --- | --- |
-| **Accept** | Records human approval; it does not merge or delete the worktree. |
+| **Accept** | Records approval and a durable local artifact commit; it does not push, merge to the source branch, or delete the worktree. |
 | **Resume agent** | Sends feedback to the saved implementation thread in the same worktree. |
 | **Take over in tmux** | Resumes the exact implementation thread in a managed interactive session. |
 | **Draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request. |
@@ -236,6 +249,34 @@ Checks can be supplied per task or committed as `.odysseus.json`:
 Task checks take precedence. Check commands are trusted project configuration
 and run through `/bin/sh -lc` inside the task worktree.
 
+Global budgets, the CI repair loop, and notifications live in
+`~/.odysseus/config.json`:
+
+```json
+{
+  "budgets": {
+    "timeout_seconds": 1800,
+    "stall_seconds": 300,
+    "max_tokens": 80000,
+    "max_tool_calls": 120,
+    "max_cost_usd": 8.0
+  },
+  "ci": {
+    "watch": true,
+    "auto_resume": true,
+    "max_attempts": 2,
+    "poll_seconds": 30
+  },
+  "notifications": [
+    {"type": "ntfy", "name": "phone", "url": "https://ntfy.sh/your-private-topic"},
+    {"type": "slack", "name": "engineering", "url": "https://hooks.slack.com/services/..."}
+  ]
+}
+```
+
+Per-task web/CLI budgets override global defaults. Notification destination
+URLs can contain credentials; keep `config.json` private and never commit it.
+
 State is stored under `~/.odysseus` by default:
 
 ```text
@@ -244,6 +285,7 @@ State is stored under `~/.odysseus` by default:
 ├── projects.json
 ├── inbox.json
 ├── attention.json
+├── notifications.ndjson
 ├── epics/<epic-id>.json
 ├── runs/<run-id>.json
 ├── events/<run-id>.ndjson
@@ -296,6 +338,10 @@ bin/odysseus inbox
 bin/odysseus projects
 bin/odysseus accept RUN_ID
 bin/odysseus draft-pr RUN_ID
+bin/odysseus ci RUN_ID
+bin/odysseus search "failing browser test"
+bin/odysseus stats
+bin/odysseus export --output odysseus-state.json
 bin/odysseus config --max-parallel 3
 ```
 

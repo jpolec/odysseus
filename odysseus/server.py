@@ -98,7 +98,7 @@ class OdysseusHTTPServer(ThreadingHTTPServer):
 class OdysseusHandler(BaseHTTPRequestHandler):
     server: OdysseusHTTPServer
     protocol_version = "HTTP/1.1"
-    server_version = "Odysseus/0.3"
+    server_version = "Odysseus/0.4"
 
     def log_message(self, format: str, *args: Any) -> None:
         if self.server.app.verbose:

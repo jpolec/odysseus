@@ -66,6 +66,17 @@ class BlockingAgentRunner:
         return ProcessResult(130, "stopped", 0.01, cancelled=True)
 
 
+class BudgetAgentRunner:
+    def run(self, lane, worktree, prompt, *, review, emit, cancelled):  # noqa: ANN001
+        emit(
+            "agent.usage",
+            lane,
+            {"input_tokens": 60, "output_tokens": 10, "reasoning_output_tokens": 0},
+        )
+        stopped = cancelled()
+        return ProcessResult(130 if stopped else 0, "budget", 0.01, cancelled=stopped)
+
+
 class SchedulerTests(unittest.TestCase):
     @staticmethod
     def _repo(root: Path) -> Path:
@@ -146,6 +157,35 @@ class SchedulerTests(unittest.TestCase):
             recovered = store.get(run["id"])
             self.assertEqual(recovered["status"], "queued")
             self.assertEqual(store.events(run["id"])[-1]["type"], "system.recovered")
+
+    def test_token_budget_stops_agent_and_creates_operator_attention(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            run = store.create(
+                {
+                    "task": "Stay within budget",
+                    "project_path": str(repo),
+                    "budgets": {"max_tokens": 50, "stall_seconds": 0},
+                }
+            )
+            scheduler = Scheduler(store, agent_runner=BudgetAgentRunner(), poll_seconds=0.01)
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and store.get(run["id"])["status"] != "failed":
+                    time.sleep(0.02)
+            finally:
+                scheduler.stop()
+
+            finished = store.get(run["id"])
+            self.assertEqual(finished["budget_status"]["state"], "exceeded")
+            self.assertIn("Token budget exceeded", finished["last_error"])
+            self.assertEqual(
+                store.attention.list(status="open", run_id=run["id"])[0]["type"],
+                "budget",
+            )
 
 
 if __name__ == "__main__":

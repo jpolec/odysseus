@@ -38,43 +38,30 @@ Versions describe independently useful product increments, not promised dates.
 - Attention-first white web UI with Epic DAG cards and evaluation details.
 - A disposable seeded demo environment for product tours and screenshots.
 
-Current DAG scope: 0.3 schedules and audits dependency order. It does not yet
-compose accepted changes from several task worktrees into one integration
-branch. That artifact/merge layer is the first 0.4 item and is deliberately not
-hidden behind a misleading “complete” state.
+## Shipped — 0.4: artifacts reach green
 
-## Next — 0.4: changes reach green
+- Accept creates a durable local Git artifact without pushing or merging to the
+  source branch.
+- Downstream DAG tasks compose predecessor artifacts in their own worktree
+  before the agent starts.
+- File-surface merge-risk analysis plus authoritative real-merge conflict
+  detection; conflicts are aborted and routed to Needs You.
+- GitHub check watcher that captures failing logs, resumes the original thread,
+  verifies locally, pushes the repair, and obeys an automatic retry budget.
+- Pull-request review comments normalized into fix/takeover/resolve decisions.
+- Webhook, Slack, and ntfy delivery for exceptional events.
+- Heartbeats, stage/last-activity tracking, stall detection, and time, token,
+  tool-call, and reported-cost budgets.
+- Explicit retry choice: saved thread, switched lane, or clean context on the
+  existing branch.
+- Priority-aware scheduling, cross-record local search, outcome/cost totals,
+  and a portable JSON evidence export.
+- Web Integration, CI, and Insights surfaces plus a deterministic 0.4 demo.
 
-### Integration and merge intelligence
-
-- Build an integration branch from accepted predecessor artifacts before a
-  downstream integration task starts.
-- Predict file overlap before execution and semantic overlap after execution.
-- Merge queue with ordered rebase, conflict explanation, and check reruns.
-- Show “tasks A and C touch the same semantic surface” before both consume
-  expensive agent time.
-- Use a non-destructive virtual merge as an early conflict signal, then a real
-  isolated integration branch as the authoritative check.
-
-### Closed CI and review loop
-
-- Watch GitHub check runs after a draft PR.
-- Capture failing CI logs, classify the failure, resume the same implementation
-  session, push the fix, and retry within a budget.
-- Turn actionable PR review comments into fix, reject, or ask-human decisions.
-- Webhook, ntfy, Slack, and generic notification delivery for attention events.
-- Liveness heartbeat, stalled-agent detection, stage classification, and a
-  conservative ETA instead of treating “process exists” as progress.
-
-### Workflow hardening
-
-- Task timeouts and token, tool-call, retry, and cost budgets.
-- Retry strategy as an explicit choice: resume the same thread, hand the branch
-  to a different lane, or start a clean-context attempt with a compact failure
-  trace. A retry is not automatically “same agent again.”
-- State export/import, backup verification, retention, and worktree cleanup.
-- Priority-aware scheduling and search across tasks, events, projects, and
-  attention history.
+Current boundary: merge-risk prediction understands the exact file surface and
+Git's real conflict result, but not semantic code graphs. GitHub integration is
+polling-based and never auto-merges. State export is shipped; verified import,
+retention, and cleanup remain below.
 
 ## Planned — 0.5: isolated execution environments
 
@@ -88,6 +75,12 @@ hidden behind a misleading “complete” state.
   policy, and CPU/RAM/disk limits.
 - `--untrusted-project` mode that requires explicit approval of repository
   supplied shell checks before their first execution.
+- Semantic code/dependency graph overlap prediction and a cross-PR merge queue
+  with ordered rebase, rerun, and rollback.
+- GitHub webhooks, review-comment classification, and explicit auto-merge
+  policies for narrowly trusted changes.
+- State import, backup verification, retention policy, and safe worktree/branch
+  cleanup.
 
 The goal is isolation of both code and runtime state: worktrees alone do not
 prevent two agents from fighting over the same port, database, or credentials.
@@ -135,6 +128,21 @@ precedent and confidence, never expand its own permissions, and send novel or
 risky decisions to the operator. Counterfactual replay could then estimate
 whether another lane, prompt, or policy would have produced a better outcome
 without silently changing production routing.
+
+A complementary **Executable Change Contract** could compile each requirement
+into explicit invariants before implementation: allowed behavioral changes,
+forbidden regressions, security properties, performance envelopes, migration
+and rollback conditions, and acceptable human decisions. Independent verifiers
+would test the contract against every candidate and integrated artifact. Unlike
+ordinary generated tests, the contract would be owned by the Epic and frozen
+before implementers run, reducing the chance that an agent validates only its
+own interpretation.
+
+The most experimental extension is **shadow orchestration**: replay a completed
+run's evidence through alternative routers, policies, and decomposition plans
+without touching the repository. Odysseus could then say “switching the review
+lane would likely have saved one intervention, but auto-merge would have
+violated the migration policy” before a team changes production autonomy.
 
 This is the potential data moat: not tmux, worktrees, or a dashboard, but a
 project-specific history connecting agent choices to verified engineering

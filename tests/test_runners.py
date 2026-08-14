@@ -123,6 +123,24 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(value["output_tokens"], 17)
         self.assertEqual(value["token"], "[REDACTED]")
 
+    def test_agent_timeout_emits_liveness_event_and_stops_process_group(self) -> None:
+        runner = AgentRunner({"slow": [sys.executable, "-c", "import time; time.sleep(10)"]})
+        events = []
+        with tempfile.TemporaryDirectory() as temp:
+            result = runner.run(
+                "slow",
+                Path(temp),
+                "task",
+                review=False,
+                emit=lambda event_type, source, data: events.append((event_type, source, data)),
+                cancelled=lambda: False,
+                timeout_seconds=0.1,
+            )
+
+        self.assertTrue(result.cancelled)
+        self.assertEqual(result.stop_reason, "timeout")
+        self.assertIn("run.stalled", [event[0] for event in events])
+
 
 if __name__ == "__main__":
     unittest.main()

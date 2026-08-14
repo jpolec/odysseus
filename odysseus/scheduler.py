@@ -777,6 +777,11 @@ class ReviewActions:
                 "Address this pull request review feedback in the existing branch and session:\n\n"
                 f"{item.get('message', '')}\n\nOperator decision: {response}"
             )
+        elif item.get("type") in {"ci_failed", "merge_conflict", "budget", "stalled"}:
+            response = (
+                f"Continue after this Odysseus exception:\n\n{item.get('message', '')}\n\n"
+                f"Operator decision: {response}"
+            )
         self.store.append_event(
             run_id,
             "attention.answered",

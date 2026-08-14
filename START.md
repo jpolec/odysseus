@@ -42,7 +42,8 @@ scripts/demo.py --serve
 
 Open <http://127.0.0.1:8742/>. The disposable state contains a passkey Epic,
 parallel task roots, a blocked integration task, a structured agent question,
-a review gate, token/tool metrics, and explainable evaluation. Stop with
+a review gate, composed artifacts, merge risk, failed GitHub CI, token/tool
+metrics, search, and explainable evaluation. Stop with
 `Ctrl-C`; your normal `~/.odysseus` state is untouched.
 
 ## 4. Queue the first task
@@ -61,6 +62,9 @@ The equivalent CLI command is:
 bin/odysseus run \
   --project /absolute/path/to/your/repository \
   --lane codex \
+  --priority 70 \
+  --stall-timeout 300 \
+  --max-tokens 80000 \
   --check "python3 -m unittest discover -s tests -v" \
   --check "git diff --check" \
   "Add a health endpoint and cover it with tests"
@@ -87,17 +91,20 @@ bin/odysseus plan \
 
 The Planner is read-only. Inspect its proposed graph, then approve it in the UI
 or with `bin/odysseus approve-epic EPIC_ID`. Only dependency-ready roots are
-queued. Version 0.3 orders the work; automatic composition of predecessor diffs
-into an integration branch is planned for 0.4.
+queued. When a root is accepted, 0.4 commits a local artifact. A downstream
+task merges every predecessor artifact into its own branch before its agent
+starts; failed merges stop there and appear in **Needs You**.
 
 ## 6. Make the human decision
 
-Open the task and inspect **Activity**, **Diff**, **Checks**, **Review**, and
-**Evaluation**. Or stay in **Needs You**, where agent questions, permission
-requests, failures, broken dependencies, and review gates are collected.
+Open the task and inspect **Activity**, **Diff**, **Integration**, **Checks**,
+**Review**, **Evaluation**, and **CI**. Or stay in **Needs You**, where agent
+questions, permission requests, failures, broken dependencies, and review gates
+are collected.
 Then choose one action:
 
-- **Accept** records approval without merging or deleting anything.
+- **Accept** records approval and creates a local artifact commit. It does not
+  push, merge into your source branch, or delete anything.
 - **Resume agent** sends feedback into the saved implementation thread and the
   same worktree.
 - **Take over in tmux** resumes that exact thread interactively and copies the
@@ -109,11 +116,14 @@ CLI equivalents:
 
 ```sh
 bin/odysseus resume RUN_ID "Fix the failing edge case"
+bin/odysseus resume RUN_ID --strategy switch --lane claude "Try a second lane"
 bin/odysseus takeover RUN_ID
 bin/odysseus accept RUN_ID
 bin/odysseus draft-pr RUN_ID
 bin/odysseus attention
 bin/odysseus answer ATTENTION_ID "Choose option A"
+bin/odysseus ci RUN_ID
+bin/odysseus stats
 ```
 
 ## 7. Add the tmux controls

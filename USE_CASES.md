@@ -49,8 +49,8 @@ Success means:
   draft PR; and
 - non-parallelizable integration work waits for active siblings.
 
-Version 0.3 orders execution but does not yet compose predecessor diffs into an
-integration branch; that artifact merge layer is planned for 0.4.
+Version 0.4 also turns accepted predecessors into local artifact commits and
+composes them into the downstream task branch before implementation.
 
 ## Answer an agent without entering tmux — 0.3
 
@@ -120,24 +120,46 @@ Success means the orchestration failure is a durable, actionable attention
 item rather than lost terminal output. `scripts/demo.py --serve` supplies a safe
 seeded tour when real model usage is undesirable.
 
-## Close the pull-request feedback loop — planned 0.4
+## Close the pull-request feedback loop — 0.4
 
 A draft PR turns red in GitHub Actions. Odysseus captures the relevant log,
 resumes the same implementation thread, reruns the local gate, pushes a fix,
 and watches the next CI attempt within a bounded retry budget. Review comments
-follow the same classify/fix/reject/ask-human loop.
+become explicit send-to-agent, takeover, or resolve decisions.
 
 Success means the task reaches green or creates one precise attention item; it
 never retries forever or silently ignores a requested change.
 
-## Integrate parallel task artifacts safely — planned 0.4
+## Integrate parallel task artifacts safely — 0.4
 
-Two accepted task branches both touch `UserService`. Before integration,
-Odysseus reports predicted file and semantic overlap, builds an integration
-branch in dependency order, and reruns the combined checks.
+Two accepted task branches both touch `UserService`. Before downstream work,
+Odysseus reports exact file-surface overlap, builds an isolated integration
+branch in dependency order, and runs the combined workflow. Git's real merge is
+authoritative; semantic code-graph prediction is not claimed in 0.4.
 
 Success means “both tasks pass alone but fail together” becomes a visible merge
 risk with an auditable recommended sequence.
+
+## Bound autonomous work and notify only on exceptions — 0.4
+
+An operator gives a task priority 90, an 80k token limit, 120 tool calls, an
+eight-dollar reported-cost budget, a 30-minute timeout, and a five-minute stall
+threshold. Routine progress stays in the event journal. A question, conflict,
+failed CI attempt, budget stop, or review gate is delivered through the web UI
+and optional webhook, Slack, or ntfy destination.
+
+Success means the process cannot retry forever, the stop reason is auditable,
+notification secrets are not copied into delivery history, and a background
+task does not require a permanently open browser tab.
+
+## Recover with a different agent strategy — 0.4
+
+The first implementation thread is stuck. The operator can resume the same
+thread, switch the existing branch/worktree to another lane, or start a clean
+context without discarding files. Each choice is explicit in the event stream.
+
+Success means a retry is never ambiguously “the same agent again,” and a lane
+switch never tries to resume a foreign provider's session id.
 
 ## Isolate runtime state as well as files — planned 0.5
 

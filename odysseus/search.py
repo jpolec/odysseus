@@ -88,6 +88,7 @@ def statistics(store: RunStore) -> dict[str, Any]:
     )
     cost = round(sum(float(item.get("cost_usd") or 0.0) for item in metrics), 6)
     attention = store.attention.list()
+    interventions = sum(1 for item in attention if item.get("status") in {"answered", "resolved"})
     return {
         "runs": len(runs),
         "successful_changes": len(successful),
@@ -97,7 +98,10 @@ def statistics(store: RunStore) -> dict[str, Any]:
         "cost_usd": cost,
         "cost_per_successful_change": round(cost / len(successful), 6) if successful else None,
         "open_attention": sum(1 for item in attention if item.get("status") == "open"),
-        "human_interventions": sum(1 for item in attention if item.get("status") in {"answered", "resolved"}),
+        "human_interventions": interventions,
+        "human_interventions_per_successful_change": (
+            round(interventions / len(successful), 4) if successful else None
+        ),
         "ci_failures": sum(1 for run in runs if int((run.get("ci") or {}).get("attempt") or 0) > 0),
         "merge_risk_high": sum(1 for run in runs if (run.get("merge_analysis") or {}).get("risk") == "high"),
     }

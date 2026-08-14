@@ -19,6 +19,10 @@ ATTENTION_TYPES = frozenset(
         "decision_required",
         "evaluation_failed",
         "ci_failed",
+        "merge_conflict",
+        "stalled",
+        "budget",
+        "review_comment",
     }
 )
 ATTENTION_PRIORITIES = frozenset({"low", "medium", "high", "critical"})

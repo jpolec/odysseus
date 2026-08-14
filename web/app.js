@@ -349,7 +349,7 @@ async function refreshInsights() {
     state.stats = await api("/api/stats");
     const entries = [
       ["Successful changes", state.stats.successful_changes, `${Math.round(Number(state.stats.success_rate || 0) * 100)}% of tasks`],
-      ["Human interventions", state.stats.human_interventions, `${state.stats.open_attention} currently open`],
+      ["Human interventions", state.stats.human_interventions, state.stats.human_interventions_per_successful_change === null ? `${state.stats.open_attention} currently open` : `${state.stats.human_interventions_per_successful_change} / successful change`],
       ["Tokens observed", compactNumber(state.stats.tokens), `${compactNumber(state.stats.tool_calls)} tool calls`],
       ["Compute cost", `$${Number(state.stats.cost_usd || 0).toFixed(2)}`, state.stats.cost_per_successful_change === null ? "No accepted task yet" : `$${Number(state.stats.cost_per_successful_change).toFixed(2)} / success`],
       ["CI repair loops", state.stats.ci_failures, "published changes repaired"],
@@ -393,6 +393,7 @@ async function init() {
     $("#projectFilter").addEventListener("change", (event) => { state.projectFilter = event.target.value; renderRuns(); updateGitHubLink(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
     await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns();
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
+    else { const requestedView = new URLSearchParams(location.search).get("view"); if (["attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github"].includes(requestedView)) setView(requestedView); }
     setConnection(true);
     window.setInterval(() => refreshRuns().catch(() => setConnection(false)), 3000);
     window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]).catch(() => setConnection(false)), 6000);

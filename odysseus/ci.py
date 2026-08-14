@@ -196,10 +196,16 @@ class CIWatcher:
         ci["updated_at"] = now_iso()
         self.store.update(run_id, ci=ci, ci_retry_active=True)
         logs = str(ci.get("logs") or "No failed log was available from GitHub.")[-35_000:]
+        review_context = "\n\n".join(
+            str(item.get("message") or "")
+            for item in self.store.attention.list(status="open", run_id=run_id)
+            if item.get("type") == "review_comment" and item.get("message")
+        )
         prompt = (
             "GitHub CI failed on the existing draft pull request. Diagnose the failure, make the "
             "smallest correct fix in this same worktree, and preserve the task intent.\n\n"
             f"CI summary: {message}\n\nFailed logs:\n{logs}"
+            + (f"\n\nNew pull-request review feedback:\n{review_context}" if review_context else "")
         )
         self.actions.resume(run_id, prompt)
         self.store.append_event(

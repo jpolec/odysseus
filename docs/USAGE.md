@@ -7,7 +7,8 @@ This is the operator guide for local, tmux, multi-project, and remote use.
 Odysseus manages two connected kinds of work:
 
 1. **Autonomous tasks** start in the web UI or CLI. They receive an isolated Git
-   worktree, run through implementation/check/review, and wait for a human.
+   worktree, run through implementation/check/review, and wait for a human or
+   enter the bounded PR/CI repair loop.
 2. **Interactive sessions** start in tmux. They are discovered automatically
    and remain ordinary terminal sessions until you explicitly adopt them.
 3. **Epics** start as a requirement. A read-only Planner proposes a task DAG;
@@ -83,6 +84,14 @@ scripts/demo.py --serve
 
 Open <http://127.0.0.1:8742/>. This uses a new temporary state directory and no
 agent API calls. It is also the reproducible source state for UI screenshots.
+The seeded run includes composed artifacts, file overlap, a failed GitHub check,
+and engineering outcome metrics.
+
+Generate repeatable 1440×1000 web screenshots with local Chrome/Chromium:
+
+```sh
+scripts/capture-web-screenshots.sh
+```
 
 ## Run an autonomous task
 
@@ -92,7 +101,8 @@ agent API calls. It is also the reproducible source state for UI screenshots.
 2. Choose a project or enter an absolute repository path.
 3. Choose the implementation lane and optional check commands.
 4. Queue the task and watch the **Activity** stream.
-5. Inspect **Diff**, **Checks**, and **Review** before deciding what happens next.
+5. Inspect **Diff**, **Integration**, **Checks**, **Review**, **Evaluation**, and
+   **CI** before deciding what happens next.
 
 ### From the CLI
 
@@ -103,7 +113,12 @@ bin/odysseus run \
   --lane codex \
   --review-lane claude \
   --base main \
+  --priority 70 \
   --max-retries 2 \
+  --stall-timeout 300 \
+  --max-tokens 80000 \
+  --max-tool-calls 120 \
+  --max-cost 8 \
   --check "python3 -m unittest discover -s tests -v" \
   --check "git diff --check" \
   "Add request tracing, documentation, and tests"
@@ -147,10 +162,11 @@ materializes its tasks. A task is ready only when all predecessor runs are
 `accepted` or `pr_created`. Cycles and unknown keys fail before any task is
 created.
 
-In 0.3 this is an execution DAG, not yet an artifact merge graph. A downstream
-task does not automatically receive the uncommitted diffs from its predecessors.
-Use a deliberate integration task and human review; automated integration
-branches arrive in 0.4.
+Accepting a predecessor creates a local artifact commit. Before a downstream
+task starts, Odysseus merges all predecessor artifact SHAs into that task's
+isolated branch in dependency order. It records the complete file surface and
+cross-task overlap. A real Git conflict is aborted in the downstream worktree
+and becomes a high-priority operator item; the source checkout is untouched.
 
 ## Understand task state
 
@@ -164,8 +180,8 @@ branches arrive in 0.4.
 | `review` | Waiting for Accept, Resume, Takeover, or Draft PR. |
 | `attention` | The agent yielded a question, permission request, or decision. |
 | `failed` | Inspect the last error and event history; resume is still available. |
-| `accepted` | Approval was recorded; no merge or cleanup was performed. |
-| `pr_created` | A draft pull request was created. |
+| `accepted` | Approval and a local artifact commit were recorded; nothing was pushed or merged to the source branch. |
+| `pr_created` | A draft pull request exists and GitHub checks are being observed. |
 | `session` | A durable record for an adopted interactive tmux session. |
 
 Every task stores a current JSON snapshot plus an append-only NDJSON journal.
@@ -177,7 +193,8 @@ Events.
 The default page is an operator queue, not an agent monitor. It contains open:
 
 - structured questions and permission requests;
-- agent, dependency, workflow, and evaluation failures;
+- agent, dependency, integration, CI, workflow, and evaluation failures;
+- actionable pull-request review feedback;
 - review-ready changes.
 
 CLI equivalents:
@@ -205,6 +222,19 @@ bin/odysseus resume RUN_ID "Address the review findings and rerun every check"
 Odysseus reuses the implementation agent's saved session id, original worktree,
 and branch. It does not start an unrelated conversation.
 
+Choose a different recovery strategy when repeating the same thread is not the
+right answer:
+
+```sh
+# Give the existing branch/worktree to another lane with no foreign session id.
+bin/odysseus resume RUN_ID --strategy switch --lane claude \
+  "Review the previous attempt and repair it"
+
+# Keep branch and files, but start with a clean agent context.
+bin/odysseus resume RUN_ID --strategy clean \
+  "Use the persisted failure trace and finish the task"
+```
+
 ### Take over interactively
 
 ```sh
@@ -222,9 +252,26 @@ bin/odysseus accept RUN_ID
 bin/odysseus draft-pr RUN_ID
 ```
 
-Accept records the decision only. Draft PR stages the complete task worktree,
-creates a commit when required, pushes the task branch, and invokes
-`gh pr create --draft`.
+Accept records the decision and snapshots the complete worktree into a local
+Git artifact. It does not push or merge the artifact. Draft PR pushes the task
+branch and invokes `gh pr create --draft`.
+
+## Reach green after publishing
+
+The server watches every Odysseus draft PR through authenticated `gh`. On a
+failed check it records the check set, fetches failed logs when a GitHub Actions
+run id is available, and resumes the saved implementation thread. A locally
+verified repair is committed and pushed to the same PR branch. The configured
+attempt budget then either reaches green or creates a precise Needs You item.
+
+Poll immediately instead of waiting for the background interval:
+
+```sh
+bin/odysseus ci RUN_ID
+```
+
+New PR review comments are deduplicated and normalized into operator decisions.
+Odysseus never auto-merges the PR.
 
 ## Use existing tmux sessions
 
@@ -368,6 +415,52 @@ boundaries are unambiguous. `{worktree}` and `{prompt}` are replaced for each
 run. Built-in Codex and Claude adapters additionally normalize telemetry and
 support durable resume.
 
+### Configure budgets, CI, and notifications
+
+The same config file accepts global defaults:
+
+```json
+{
+  "budgets": {
+    "timeout_seconds": 1800,
+    "stall_seconds": 300,
+    "max_tokens": 80000,
+    "max_tool_calls": 120,
+    "max_cost_usd": 8.0
+  },
+  "ci": {
+    "watch": true,
+    "auto_resume": true,
+    "max_attempts": 2,
+    "poll_seconds": 30
+  },
+  "notifications": [
+    {"type": "webhook", "name": "automation", "url": "https://example.test/hook"},
+    {"type": "ntfy", "name": "phone", "url": "https://ntfy.sh/private-topic"},
+    {"type": "slack", "name": "team", "url": "https://hooks.slack.com/services/..."}
+  ]
+}
+```
+
+Zero disables a budget. Token, tool, and cost enforcement can observe only
+metrics emitted by the selected agent. Destination URLs are operator secrets;
+Odysseus records destination names and delivery outcomes, not their URLs.
+
+## Search and engineering outcomes
+
+Use **Insights** in the web UI, or:
+
+```sh
+bin/odysseus search "privilege escalation"
+bin/odysseus stats
+bin/odysseus export --output odysseus-evidence.json
+```
+
+Search covers local run snapshots, recent run events, Epics, projects,
+attention, and Inbox records. `stats` reports successful changes, observed
+tokens/tool calls/cost, interventions, CI repair loops, and high merge-risk
+tasks. Export is a portable evidence bundle; 0.4 does not import it back.
+
 ## Inspect, back up, and relocate state
 
 Default layout:
@@ -378,6 +471,7 @@ Default layout:
 ├── projects.json
 ├── inbox.json
 ├── attention.json
+├── notifications.ndjson
 ├── epics/<epic-id>.json
 ├── runs/<run-id>.json
 ├── events/<run-id>.ndjson
@@ -460,7 +554,8 @@ If another process owns the configured port, either stop it or change
 ### Resume is unavailable
 
 Resume requires a saved Codex or Claude implementation session id and a task in
-attention, review, failed, or accepted state. Inspect `agent_sessions` with:
+attention, review, failed, accepted, or `pr_created` state. A switch/clean
+strategy can start without reusing that id. Inspect `agent_sessions` with:
 
 ```sh
 bin/odysseus show RUN_ID
@@ -484,9 +579,9 @@ attention   List open operator decisions
 answer      Answer and resume the linked agent session
 show        Print one run snapshot
 events      Print one run's event journal
-resume      Continue the saved implementation thread
+resume      Resume, switch lane, or start clean on the existing branch
 takeover    Continue the saved thread interactively in tmux
-accept      Record human approval
+accept      Record approval and create a local artifact commit
 send-back   Return review feedback to the agent workflow
 cancel      Request task cancellation
 draft-pr    Commit, push, and create a draft pull request
@@ -495,6 +590,10 @@ adopt       Give an interactive session durable history
 projects    List or register repositories
 inbox       List, add, or resolve follow-ups
 config      Read or change scheduler configuration
+ci          Poll GitHub checks and run the bounded repair policy
+search      Search local runs, events, and operator records
+stats       Show engineering outcomes and observed economics
+export      Write an inspectable JSON evidence bundle
 doctor      Inspect dependencies and state
 ```
 
