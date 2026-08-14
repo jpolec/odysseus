@@ -1,7 +1,7 @@
 # Start Odysseus in ten minutes
 
 This walkthrough starts the web control plane, tries a no-token demo, runs one
-isolated task or Epic DAG, and connects the tmux controls. Nothing is installed
+isolated task or planned task graph, and connects the tmux controls. Nothing is installed
 globally.
 
 ## 1. Clone and verify
@@ -29,8 +29,9 @@ If the browser does not open, visit <http://127.0.0.1:8741/>. Keep this process
 running: it serves the UI and runs the persistent scheduler. State is stored in
 `~/.odysseus` unless `ODYSSEUS_HOME` or `--state-dir` overrides it.
 
-The landing page is **Needs You**. An empty page means no agent currently needs
-an operator decision; it is not a list of every running terminal.
+The landing page is **All work**. The Explorer shows registered projects and
+their recent tasks. Select a project to make it the current working context;
+**Needs You** remains the global queue of decisions and failures.
 
 ## 3. Optional: tour the populated UI without agents
 
@@ -40,7 +41,7 @@ In another terminal:
 scripts/demo.py --serve
 ```
 
-Open <http://127.0.0.1:8742/>. The disposable state contains a passkey Epic,
+Open <http://127.0.0.1:8742/>. The disposable state contains a passkey plan,
 parallel task roots, a blocked integration task, a structured agent question,
 a review gate, composed artifacts, merge risk, failed GitHub CI, token/tool
 metrics, search, and explainable evaluation. Stop with
@@ -50,16 +51,15 @@ metrics, search, and explainable evaluation. Stop with
 
 In the web UI:
 
-1. Select **New task**.
-2. Choose a registered project or enter its absolute path.
-3. Choose `codex` or `claude`.
-4. Optionally add one trusted check command per line.
-5. Select **Start agent task**.
+1. Select a project in the Explorer.
+2. Select **New task**.
+3. Describe one finished outcome.
+4. Select **Start task**.
 
 The large text box is the only creative input. Write the desired result as you
-would to an engineer, including constraints and what “done” means. Repository,
-agent, and checks tell Odysseus where and how to run that request; retries,
-priority, and budgets stay under **Advanced**.
+would to an engineer, including constraints and what “done” means. The selected
+project supplies the repository and defaults. Agent, checks, retries, priority,
+and budgets stay under **Customize agent, checks, and limits**.
 
 The equivalent CLI command is:
 
@@ -82,7 +82,7 @@ gate unless an explicit project policy permits auto-accept eligibility.
 
 ## 5. Or plan a larger requirement
 
-Select **Epics** -> **Plan multi-task work**, or run:
+Select a project and then **Plan feature**, or run:
 
 ```sh
 bin/odysseus plan \
@@ -102,15 +102,16 @@ starts; failed merges stop there and appear in **Needs You**.
 
 ## 6. Make the human decision
 
-Open the task and inspect **Activity**, **Diff**, **Integration**, **Checks**,
-**Review**, **Evaluation**, and **CI**. Or stay in **Needs You**, where agent
+Open the task and start with **Summary**. Use **Changes**, **Activity**, and
+**Evidence** only when you need their diff, integration, checks, review,
+evaluation, or CI detail. Or stay in **Needs You**, where agent
 questions, permission requests, failures, broken dependencies, and review gates
 are collected.
 Then choose one action:
 
-- **Accept** records approval and creates a local artifact commit. It does not
+- **Approve** records approval and creates a local artifact commit. It does not
   push, merge into your source branch, or delete anything.
-- **Resume agent** sends feedback into the saved implementation thread and the
+- **Give feedback** sends guidance into the saved implementation thread and the
   same worktree.
 - **Continue in terminal** resumes that exact thread interactively and copies
   the safe tmux command. Paste the command into a terminal to enter the agent;
@@ -157,7 +158,7 @@ open that pane in your terminal.
 
 The important distinction is:
 
-- **Resume agent** continues the saved thread autonomously.
+- **Give feedback** continues the saved thread autonomously.
 - **Continue in terminal** continues the saved thread interactively and copies
   the tmux command you paste into your terminal.
 - **Track in Odysseus** adds a durable shortcut for a session that started in

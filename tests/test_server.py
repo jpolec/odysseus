@@ -68,6 +68,11 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/") as response:
                     html = response.read().decode()
                 self.assertIn("ODYSSEUS", html)
+                self.assertIn('id="projectExplorer"', html)
+                self.assertIn('id="projectTree"', html)
+                self.assertIn('id="workView"', html)
+                self.assertIn('data-section="summary"', html)
+                self.assertIn('data-section="evidence"', html)
 
                 with urllib.request.urlopen(f"{base}/api/projects") as response:
                     projects = json.load(response)

@@ -26,6 +26,73 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "ci": {"watch": False, "auto_resume": True, "max_attempts": 2, "poll_seconds": 30}
         }
     )
+
+    # The demo is deliberately multi-project so the first screen documents the
+    # real workspace -> project -> task hierarchy instead of a flat task list.
+    sample_root = state_dir / "sample-projects"
+    atlas = sample_root / "atlas-payments"
+    quasar = sample_root / "quasar-data"
+    atlas.mkdir(parents=True)
+    quasar.mkdir(parents=True)
+    store.projects.upsert(atlas, {"name": "Atlas Payments", "tags": ["demo", "payments"]})
+    store.projects.upsert(quasar, {"name": "Quasar Data", "tags": ["demo", "research"]})
+
+    atlas_run = store.create(
+        {
+            "title": "Make webhook delivery idempotent",
+            "task": "Prevent duplicate payment webhooks from creating duplicate ledger entries.",
+            "project_path": str(atlas),
+            "lane": "codex",
+            "checks": ["python3 -m unittest tests.test_webhooks"],
+        }
+    )
+    store.transition(
+        atlas_run["id"],
+        "accepted",
+        event_type="run.accepted",
+        check_results=[{"command": "python3 -m unittest tests.test_webhooks", "returncode": 0, "output": "12 tests passed"}],
+        confidence=0.97,
+        policy_decision="accept",
+        metrics={
+            "input_tokens": 18_206,
+            "cached_input_tokens": 12_844,
+            "output_tokens": 3_108,
+            "reasoning_output_tokens": 604,
+            "tool_calls": 24,
+            "cost_usd": 1.126,
+            "session_usage": {},
+        },
+    )
+
+    quasar_run = store.create(
+        {
+            "title": "Guard the factor pipeline against look-ahead bias",
+            "task": "Add a deterministic temporal-boundary check to the daily factor build.",
+            "project_path": str(quasar),
+            "lane": "claude",
+            "checks": ["python3 -m unittest tests.test_temporal_boundaries"],
+        }
+    )
+    store.transition(
+        quasar_run["id"],
+        "review",
+        event_type="run.review_ready",
+        check_results=[{"command": "python3 -m unittest tests.test_temporal_boundaries", "returncode": 0, "output": "9 tests passed"}],
+        review_status="waiting",
+        review_summary="Temporal checks pass. Confirm the accepted lag policy before approving.",
+        confidence=0.91,
+        policy_decision="human_review",
+        metrics={
+            "input_tokens": 27_940,
+            "cached_input_tokens": 19_102,
+            "output_tokens": 4_016,
+            "reasoning_output_tokens": 788,
+            "tool_calls": 31,
+            "cost_usd": 1.742,
+            "session_usage": {},
+        },
+    )
+
     epic = store.epics.create(
         {
             "title": "Passkey authentication",

@@ -2,7 +2,7 @@
 
 ## Current version
 
-**0.4.2 — 2026-08-14**
+**0.4.3 — 2026-08-14**
 
 Version 0.4 makes DAG edges carry code, not only scheduling state. Accepted
 tasks become durable local artifacts; downstream branches compose those
@@ -10,7 +10,26 @@ artifacts before implementation; draft pull requests enter a bounded GitHub CI
 repair loop. The operator sees merge risk, CI, liveness, budgets, and outcomes
 in the same attention-first control plane.
 
-## What is available in 0.4.2
+## What is available in 0.4.3
+
+### 0.4.3 project-first workbench
+
+- A single visible hierarchy—workspace, project, task—replaces the flat row of
+  product features. The Explorer owns project selection and reveals recent
+  tasks inside the selected repository.
+- The default All work surface summarizes projects, active tasks, operator
+  decisions, and completed outcomes; a project surface summarizes that
+  repository's tasks, decisions, and discovered terminal count.
+- A compact Activity Bar holds global exception, terminal, Inbox, search, and
+  GitHub entry points without competing with the selected project.
+- New task requires only the outcome and project. Agent, checks, retries,
+  priority, and budgets are hidden under one customization disclosure.
+- Task detail opens on Summary and offers three deeper surfaces: Changes,
+  Activity, and Evidence. Run ids, branches, worktrees, dependencies, cache,
+  and tool telemetry remain available under Technical details.
+- The visual system follows a quiet workbench vocabulary: Segoe typography,
+  compact toolbars, tree navigation, restrained surfaces, blue focus states,
+  and mobile bottom navigation.
 
 ### 0.4.2 visual hierarchy patch
 
@@ -108,7 +127,7 @@ in the same attention-first control plane.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.4.2` |
+| Application version | `0.4.3` |
 | Run snapshot schema | `4` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
@@ -153,6 +172,13 @@ An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.4.3 — project-first workbench
+
+Reorganized the entire web console around workspace -> project -> task, added a
+project Explorer and overview, reduced task creation to two decisions, grouped
+task depth into Summary/Changes/Activity/Evidence, and introduced a compact
+Fluent-inspired desktop and mobile shell.
 
 ### 0.4.2 — visual hierarchy
 

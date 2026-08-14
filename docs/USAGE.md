@@ -11,7 +11,7 @@ Odysseus manages two connected kinds of work:
    enter the bounded PR/CI repair loop.
 2. **Interactive sessions** start in tmux. They are discovered automatically
    and remain ordinary terminal sessions until you explicitly track them.
-3. **Epics** start as a requirement. A read-only Planner proposes a task DAG;
+3. **Plans** start as a requirement. A read-only Planner proposes a task DAG;
    the graph is inert until an operator approves it.
 
 An autonomous task can become interactive through **Continue in terminal**. An
@@ -139,10 +139,11 @@ limit with:
 bin/odysseus config --max-parallel 3
 ```
 
-## Plan and approve an Epic DAG
+## Plan and approve a task DAG
 
-From **Epics** in the web UI, enter a requirement, project, Planner lane,
-implementation lane, review lane, and checks. The equivalent CLI flow is:
+From **Plans** in the web UI, enter a requirement and project; advanced agent
+and verification choices are optional. The Planner proposes the task graph;
+the equivalent CLI flow is:
 
 ```sh
 bin/odysseus plan \
@@ -178,7 +179,7 @@ and becomes a high-priority operator item; the source checkout is untouched.
 | `running` | The implementation agent is active. |
 | `checking` | Trusted project checks are executing. |
 | `reviewing` | The read-only review pass is active. |
-| `review` | Waiting for Accept, Resume, Takeover, or Draft PR. |
+| `review` | Waiting for Approve, Give feedback, Continue in terminal, or Draft PR. |
 | `attention` | The agent yielded a question, permission request, or decision. |
 | `failed` | Inspect the last error and event history; resume is still available. |
 | `accepted` | Approval and a local artifact commit were recorded; nothing was pushed or merged to the source branch. |
@@ -530,7 +531,7 @@ certificate. See [../SECURITY.md](../SECURITY.md) for the trust model.
 - Open `/api/health` and check the active/queued counts.
 - Run `bin/odysseus doctor` and verify the selected agent CLI exists.
 - Inspect `bin/odysseus events RUN_ID` and `bin/odysseus show RUN_ID`.
-- For Epic tasks, inspect `depends_on`, `blocked_reason`, and
+- For tasks created from a plan, inspect `depends_on`, `blocked_reason`, and
   `bin/odysseus epics EPIC_ID`.
 
 ### A tmux session is missing

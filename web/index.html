@@ -7,59 +7,73 @@
     <title>Odysseus — Agent Control Plane</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
-  <body data-view="attention">
-    <header class="topbar">
-      <a class="brand" href="#" aria-label="Odysseus home">
+  <body data-view="work">
+    <header class="titlebar">
+      <a class="brand" href="#" aria-label="Open Odysseus workspace">
         <span class="brand-mark" aria-hidden="true">O</span>
-        <span><strong>ODYSSEUS</strong><small>agent control plane</small></span>
+        <strong>ODYSSEUS</strong>
       </a>
-      <nav class="primary-nav" aria-label="Main navigation">
-        <button class="nav-button active" data-view="attention" data-icon="!" type="button">Needs You <span class="nav-count" id="attentionNavCount"></span></button>
-        <button class="nav-button" data-view="epics" data-icon="◇" type="button">Epics <span class="nav-count" id="epicNavCount"></span></button>
-        <button class="nav-button" data-view="tasks" data-icon="✓" type="button">Tasks</button>
-        <button class="nav-button" data-view="sessions" data-icon="⌘" type="button">Terminals <span class="nav-count" id="sessionNavCount"></span></button>
-        <button class="nav-button" data-view="inbox" data-icon="↳" type="button">Inbox <span class="nav-count" id="inboxNavCount"></span></button>
-        <button class="nav-button" data-view="projects" data-icon="▦" type="button">Projects</button>
-        <button class="nav-button" data-view="insights" data-icon="↗" type="button">Insights</button>
-        <button class="nav-button" data-view="github" data-icon="#" type="button">GitHub</button>
-      </nav>
+      <div class="title-context" aria-label="Current location"><span id="titleProject">Workspace</span><i>/</i><strong id="titleSurface">Overview</strong></div>
+      <label class="global-search" title="Press Enter to search all local Odysseus history"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m14.2 13.3 3.4 3.4-.9.9-3.4-3.4a6.5 6.5 0 1 1 .9-.9ZM9.1 14.2a5.1 5.1 0 1 0 0-10.2 5.1 5.1 0 0 0 0 10.2Z"/></svg><input id="globalSearch" type="search" placeholder="Search tasks and events" aria-label="Search all Odysseus history"><kbd>⌘K</kbd></label>
       <div class="topbar-status">
-        <label class="global-search" title="Press Enter to search all local Odysseus history"><span aria-hidden="true">⌕</span><input id="globalSearch" type="search" placeholder="Search all history ↵" aria-label="Search all Odysseus history"></label>
-        <a class="github-button" id="githubButton" href="https://github.com/jpolec/odysseus" target="_blank" rel="noreferrer" aria-label="Open on GitHub" title="Open Odysseus on GitHub">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg>
-        </a>
-        <span class="connection" title="Live connection to the local Odysseus server"><i></i><span id="connectionLabel">Connecting</span></span>
+        <span class="connection" title="Live connection to the Odysseus server"><i></i><span id="connectionLabel">Connecting</span></span>
         <span class="parallel" id="parallelLabel">— slots</span>
-        <button class="primary compact" id="newTaskButton" type="button">New task</button>
+        <button class="primary compact" id="newTaskButton" type="button"><span>＋</span> New task</button>
       </div>
     </header>
 
-    <main class="shell">
-      <aside class="task-rail" id="taskRail">
-        <div class="rail-head">
-          <div><p class="eyebrow">MISSIONS</p><h1>Tasks</h1></div>
-          <span class="count" id="runCount">0</span>
-        </div>
-        <label class="project-filter">Project
-          <select id="projectFilter"><option value="all">All projects</option></select>
-        </label>
-        <div class="filters" role="group" aria-label="Filter tasks">
-          <button class="filter active" data-filter="all" type="button">All</button>
-          <button class="filter" data-filter="active" type="button">Active</button>
-          <button class="filter" data-filter="review" type="button">Review</button>
-        </div>
-        <div class="task-list" id="taskList" aria-live="polite"></div>
+    <main class="workbench">
+      <nav class="activity-bar" aria-label="Primary views">
+        <button class="nav-button active" data-view="work" type="button" aria-label="Projects and work" title="Projects and work"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h6l2 2h9v11h-17v-13Zm1.5 2v9.5h14V9h-8.1l-2-2H5Z"/></svg></button>
+        <button class="nav-button" data-view="attention" type="button" aria-label="Needs You" title="Needs You"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.8L4.4 16v1.5h15.2V16L18 12.8V9a6 6 0 0 0-6-6Zm-4.5 6a4.5 4.5 0 0 1 9 0v4.2l1.4 2.8H6.1l1.4-2.8V9Zm2.2 10a2.5 2.5 0 0 0 4.6 0H9.7Z"/></svg><span class="activity-badge nav-count" id="attentionNavCount"></span></button>
+        <button class="nav-button" data-view="sessions" type="button" aria-label="Agent terminals" title="Agent terminals"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5h18v15H3v-15ZM4.5 6v12h15V6h-15Zm2.2 2.2 3.1 3.1-3.1 3.1-1-1 2-2-2-2 1-1Zm4.8 5.1h5v1.4h-5v-1.4Z"/></svg><span class="activity-badge nav-count" id="sessionNavCount"></span></button>
+        <button class="nav-button" data-view="inbox" type="button" aria-label="Inbox" title="Inbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14l2 10v6H3v-6L5 4Zm1.2 1.5-1.6 8h4l1 2h4.8l1-2h4l-1.6-8H6.2ZM4.5 15v3.5h15V15h-3.2l-1 2H8.7l-1-2H4.5Z"/></svg><span class="activity-badge nav-count" id="inboxNavCount"></span></button>
+        <button class="nav-button" data-view="insights" type="button" aria-label="Insights and search" title="Insights and search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9h3v10H4Zm6.5 0V4h3v15h-3Zm6.5 0v-7h3v7h-3Z"/></svg></button>
+        <span class="activity-spacer"></span>
+        <a class="github-button" id="githubButton" href="https://github.com/jpolec/odysseus" target="_blank" rel="noreferrer" aria-label="Open project on GitHub" title="Open project on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg></a>
+      </nav>
+
+      <aside class="project-explorer" id="projectExplorer">
+        <div class="explorer-title"><span>EXPLORER</span><button class="icon-button small" id="addProjectButton" type="button" aria-label="Add project" title="Add project">＋</button></div>
+        <button class="workspace-link selected" id="allWorkButton" type="button"><span class="workspace-icon">⌂</span><strong>All work</strong><span id="allWorkCount">0</span></button>
+        <button class="workspace-link" id="sidebarAttentionButton" type="button"><span class="workspace-icon">!</span><strong>Needs You</strong><span id="sidebarAttentionCount">0</span></button>
+        <section class="explorer-section">
+          <header><span>PROJECTS</span><small id="projectCount">0</small></header>
+          <div class="project-tree" id="projectTree"></div>
+        </section>
+        <section class="explorer-section task-section">
+          <header><span id="taskSectionTitle">ALL TASKS</span><small id="runCount">0</small></header>
+          <select id="projectFilter" class="visually-hidden" aria-label="Project filter"><option value="all">All projects</option></select>
+          <div class="filters" role="group" aria-label="Filter tasks"><button class="filter active" data-filter="all" type="button">All</button><button class="filter" data-filter="active" type="button">Active</button><button class="filter" data-filter="review" type="button">Review</button></div>
+          <div class="task-list" id="taskList" aria-live="polite"></div>
+        </section>
+        <section class="explorer-section explorer-tools">
+          <header><span>PROJECT TOOLS</span></header>
+          <button data-open-view="epics" type="button"><span>◇</span> Plans <small class="nav-count" id="epicNavCount"></small></button>
+          <button data-open-view="github" type="button"><span>#</span> GitHub issues</button>
+          <button data-open-view="projects" type="button"><span>⚙</span> Project registry</button>
+        </section>
       </aside>
 
       <section class="workspace">
-        <section class="view-panel collection-view active" id="attentionView">
+        <section class="view-panel work-view active" id="workView">
+          <header class="work-header">
+            <div><p class="breadcrumb" id="workBreadcrumb">WORKSPACE</p><h1 id="workTitle">All work</h1><p id="workDescription">Choose a project, see what is moving, and start the next task.</p></div>
+            <div class="work-actions"><button class="ghost" id="workPlanButton" type="button">Plan feature</button><button class="primary" id="workNewTaskButton" type="button">＋ New task</button></div>
+          </header>
+          <div class="work-meta" id="workMeta"></div>
+          <div class="work-summary" id="workSummary"></div>
+          <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">PROJECTS</p><h2 id="workListTitle">Your workspace</h2></div><button class="ghost" id="workSecondaryAction" type="button">Add project</button></div><div class="work-list" id="workList"></div></section>
+        </section>
+
+        <section class="view-panel collection-view" id="attentionView">
           <div class="page-head"><div><p class="eyebrow">HUMAN ATTENTION</p><h1>Needs You</h1><p>Only questions, permissions, failures, broken dependencies, and review gates that need an operator decision.</p></div><button class="ghost" id="refreshAttention" type="button">Refresh</button></div>
           <div class="attention-summary" id="attentionSummary"></div>
           <div class="stack-list" id="attentionList"></div>
         </section>
 
         <section class="view-panel collection-view" id="epicsView">
-          <div class="page-head"><div><p class="eyebrow">LARGE FEATURE → REVIEWABLE TASK GRAPH</p><h1>Epics</h1><p>Break multi-part work into dependent and parallel agent tasks. The planner only proposes; nothing executes until you approve the graph.</p></div><button class="primary" id="newEpicButton" type="button">Plan multi-task work</button></div>
+          <div class="page-head"><div><p class="eyebrow">LARGER WORK</p><h1>Plans</h1><p>Describe a feature. Odysseus proposes smaller tasks and their order; nothing starts until you approve the plan.</p></div><button class="primary" id="newEpicButton" type="button">Plan feature</button></div>
           <div class="stack-list" id="epicList"></div>
         </section>
 
@@ -69,10 +83,11 @@
             <p class="eyebrow">LOCAL-FIRST ORCHESTRATION</p>
             <h2>One place for agents and terminals.</h2>
             <p>Queue isolated agent work, follow tool calls and tokens, or adopt sessions already running in tmux.</p>
-            <div class="empty-actions"><button class="primary" id="emptyNewTask" type="button">Queue a task</button><button class="ghost" data-open-view="sessions" type="button">See tmux sessions</button></div>
+          <div class="empty-actions"><button class="primary" id="emptyNewTask" type="button">Start a task</button><button class="ghost" data-open-view="sessions" type="button">See tmux sessions</button></div>
           </div>
 
           <article class="run-detail hidden" id="runDetail">
+            <div class="detail-breadcrumb"><button class="back-button" id="backToProject" type="button">‹</button><span id="detailProjectName">Project</span><i>/</i><strong>Task</strong></div>
             <header class="detail-head">
               <div class="detail-heading">
                 <div class="status-row"><span class="status-pill" id="detailStatus">—</span><span class="run-id" id="detailId">—</span></div>
@@ -80,11 +95,6 @@
               </div>
               <div class="actions" id="runActions"></div>
             </header>
-            <section class="run-narrative" id="runNarrative">
-              <span class="narrative-mark" id="narrativeMark" aria-hidden="true">→</span>
-              <div><small id="narrativeLabel">CURRENT STEP</small><strong id="narrativeTitle">Preparing the task</strong><p id="narrativeCopy">Odysseus is resolving the next safe action.</p></div>
-              <span class="narrative-tail" id="narrativeTail">No action needed</span>
-            </section>
             <section class="observed-session hidden" id="observedSession">
               <div>
                 <p class="eyebrow">TRACKED TERMINAL · NOT AN ODYSSEUS RUN</p>
@@ -97,36 +107,53 @@
                 <span><b>3</b> Continue with the agent there</span>
               </div>
             </section>
-            <div class="metrics" id="metrics"></div>
-            <details class="technical-details" id="technicalDetails">
-              <summary><span>Technical details</span><small>branch, worktree, sessions, dependencies, heartbeat</small></summary>
-              <div class="metadata" id="metadata"></div>
-            </details>
-            <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
-              <li id="stageWorktree"><span>01</span><div><strong>Isolate</strong><small>Git worktree</small></div></li>
-              <li id="stageIntegrate"><span>02</span><div><strong>Compose</strong><small>Artifacts</small></div></li>
-              <li id="stageAgent"><span>03</span><div><strong>Agent</strong><small>Implement</small></div></li>
-              <li id="stageCheck"><span>04</span><div><strong>Verify</strong><small>Checks</small></div></li>
-              <li id="stageReview"><span>05</span><div><strong>Review</strong><small>Evidence gate</small></div></li>
-              <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
-            </ol>
-            <div class="detail-grid" id="detailGrid">
-              <section class="panel activity-panel">
-                <div class="panel-head"><div><p class="eyebrow">LIVE EVENT STREAM</p><h3>Activity</h3></div><span class="live-badge"><i></i> SSE</span></div>
-                <div class="event-log" id="eventLog"></div>
+            <div id="detailGrid">
+              <nav class="task-section-tabs" aria-label="Task details">
+                <button class="task-section-tab active" data-section="summary" type="button">Summary</button>
+                <button class="task-section-tab" data-section="changes" type="button">Changes</button>
+                <button class="task-section-tab" data-section="activity" type="button">Activity</button>
+                <button class="task-section-tab" data-section="evidence" type="button">Evidence</button>
+              </nav>
+              <section class="task-section-pane active" id="task-section-summary">
+                <section class="run-narrative" id="runNarrative">
+                  <span class="narrative-mark" id="narrativeMark" aria-hidden="true">→</span>
+                  <div><small id="narrativeLabel">CURRENT STEP</small><strong id="narrativeTitle">Preparing the task</strong><p id="narrativeCopy">Odysseus is resolving the next safe action.</p></div>
+                  <span class="narrative-tail" id="narrativeTail">No action needed</span>
+                </section>
+                <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
+                  <li id="stageWorktree"><span>01</span><div><strong>Isolate</strong><small>Git worktree</small></div></li>
+                  <li id="stageIntegrate"><span>02</span><div><strong>Compose</strong><small>Artifacts</small></div></li>
+                  <li id="stageAgent"><span>03</span><div><strong>Agent</strong><small>Implement</small></div></li>
+                  <li id="stageCheck"><span>04</span><div><strong>Verify</strong><small>Checks</small></div></li>
+                  <li id="stageReview"><span>05</span><div><strong>Review</strong><small>Evidence gate</small></div></li>
+                  <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
+                </ol>
+                <div class="metrics" id="metrics"></div>
               </section>
-              <section class="panel inspector-panel">
-                <div class="tabs" role="tablist">
-                  <button class="tab active" data-tab="diff" type="button">Diff</button><button class="tab" data-tab="integration" type="button">Integration</button><button class="tab" data-tab="checks" type="button">Checks</button><button class="tab" data-tab="review" type="button">Review</button><button class="tab" data-tab="evaluation" type="button">Evaluation</button><button class="tab" data-tab="ci" type="button">CI</button>
-                </div>
-                <div class="tab-pane active" id="tab-diff"><pre class="diff-stat" id="diffStat">No diff yet.</pre><pre class="code" id="diffPatch">The worktree will appear here after the task starts.</pre></div>
-                <div class="tab-pane" id="tab-integration"><div id="integrationResults"></div></div>
-                <div class="tab-pane" id="tab-checks"><div id="checkResults"></div></div>
-                <div class="tab-pane" id="tab-review"><pre class="review-copy" id="reviewSummary">Review has not run yet.</pre></div>
-                <div class="tab-pane" id="tab-evaluation"><div id="evaluationResults"></div></div>
-                <div class="tab-pane" id="tab-ci"><div id="ciResults"></div></div>
+              <section class="task-section-pane" id="task-section-changes">
+                <section class="panel workspace-panel inspector-panel">
+                  <div class="tabs" role="tablist"><button class="tab active" data-tab="diff" type="button">Diff</button><button class="tab" data-tab="integration" type="button">Integration</button></div>
+                  <div class="tab-pane active" id="tab-diff"><pre class="diff-stat" id="diffStat">No diff yet.</pre><pre class="code" id="diffPatch">The worktree will appear here after the task starts.</pre></div>
+                  <div class="tab-pane" id="tab-integration"><div id="integrationResults"></div></div>
+                </section>
+              </section>
+              <section class="task-section-pane" id="task-section-activity">
+                <section class="panel workspace-panel activity-panel"><div class="panel-head"><div><p class="eyebrow">LIVE EVENT STREAM</p><h3>Activity</h3></div><span class="live-badge"><i></i> SSE</span></div><div class="event-log" id="eventLog"></div></section>
+              </section>
+              <section class="task-section-pane" id="task-section-evidence">
+                <section class="panel workspace-panel inspector-panel">
+                  <div class="tabs" role="tablist"><button class="tab active" data-tab="checks" type="button">Checks</button><button class="tab" data-tab="review" type="button">Review</button><button class="tab" data-tab="evaluation" type="button">Evaluation</button><button class="tab" data-tab="ci" type="button">CI</button></div>
+                  <div class="tab-pane active" id="tab-checks"><div id="checkResults"></div></div>
+                  <div class="tab-pane" id="tab-review"><pre class="review-copy" id="reviewSummary">Review has not run yet.</pre></div>
+                  <div class="tab-pane" id="tab-evaluation"><div id="evaluationResults"></div></div>
+                  <div class="tab-pane" id="tab-ci"><div id="ciResults"></div></div>
+                </section>
               </section>
             </div>
+            <details class="technical-details" id="technicalDetails">
+              <summary><span>Technical details</span><small>run id, branch, worktree, sessions, dependencies, usage</small></summary>
+              <div class="metadata" id="metadata"></div>
+            </details>
           </article>
         </div>
 
@@ -147,14 +174,14 @@
         </section>
 
         <section class="view-panel collection-view" id="projectsView">
-          <div class="page-head"><div><p class="eyebrow">WORKSPACES</p><h1>Projects</h1><p>Projects are registered automatically from tasks and tmux sessions.</p></div><button class="primary" id="addProjectButton" type="button">Add project</button></div>
+          <div class="page-head"><div><p class="eyebrow">WORKSPACE SETTINGS</p><h1>Project registry</h1><p>Add repositories to the Explorer. Existing code and project files are never moved.</p></div><button class="primary" id="manageAddProjectButton" type="button">Add project</button></div>
           <div class="card-grid" id="projectList"></div>
         </section>
 
         <section class="view-panel collection-view" id="insightsView">
           <div class="page-head"><div><p class="eyebrow">ENGINEERING OUTCOMES</p><h1>Insights</h1><p>Search the complete local record and measure agents by successful changes, not activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
           <div class="insight-grid" id="insightStats"></div>
-          <section class="search-panel"><div class="panel-head"><div><p class="eyebrow">LOCAL FULL-TEXT SEARCH</p><h3>Runs, events, epics, projects, attention</h3></div></div><label class="insight-search"><input id="insightSearch" type="search" placeholder="Search task intent, CI error, tool output…"><button class="primary" id="runSearch" type="button">Search</button></label><div class="stack-list" id="searchResults"><div class="empty-card">Search stays local to the Odysseus state directory.</div></div></section>
+          <section class="search-panel"><div class="panel-head"><div><p class="eyebrow">LOCAL FULL-TEXT SEARCH</p><h3>Tasks, events, plans, projects, attention</h3></div></div><label class="insight-search"><input id="insightSearch" type="search" placeholder="Search task intent, CI error, tool output…"><button class="primary" id="runSearch" type="button">Search</button></label><div class="stack-list" id="searchResults"><div class="empty-card">Search stays local to the Odysseus state directory.</div></div></section>
         </section>
 
         <section class="view-panel collection-view" id="githubView">
@@ -165,47 +192,48 @@
     </main>
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
-      <div class="dialog-head"><div><p class="eyebrow">ONE OUTCOME · ONE AGENT</p><h2>Start a task</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Write the request as you would to an engineer.</strong><p>Odysseus creates an isolated Git worktree, starts the selected agent, runs your checks, and stops at a review gate. It never edits your main checkout directly.</p></div>
-      <label>What should the agent accomplish?
-        <span class="field-help">Include the desired outcome, constraints, and what “done” means. Natural language is enough.</span>
+      <div class="dialog-head"><div><p class="eyebrow">NEW TASK</p><h2>What should change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Choose a project and describe one finished outcome.</strong><p>Odysseus handles the worktree, agent, checks, and review. Your source checkout stays untouched.</p></div>
+      <label>Task
+        <span class="field-help">Write the outcome, important constraints, and what “done” means.</span>
         <textarea name="task" rows="5" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
       </label>
       <details class="prompt-example"><summary>Show a good task example</summary><p>Update the setup command in README, verify every referenced path exists, and run the documentation checks. Do not change application behavior.</p></details>
-      <div class="form-row"><label>Repository
-        <span class="field-help">Where the agent will work.</span>
+      <label>Project
+        <span class="field-help">The repository where this task belongs.</span>
         <select name="project_id" id="taskProjectSelect"><option value="">Other repository path…</option></select>
-      </label><label>Implementation agent
-        <span class="field-help">CLI used for this task.</span>
-        <select name="lane" id="laneSelect"></select>
-      </label></div>
+      </label>
       <label class="custom-project" id="taskCustomProject">Absolute repository path
         <span class="field-help">A local Git repository visible to the Odysseus server.</span>
         <input name="project_path" placeholder="/Users/me/code/my-project">
       </label>
-      <label>Verification commands <span class="optional">optional</span>
-        <span class="field-help">Trusted shell commands run after the agent, one per line. Leave empty to use project defaults.</span>
-        <textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea>
-      </label>
-      <details class="advanced"><summary>Advanced: title, priority, retries, and budgets</summary>
+      <details class="advanced"><summary>Customize agent, checks, and limits</summary>
+        <label>Implementation agent
+          <span class="field-help">Leave the default unless this task needs a specific CLI.</span>
+          <select name="lane" id="laneSelect"></select>
+        </label>
+        <label>Verification commands <span class="optional">optional</span>
+          <span class="field-help">Trusted shell commands, one per line. Empty uses project defaults.</span>
+          <textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea>
+        </label>
         <div class="form-row"><label>Display title <input name="title" placeholder="Generated from the request"></label><label>Priority (0–100) <input name="priority" type="number" min="0" max="100" value="50"></label></div>
         <div class="form-row"><label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label><label>Stall timeout (seconds) <input name="stall_timeout" type="number" min="0" value="900"></label></div>
         <div class="form-row"><label>Process timeout <input name="timeout" type="number" min="0" value="0"></label><label>Max tokens <input name="max_tokens" type="number" min="0" value="0"></label></div>
         <div class="form-row"><label>Max tool calls <input name="max_tool_calls" type="number" min="0" value="0"></label><label>Max reported cost (USD) <input name="max_cost" type="number" min="0" step="0.01" value="0"></label></div>
       </details>
-      <p class="submit-note">Starts immediately when a scheduler slot is free. For work that needs several agents or parallel steps, use <strong>Epics → Plan work</strong>.</p>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Start agent task</button></div>
+      <p class="submit-note">For a larger feature with parallel parts, close this dialog and choose <strong>Plan feature</strong>.</p>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Start task</button></div>
     </form></dialog>
 
     <dialog id="epicDialog"><form method="dialog" id="epicForm">
       <div class="dialog-head"><div><p class="eyebrow">PLAN ONLY · NOTHING RUNS YET</p><h2>Break work into agent tasks</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="dialog-intro"><strong>Use this for a feature with multiple dependent or parallel parts.</strong><p>A planner reads the repository and proposes a task graph. You see the complete plan and must approve it before any implementation agent starts.</p></div>
-      <div class="flow-preview" aria-label="Epic planning flow"><span><b>1</b> Requirement</span><i>→</i><span><b>2</b> Proposed task graph</span><i>→</i><span><b>3</b> Your approval</span><i>→</i><span><b>4</b> Agents run</span></div>
+      <div class="flow-preview" aria-label="Feature planning flow"><span><b>1</b> Requirement</span><i>→</i><span><b>2</b> Proposed task graph</span><i>→</i><span><b>3</b> Your approval</span><i>→</i><span><b>4</b> Agents run</span></div>
       <label>What should the finished feature do?
         <span class="field-help">Describe the end state and constraints. Do not decompose it yourself—the planner will do that.</span>
         <textarea name="requirement" rows="6" required placeholder="Add passkey sign-in end to end. Keep password login working, include the schema migration, browser flow, integration tests, and a security review."></textarea>
       </label>
-      <details class="prompt-example"><summary>When should I use this?</summary><p>Use an Epic when work can be split into backend, frontend, migration, tests, or independent review tasks. For one focused change, choose “New task” instead.</p></details>
+      <details class="prompt-example"><summary>When should I use this?</summary><p>Use a plan when work can be split into backend, frontend, migration, tests, or independent review tasks. For one focused change, choose “New task” instead.</p></details>
       <label>Repository
         <span class="field-help">The planner inspects this repository read-only.</span>
         <select name="project_id" id="epicProjectSelect"><option value="">Other repository path…</option></select>
@@ -219,7 +247,7 @@
         <label>Independent review agent <select name="review_lane" id="epicReviewLaneSelect"></select></label>
         <label>Verification commands <span class="optional">optional</span><span class="field-help">Trusted shell commands, one per line, inherited by proposed tasks.</span><textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea></label>
       </details>
-      <p class="submit-note">This button only creates a proposal. No implementation begins until you inspect the graph and click <strong>Approve &amp; queue DAG</strong>.</p>
+      <p class="submit-note">This button only creates a proposal. No implementation begins until you inspect the tasks and click <strong>Approve plan</strong>.</p>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Generate task plan</button></div>
     </form></dialog>
 
