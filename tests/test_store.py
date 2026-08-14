@@ -77,6 +77,27 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(measured["metrics"]["input_tokens"], 100)
             self.assertEqual(measured["metrics"]["tool_calls"], 1)
 
+    def test_redacted_vendor_usage_does_not_crash_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Measure safely", "project_path": str(project)})
+            store.append_event(
+                run["id"],
+                "agent.usage",
+                "claude",
+                {
+                    "session_id": "thread-redacted",
+                    "input_tokens": "[REDACTED]",
+                    "cached_input_tokens": "[REDACTED]",
+                    "output_tokens": "[REDACTED]",
+                    "cumulative": True,
+                },
+            )
+            self.assertEqual(store.get(run["id"])["metrics"]["input_tokens"], 0)
+
     def test_adopted_session_is_not_scheduler_eligible(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

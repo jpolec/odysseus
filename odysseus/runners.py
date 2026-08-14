@@ -21,6 +21,16 @@ Cancelled = Callable[[], bool]
 SENSITIVE_KEY = re.compile(r"(?:api[_-]?key|authorization|password|passwd|secret|token|credential|cookie)", re.I)
 SENSITIVE_VALUE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*|\b(?:sk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{12,}\b")
 ATTENTION_MARKER = "ODYSSEUS_ATTENTION:"
+USAGE_COUNTER_KEYS = frozenset(
+    {
+        "input_tokens",
+        "cached_input_tokens",
+        "cache_read_input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+        "total_tokens",
+    }
+)
 
 
 def _safe_int(value: Any) -> int:
@@ -64,7 +74,7 @@ def _extract_text(value: Any) -> str:
 
 
 def _sanitize(value: Any, *, key: str = "") -> Any:
-    if key and SENSITIVE_KEY.search(key):
+    if key and key.lower() not in USAGE_COUNTER_KEYS and SENSITIVE_KEY.search(key):
         return "[REDACTED]"
     if isinstance(value, str):
         return SENSITIVE_VALUE.sub(lambda match: f"{match.group(1) if match.lastindex else ''}[REDACTED]", value)[:20_000]

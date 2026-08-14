@@ -109,6 +109,20 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(value["api_key"], "[REDACTED]")
         self.assertNotIn("abcdefghijklmnop", value["command"])
 
+    def test_usage_counters_are_not_mistaken_for_credentials(self) -> None:
+        value = _sanitize(
+            {
+                "input_tokens": 123,
+                "cached_input_tokens": 80,
+                "output_tokens": 17,
+                "token": "credential-value",
+            }
+        )
+        self.assertEqual(value["input_tokens"], 123)
+        self.assertEqual(value["cached_input_tokens"], 80)
+        self.assertEqual(value["output_tokens"], 17)
+        self.assertEqual(value["token"], "[REDACTED]")
+
 
 if __name__ == "__main__":
     unittest.main()
