@@ -42,6 +42,8 @@ COMMON=(--headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1
 
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-attention.png" "$BASE_URL/?view=attention"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-epic-dag.png" "$BASE_URL/?view=epics"
-"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-integration-ci.png" "$BASE_URL/#task/$RUN_ID"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-integration.png" "$BASE_URL/?tab=integration#task/$RUN_ID"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-ci-repair.png" "$BASE_URL/?tab=ci#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-insights.png" "$BASE_URL/?view=insights"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-new-task.png" "$BASE_URL/?view=tasks&dialog=task"
 printf 'Screenshots written to %s\n' "$OUTPUT_DIR"

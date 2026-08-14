@@ -146,7 +146,7 @@ Reload tmux, press `prefix` + `I`, then use:
 - `prefix` + `u` to browse every managed session.
 - `prefix` + `O` to start or open the web UI.
 
-The web **Sessions** view discovers managed sessions and existing Codex/Claude
+The web **Agent terminals** view discovers managed sessions and existing Codex/Claude
 panes automatically; you do not press anything to import them. Select **Track
 in Odysseus** only when you want a durable entry under Tasks. Tracking leaves
 the original pane untouched and cannot recreate tokens, tools, checks, or diffs

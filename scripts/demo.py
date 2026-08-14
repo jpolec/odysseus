@@ -125,7 +125,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "options": [
                 {"id": "magic-link", "label": "Offer magic link"},
                 {"id": "explain", "label": "Explain and stop"},
-                {"id": "takeover", "label": "Take over in tmux"},
+                {"id": "takeover", "label": "Continue in terminal"},
             ],
             "priority": "medium",
         },
@@ -216,7 +216,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "max_attempts": 2,
             "options": [
                 {"id": "resume", "label": "Resume original agent"},
-                {"id": "takeover", "label": "Take over in tmux"},
+                {"id": "takeover", "label": "Continue in terminal"},
             ],
             "priority": "high",
         },

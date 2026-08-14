@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.4.1](https://img.shields.io/badge/version-0.4.1-171a16)
+![Version: 0.4.2](https://img.shields.io/badge/version-0.4.2-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -77,8 +77,10 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes the Attention, Epic DAG, Integration/CI, and Insights views
-to `docs/screenshots/` and removes its temporary state when finished.
+The script writes six real browser captures—Attention, Epic DAG, Integration,
+CI repair, Insights, and New task—to `docs/screenshots/` and removes its
+temporary state when finished. Each URL selects the intended tab or dialog, so
+the filenames match the visible product surface.
 
 ## Where tasks come from
 
@@ -87,7 +89,7 @@ to `docs/screenshots/` and removes its temporary state when finished.
 | **New task** in the web UI | A branch and worktree are created, then the bounded agent/check/review workflow runs. |
 | `bin/odysseus run ...` | The same workflow is queued from a terminal or script. |
 | **Plan multi-task work** / `bin/odysseus plan ...` | A read-only planner proposes a DAG; tasks exist only after explicit approval. |
-| Existing Codex/Claude tmux pane | It appears in **Sessions** automatically; no import button is required. |
+| Existing Codex/Claude tmux pane | It appears in **Agent terminals** automatically; no import button is required. |
 | **Track in Odysseus** on a tmux pane | A durable shortcut is created without restarting, controlling, or interrupting the pane. |
 | Inbox **Queue as agent task** | A human or agent follow-up becomes a queued task in its project. |
 | GitHub **Queue issue** | An open issue becomes a queued task through authenticated `gh`. |
@@ -106,7 +108,7 @@ durable Odysseus shortcut.
 - **Epics -> Plan multi-task work** is for a feature that should become several
   dependent or parallel tasks. Describe the finished feature, not the task
   breakdown. The Planner proposes the graph and nothing runs before approval.
-- **Sessions** requires no input. It discovers existing Codex/Claude tmux panes.
+- **Agent terminals** requires no input. It discovers existing Codex/Claude tmux panes.
   Tracking one does not provide historical tool/token data that Odysseus never
   observed.
 - **Inbox** parks follow-up work. Adding an item does not launch an agent;

@@ -244,7 +244,7 @@ bin/odysseus takeover RUN_ID
 
 The command prints a `tmux attach-session` command and creates the managed
 session only once. The same session appears in `prefix` + `u` and the web
-**Sessions** view.
+**Agent terminals** view.
 
 ### Accept or publish
 
@@ -294,7 +294,7 @@ process is recognized as Codex or Claude. Use Enter to jump to a session.
 
 ### Track an interactive session durably
 
-Open **Sessions** in the web UI and select **Track in Odysseus**, or run:
+Open **Agent terminals** in the web UI and select **Track in Odysseus**, or run:
 
 ```sh
 bin/odysseus adopt TMUX_SESSION
@@ -535,7 +535,7 @@ certificate. See [../SECURITY.md](../SECURITY.md) for the trust model.
 
 ### A tmux session is missing
 
-- Select **Refresh** in the Sessions view.
+- Select **Refresh now** in the Agent terminals view.
 - Confirm the pane's foreground command is Codex or Claude.
 - Run `bin/odysseus sessions --json` for the raw discovery result.
 - Confirm the web server runs as the same OS user and can access the same tmux

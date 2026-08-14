@@ -2,7 +2,7 @@
 
 ## Current version
 
-**0.4.1 — 2026-08-14**
+**0.4.2 — 2026-08-14**
 
 Version 0.4 makes DAG edges carry code, not only scheduling state. Accepted
 tasks become durable local artifacts; downstream branches compose those
@@ -10,7 +10,23 @@ artifacts before implementation; draft pull requests enter a bounded GitHub CI
 repair loop. The operator sees merge risk, CI, liveness, budgets, and outcomes
 in the same attention-first control plane.
 
-## What is available in 0.4.1
+## What is available in 0.4.2
+
+### 0.4.2 visual hierarchy patch
+
+- A refined light visual system with clearer navigation, spacing, depth,
+  typography, active states, and responsive behavior.
+- Every autonomous task explains its current step, what Odysseus is doing, and
+  whether the operator needs to act; technical metadata is collapsed by
+  default.
+- Agent terminals show a four-signal summary, default to the current attached
+  tmux sessions, group panes by session, and distinguish Codex and Claude
+  visually without inventing telemetry.
+- Needs You has a real all-clear state with direct paths to start a task, plan
+  multi-task work, or inspect terminals.
+- Screenshot URLs can select a task inspector tab or open a form dialog. The
+  deterministic capture script now produces six correctly named browser views
+  instead of labeling the default Diff view as Integration/CI.
 
 ### 0.4.1 operator clarity patch
 
@@ -92,7 +108,7 @@ in the same attention-first control plane.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.4.1` |
+| Application version | `0.4.2` |
 | Run snapshot schema | `4` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
@@ -137,6 +153,12 @@ An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.4.2 — visual hierarchy
+
+Refined the complete light UI, added plain-language workflow state, terminal
+summaries and filtering, collapsible technical metadata, a useful all-clear
+state, and deterministic deep links for real screenshot capture.
 
 ### 0.4.1 — operator clarity
 
