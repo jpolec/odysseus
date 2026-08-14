@@ -638,6 +638,14 @@ class Scheduler:
         if failure_context:
             label = "Review feedback" if attempt == 1 else "Failed check from the previous attempt"
             prompt += f"\n{label}:\n{failure_context[-20_000:]}\n"
+        context_bundle = run.get("context_bundle") if isinstance(run.get("context_bundle"), list) else []
+        if context_bundle:
+            prompt += "\nProject context captured when this task was queued:\n"
+            for source in context_bundle:
+                prompt += (
+                    f"\n--- CONTEXT {source.get('path')} ({source.get('reason')}) ---\n"
+                    f"{str(source.get('content') or '')}\n"
+                )
         skill_context = run.get("skill_context") if isinstance(run.get("skill_context"), list) else []
         if skill_context:
             prompt += "\nEngineering skills selected for this task:\n"

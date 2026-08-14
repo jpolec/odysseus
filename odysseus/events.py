@@ -88,6 +88,7 @@ EVENT_TYPES = frozenset(
         "planner.failed",
         "skill.selected",
         "skill.loaded",
+        "context.receipt.created",
     }
 )
 

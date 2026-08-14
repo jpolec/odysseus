@@ -71,6 +71,28 @@ class SkillRegistryTests(unittest.TestCase):
                     }
                 )
 
+    def test_catalog_reports_project_specific_outcome_economics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "service"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Review authentication security", "project_path": str(project)})
+            store.append_event(run["id"], "agent.question", "codex", {"message": "Choose session lifetime"})
+            store.update(
+                run["id"],
+                status="accepted",
+                metrics={"input_tokens": 800, "output_tokens": 200, "cost_usd": 0.25},
+            )
+
+            catalog = store.skills.catalog(run["project_id"])
+            security = next(skill for skill in catalog["skills"] if skill["name"] == "security-review")
+
+            self.assertEqual(security["effectiveness"]["runs"], 1)
+            self.assertEqual(security["effectiveness"]["success_rate"], 1.0)
+            self.assertEqual(security["effectiveness"]["avg_tokens"], 1000)
+            self.assertEqual(security["effectiveness"]["interventions"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

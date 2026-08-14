@@ -22,9 +22,10 @@ class StoreTests(unittest.TestCase):
             lines = (store.events_dir / f"{run['id']}.ndjson").read_text().splitlines()
             events = [json.loads(line) for line in lines]
 
-            self.assertEqual(persisted["event_seq"], 2)
-            self.assertEqual([event["seq"] for event in events], [1, 2])
+            self.assertEqual(persisted["event_seq"], 3)
+            self.assertEqual([event["seq"] for event in events], [1, 2, 3])
             self.assertEqual(events[0]["type"], "run.queued")
+            self.assertEqual(events[1]["type"], "context.receipt.created")
 
     def test_persistent_config_updates_concurrency(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -115,7 +116,7 @@ class StoreTests(unittest.TestCase):
 
             migrated = RunStore(store.root).get(run["id"])
 
-            self.assertEqual(migrated["schema_version"], 5)
+            self.assertEqual(migrated["schema_version"], 6)
             self.assertEqual(migrated["depends_on"], [])
             self.assertEqual(migrated["evaluation"], {})
             self.assertEqual(

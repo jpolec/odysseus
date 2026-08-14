@@ -15,6 +15,11 @@ VALID_MODES = frozenset({"auto", "required", "disabled"})
 VALID_TASK_MODES = frozenset({"auto", "manual", "none"})
 SKILL_LOCATIONS = (".agents/skills", ".github/skills", ".claude/skills")
 BUNDLED_SKILLS = Path(__file__).resolve().parent.parent / "skills"
+SUCCESS_STATUSES = frozenset({"accepted", "pr_created", "completed"})
+TERMINAL_STATUSES = SUCCESS_STATUSES | frozenset({"failed", "cancelled"})
+INTERVENTION_EVENTS = frozenset(
+    {"agent.question", "agent.permission_request", "agent.blocked", "agent.decision_required", "run.attention"}
+)
 
 
 def _frontmatter(value: str) -> tuple[dict[str, str], str]:
@@ -125,15 +130,70 @@ class SkillRegistry:
     def catalog(self, project_id: str, *, include_content: bool = False) -> dict[str, Any]:
         project = self.store.projects.get(project_id)
         policy = self.policy(project_id)
+        effectiveness = self.effectiveness(project_id)
         skills = []
         for skill in self.discover(project):
             item = dict(skill)
             item["mode"] = policy.get(skill["name"], "auto")
+            item["effectiveness"] = effectiveness.get(skill["name"], self._empty_effectiveness())
             if not include_content:
                 item.pop("content", None)
                 item.pop("body", None)
             skills.append(item)
         return {"project_id": project_id, "skills": skills, "updated_at": now_iso()}
+
+    @staticmethod
+    def _empty_effectiveness() -> dict[str, Any]:
+        return {
+            "runs": 0,
+            "terminal_runs": 0,
+            "successful_runs": 0,
+            "success_rate": None,
+            "avg_tokens": 0,
+            "avg_cost_usd": 0.0,
+            "interventions": 0,
+        }
+
+    def effectiveness(self, project_id: str) -> dict[str, dict[str, Any]]:
+        self.store.projects.get(project_id)
+        values: dict[str, dict[str, Any]] = {}
+        for run in self.store.list():
+            if str(run.get("project_id")) != project_id:
+                continue
+            selected = {
+                str(item.get("name"))
+                for item in (run.get("skills_selected") or [])
+                if isinstance(item, dict) and item.get("name")
+            }
+            if not selected:
+                continue
+            status = str(run.get("status") or "")
+            metrics = run.get("metrics") if isinstance(run.get("metrics"), dict) else {}
+            tokens = int(metrics.get("input_tokens") or 0) + int(metrics.get("output_tokens") or 0)
+            try:
+                cost = float(metrics.get("cost_usd") or 0.0)
+            except (TypeError, ValueError):
+                cost = 0.0
+            interventions = sum(
+                1 for event in self.store.events(str(run["id"]), limit=5_000) if event.get("type") in INTERVENTION_EVENTS
+            )
+            for name in selected:
+                item = values.setdefault(name, {**self._empty_effectiveness(), "total_tokens": 0, "total_cost_usd": 0.0})
+                item["runs"] += 1
+                item["total_tokens"] += tokens
+                item["total_cost_usd"] += cost
+                item["interventions"] += interventions
+                if status in TERMINAL_STATUSES:
+                    item["terminal_runs"] += 1
+                if status in SUCCESS_STATUSES:
+                    item["successful_runs"] += 1
+        for item in values.values():
+            runs = max(1, int(item["runs"]))
+            terminal = int(item["terminal_runs"])
+            item["avg_tokens"] = round(int(item.pop("total_tokens")) / runs)
+            item["avg_cost_usd"] = round(float(item.pop("total_cost_usd")) / runs, 4)
+            item["success_rate"] = round(int(item["successful_runs"]) / terminal, 3) if terminal else None
+        return values
 
     def select(
         self,

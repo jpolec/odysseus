@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.5.1](https://img.shields.io/badge/version-0.5.1-171a16)
+![Version: 0.5.2](https://img.shields.io/badge/version-0.5.2-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -52,6 +52,9 @@ available without occupying the first-use path.
   generic security, database, API, testing, accessibility, performance, and
   maintenance skills. Set a skill to Auto, Required, or Disabled; task-specific
   manual selection stays optional.
+- **Know why context was used.** Every task stores a Context Receipt containing
+  the exact README, instruction, brief, and skill snapshots sent to the agent,
+  with selection reasons and content digests visible under Evidence.
 - **Stay inspectable.** State is JSON plus append-only NDJSON. The runtime uses
   Python's standard library and browser-native JavaScript—no database, Redis,
   Node build, or mandatory container.

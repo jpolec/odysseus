@@ -67,6 +67,11 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _stable_digest(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _digest(encoded)
+
+
 def _plain_markdown(value: str) -> str:
     text = re.sub(r"```.*?```", " ", value, flags=re.DOTALL)
     text = re.sub(r"!\[[^]]*]\([^)]*\)", " ", text)
@@ -201,6 +206,102 @@ class ProjectKnowledge:
             "stack": stack,
             "commits": _git_log(root),
         }
+
+    def snapshot(
+        self,
+        project: Mapping[str, Any],
+        task: str,
+        selected_skills: list[Mapping[str, Any]],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Freeze the exact project context and provenance sent to one run."""
+
+        root = Path(str(project["path"])).resolve()
+        bundle: list[dict[str, Any]] = []
+        remaining_bytes = 64_000
+
+        def capture(kind: str, title: str, path: str, reason: str, content: str) -> None:
+            nonlocal remaining_bytes
+            if remaining_bytes <= 0 or not content:
+                return
+            encoded = content.encode("utf-8")[:remaining_bytes]
+            clipped = encoded.decode("utf-8", errors="ignore")
+            if not clipped:
+                return
+            size = len(clipped.encode("utf-8"))
+            remaining_bytes -= size
+            bundle.append(
+                {
+                    "kind": kind,
+                    "title": title,
+                    "path": path,
+                    "reason": reason,
+                    "content": clipped,
+                    "sha256": _digest(clipped),
+                    "bytes": size,
+                }
+            )
+
+        profile = self.profile(str(project["id"]))
+        profile_content = "\n\n".join(
+            value
+            for value in (
+                f"Project brief:\n{profile['summary']}" if profile["summary"] else "",
+                f"Operator notes:\n{profile['notes']}" if profile["notes"] else "",
+            )
+            if value
+        )
+        if profile_content:
+            capture("project_profile", "Odysseus project brief", "odysseus://project-profile", "project-level operator context", profile_content)
+        for relative in README_CANDIDATES:
+            path = root / relative
+            if path.is_file():
+                content = _read_text(path, limit=20_000)
+                if content:
+                    capture("readme", relative, relative, "primary repository overview", content)
+                break
+        instruction_paths = [root / relative for relative in INSTRUCTION_CANDIDATES]
+        cursor_rules = root / ".cursor" / "rules"
+        if cursor_rules.is_dir():
+            instruction_paths.extend(sorted(cursor_rules.glob("*.md*"))[:12])
+        for path in instruction_paths:
+            if not path.is_file():
+                continue
+            content = _read_text(path, limit=16_000)
+            if not content:
+                continue
+            relative = str(path.relative_to(root))
+            capture("agent_instructions", relative, relative, "repository-authored agent instructions", content)
+        sources = [
+            {key: item[key] for key in ("kind", "title", "path", "reason", "sha256", "bytes")}
+            for item in bundle
+        ]
+        for skill in selected_skills:
+            content = str(skill.get("content") or "")[:16_000]
+            sources.append(
+                {
+                    "kind": "skill",
+                    "title": str(skill.get("name") or "skill"),
+                    "path": str(skill.get("relative_path") or ""),
+                    "reason": str(skill.get("reason") or "selected for task"),
+                    "sha256": _digest(content),
+                    "bytes": len(content.encode("utf-8")),
+                }
+            )
+        digest_material = [
+            {"kind": item["kind"], "path": item["path"], "sha256": item["sha256"]}
+            for item in sources
+        ]
+        receipt = {
+            "version": "context-receipt-v1",
+            "algorithm": "deterministic-project-context-v1",
+            "created_at": now_iso(),
+            "project_id": str(project["id"]),
+            "task_sha256": _digest(task),
+            "bundle_sha256": _stable_digest(digest_material),
+            "source_count": len(sources),
+            "sources": sources,
+        }
+        return bundle, receipt
 
     @staticmethod
     def _event_summary(event_type: str, data: Mapping[str, Any], run: Mapping[str, Any]) -> str:

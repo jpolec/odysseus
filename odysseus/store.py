@@ -59,7 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 5
+RUN_SCHEMA_VERSION = 6
 
 
 def _safe_int(value: Any) -> int:
@@ -112,6 +112,8 @@ def _run_defaults() -> dict[str, Any]:
         "skills_requested": [],
         "skills_selected": [],
         "skill_context": [],
+        "context_bundle": [],
+        "context_receipt": {},
     }
 
 
@@ -351,6 +353,7 @@ class RunStore:
             task_mode=skill_mode,
             requested=skills_requested,
         ) if kind != "tmux" else []
+        context_bundle, context_receipt = self.knowledge.snapshot(project_record, task, selected_skills) if kind != "tmux" else ([], {})
         run: dict[str, Any] = {
             "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
@@ -420,11 +423,24 @@ class RunStore:
                 {key: skill[key] for key in ("name", "description", "scope", "relative_path", "sha256", "reason", "content")}
                 for skill in selected_skills
             ],
+            "context_bundle": context_bundle,
+            "context_receipt": context_receipt,
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)
         if initial_status == "queued":
             self.append_event(run_id, "run.queued", "odysseus", {"title": title})
+        if context_receipt:
+            self.append_event(
+                run_id,
+                "context.receipt.created",
+                "odysseus",
+                {
+                    "version": context_receipt["version"],
+                    "bundle_sha256": context_receipt["bundle_sha256"],
+                    "source_count": context_receipt["source_count"],
+                },
+            )
         for skill in selected_skills:
             self.append_event(
                 run_id,

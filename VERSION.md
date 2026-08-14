@@ -2,14 +2,27 @@
 
 ## Current version
 
-**0.5.1 — 2026-08-14**
+**0.5.2 — 2026-08-14**
 
 Version 0.5 makes project context and reusable engineering guidance visible at
 the project level. Repository evidence remains read-only, while project briefs,
 skill policies, and exact per-run skill snapshots live in private Odysseus
 state.
 
-## What is available in 0.5.1
+## What is available in 0.5.2
+
+### 0.5.2 Context Receipts
+
+- Every autonomous run freezes the exact project brief, README, repository
+  instructions, and selected skill snapshots attached at queue time.
+- `context-receipt-v1` records the task digest, source paths, source kinds,
+  selection reasons, byte sizes, individual digests, and one complete bundle
+  digest. A later repository edit cannot silently change the recorded context.
+- The Evidence -> Context inspector reveals both provenance and snapshot
+  content; `context.receipt.created` preserves creation in append-only NDJSON.
+- Per-project skill history reports observed runs, accepted outcomes, average
+  tokens/cost, and human interventions. Sparse history stays explicitly
+  unknown instead of presenting a misleading success percentage.
 
 ### 0.5.1 Generic Project Skills
 
@@ -152,8 +165,8 @@ state.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.5.1` |
-| Run snapshot schema | `5` |
+| Application version | `0.5.2` |
+| Run snapshot schema | `6` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
 | Export format | `odysseus-state-v1` |
@@ -178,7 +191,7 @@ the application, run-schema, event-envelope, and export-format markers.
 - Worktrees isolate repository files, not ports, databases, environment files,
   credentials, CPU, RAM, or network access. Runtime isolation is next.
 - Project discovery is deterministic and read-only; semantic retrieval and
-  automatic knowledge extraction are not part of 0.5.1.
+  automatic knowledge extraction are not part of 0.5.2.
 
 ## Upgrade from 0.3
 
@@ -198,6 +211,12 @@ An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.5.2 — Context Receipts
+
+Added immutable, hashed per-run context snapshots; an Evidence inspector for
+exact provenance; and project-specific skill outcome, token, cost, and human
+intervention statistics.
 
 ### 0.5.1 — Generic Project Skills
 

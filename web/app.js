@@ -177,7 +177,7 @@ function renderProjectSkills() {
   const catalog = state.projectSkills;
   const skills = catalog?.skills || [];
   $("#projectSkillCount").textContent = `${skills.filter((skill) => skill.mode !== "disabled").length} enabled`;
-  $("#projectSkillList").innerHTML = skills.length ? skills.map((skill) => `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div><pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
+  $("#projectSkillList").innerHTML = skills.length ? skills.map((skill) => { const stats = skill.effectiveness || {}; const outcome = stats.runs ? `${stats.runs} run${stats.runs === 1 ? "" : "s"}${stats.success_rate === null ? " · awaiting outcomes" : ` · ${Math.round(Number(stats.success_rate) * 100)}% successful`}` : "No project history yet"; return `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small><em class="skill-effectiveness">${escapeHtml(outcome)}</em></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div>${stats.runs ? `<p class="skill-stats">Average ${compactNumber(stats.avg_tokens)} tokens · $${Number(stats.avg_cost_usd || 0).toFixed(4)} · ${Number(stats.interventions || 0)} human interventions</p>` : ""}<pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`; }).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
   $$('[data-skill-policy]').forEach((select) => {
     select.addEventListener("click", (event) => event.stopPropagation());
     select.addEventListener("change", async (event) => {
@@ -362,7 +362,7 @@ function renderDetail(run, diff) {
   $("#workflowStrip").classList.toggle("hidden", interactive);
   renderActions(run); renderNarrative(run); renderWorkflow(run); renderEvents();
   $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
-  renderIntegration(run); renderChecks(run.check_results || []); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
+  renderIntegration(run); renderChecks(run.check_results || []); renderContextReceipt(run); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
 }
 
 function renderNarrative(run) {
@@ -433,6 +433,23 @@ function renderEvents() {
 
 function renderChecks(checks) {
   $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${escapeHtml(check.output || "No output.")}</pre></div>`; }).join("") : `<div class="check-output">Checks have not run yet.</div>`;
+}
+
+function renderContextReceipt(run) {
+  const receipt = run.context_receipt || {};
+  const sources = receipt.sources || [];
+  if (!receipt.version) {
+    $("#contextReceipt").innerHTML = `<div class="empty-card">This task predates context receipts.</div>`;
+    return;
+  }
+  const sourceRows = sources.map((source) => {
+    const snapshot = source.kind === "skill"
+      ? (run.skill_context || []).find((item) => item.name === source.title)
+      : (run.context_bundle || []).find((item) => item.path === source.path && item.kind === source.kind);
+    const content = source.kind === "skill" ? String(snapshot?.content || "").slice(0, 16000) : String(snapshot?.content || "");
+    return `<details class="receipt-source"><summary><span class="receipt-kind">${escapeHtml(source.kind)}</span><span><strong>${escapeHtml(source.title)}</strong><small>${escapeHtml(source.reason)}</small></span><code>${escapeHtml(String(source.sha256 || "").slice(0, 10))}</code></summary><div><span>${escapeHtml(source.path)}</span><span>${compactNumber(source.bytes)} bytes</span></div><pre>${escapeHtml(content || "Snapshot content is unavailable.")}</pre></details>`;
+  }).join("");
+  $("#contextReceipt").innerHTML = `<section class="receipt-head"><div><small>CONTEXT RECEIPT</small><strong>${escapeHtml(receipt.version)}</strong><p>These immutable snapshots are exactly what Odysseus attached when the task was queued.</p></div><code title="Complete bundle digest">${escapeHtml(receipt.bundle_sha256 || "")}</code></section><div class="receipt-source-list">${sourceRows || `<div class="empty-card">No project or skill context was attached.</div>`}</div>`;
 }
 
 function renderEvaluation(evaluation) {
