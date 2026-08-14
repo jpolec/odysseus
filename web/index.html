@@ -7,14 +7,16 @@
     <title>Odysseus — Agent Control Plane</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
-  <body data-view="tasks">
+  <body data-view="attention">
     <header class="topbar">
       <a class="brand" href="#" aria-label="Odysseus home">
         <span class="brand-mark" aria-hidden="true">O</span>
         <span><strong>ODYSSEUS</strong><small>agent control plane</small></span>
       </a>
       <nav class="primary-nav" aria-label="Main navigation">
-        <button class="nav-button active" data-view="tasks" type="button">Tasks</button>
+        <button class="nav-button active" data-view="attention" type="button">Needs You <span id="attentionNavCount"></span></button>
+        <button class="nav-button" data-view="epics" type="button">Epics <span id="epicNavCount"></span></button>
+        <button class="nav-button" data-view="tasks" type="button">Tasks</button>
         <button class="nav-button" data-view="sessions" type="button">Sessions <span id="sessionNavCount"></span></button>
         <button class="nav-button" data-view="inbox" type="button">Inbox <span id="inboxNavCount"></span></button>
         <button class="nav-button" data-view="projects" type="button">Projects</button>
@@ -48,7 +50,18 @@
       </aside>
 
       <section class="workspace">
-        <div class="task-view view-panel active" id="tasksView">
+        <section class="view-panel collection-view active" id="attentionView">
+          <div class="page-head"><div><p class="eyebrow">HUMAN ATTENTION</p><h1>Needs You</h1><p>Only questions, permissions, failures, and review gates that need an operator decision.</p></div><button class="ghost" id="refreshAttention" type="button">Refresh</button></div>
+          <div class="attention-summary" id="attentionSummary"></div>
+          <div class="stack-list" id="attentionList"></div>
+        </section>
+
+        <section class="view-panel collection-view" id="epicsView">
+          <div class="page-head"><div><p class="eyebrow">REQUIREMENT → DAG</p><h1>Epics</h1><p>A read-only planner proposes the graph. Nothing executes until you approve it.</p></div><button class="primary" id="newEpicButton" type="button">Plan an epic</button></div>
+          <div class="stack-list" id="epicList"></div>
+        </section>
+
+        <div class="task-view view-panel" id="tasksView">
           <div class="empty-state" id="emptyState">
             <div class="orbit" aria-hidden="true"><span>O</span></div>
             <p class="eyebrow">LOCAL-FIRST ORCHESTRATION</p>
@@ -80,11 +93,12 @@
               </section>
               <section class="panel inspector-panel">
                 <div class="tabs" role="tablist">
-                  <button class="tab active" data-tab="diff" type="button">Diff</button><button class="tab" data-tab="checks" type="button">Checks</button><button class="tab" data-tab="review" type="button">Review</button>
+                  <button class="tab active" data-tab="diff" type="button">Diff</button><button class="tab" data-tab="checks" type="button">Checks</button><button class="tab" data-tab="review" type="button">Review</button><button class="tab" data-tab="evaluation" type="button">Evaluation</button>
                 </div>
                 <div class="tab-pane active" id="tab-diff"><pre class="diff-stat" id="diffStat">No diff yet.</pre><pre class="code" id="diffPatch">The worktree will appear here after the task starts.</pre></div>
                 <div class="tab-pane" id="tab-checks"><div id="checkResults"></div></div>
                 <div class="tab-pane" id="tab-review"><pre class="review-copy" id="reviewSummary">Review has not run yet.</pre></div>
+                <div class="tab-pane" id="tab-evaluation"><div id="evaluationResults"></div></div>
               </section>
             </div>
           </article>
@@ -120,6 +134,16 @@
       <div class="form-row"><label>Title <input name="title" placeholder="Derived from task when empty"></label><label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label></div>
       <label>Checks <textarea name="checks" rows="3" placeholder="One shell command per line, e.g. python3 -m unittest"></textarea></label>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Queue task</button></div>
+    </form></dialog>
+
+    <dialog id="epicDialog"><form method="dialog" id="epicForm">
+      <div class="dialog-head"><div><p class="eyebrow">READ-ONLY PLANNER</p><h2>Plan an epic</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <label>Requirement <textarea name="requirement" rows="7" required placeholder="Implement passkey authentication end to end…"></textarea></label>
+      <div class="form-row"><label>Project <select name="project_id" id="epicProjectSelect"><option value="">Custom path</option></select></label><label>Planner lane <select name="planner_lane" id="plannerLaneSelect"></select></label></div>
+      <label>Custom project path <input name="project_path" placeholder="/absolute/path/to/repo"></label>
+      <div class="form-row"><label>Implementation lane <select name="lane" id="epicLaneSelect"></select></label><label>Review lane <select name="review_lane" id="epicReviewLaneSelect"></select></label></div>
+      <label>Checks <textarea name="checks" rows="3" placeholder="One shell command per line"></textarea></label>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create proposal</button></div>
     </form></dialog>
 
     <dialog id="feedbackDialog"><form method="dialog" id="feedbackForm">

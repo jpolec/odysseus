@@ -1,8 +1,8 @@
 "use strict";
 
 const state = {
-  bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], selectedId: null,
-  selected: null, events: [], filter: "all", projectFilter: "all", view: "tasks",
+  bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
+  selected: null, events: [], filter: "all", projectFilter: "all", view: "attention",
   stream: null, refreshTimer: null,
 };
 
@@ -52,6 +52,8 @@ function setView(view) {
   if (view === "tasks" && state.selectedId) openStream(state.selectedId);
   if (view === "sessions") refreshSessions();
   if (view === "inbox") refreshInbox();
+  if (view === "attention") refreshAttention();
+  if (view === "epics") refreshEpics();
   updateGitHubLink();
 }
 
@@ -59,7 +61,7 @@ function filteredRuns() {
   let runs = state.runs;
   if (state.projectFilter !== "all") runs = runs.filter((run) => run.project_id === state.projectFilter);
   if (state.filter === "active") return runs.filter((run) => activeStatuses.has(run.status));
-  if (state.filter === "review") return runs.filter((run) => ["review", "failed", "accepted"].includes(run.status));
+  if (state.filter === "review") return runs.filter((run) => ["attention", "blocked", "review", "failed", "accepted"].includes(run.status));
   return runs;
 }
 
@@ -116,24 +118,25 @@ function renderDetail(run, diff) {
   $("#metrics").innerHTML = [
     ["Input", compactNumber(metrics.input_tokens)], ["Cached", compactNumber(metrics.cached_input_tokens)],
     ["Output", compactNumber(metrics.output_tokens)], ["Tool calls", compactNumber(metrics.tool_calls)],
-    ["Cost", metrics.cost_usd ? `$${Number(metrics.cost_usd).toFixed(4)}` : "—"],
+    ["Cost", metrics.cost_usd ? `$${Number(metrics.cost_usd).toFixed(4)}` : "—"], ["Confidence", run.confidence === null || run.confidence === undefined ? "—" : `${Math.round(Number(run.confidence) * 100)}%`],
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
   $("#metadata").innerHTML = [
     ["Lane", run.lane], ["Workflow", run.workflow], ["Project", projectById(run.project_id)?.name || run.project_path],
     ["Branch", run.branch || (run.kind === "tmux" ? "interactive" : "waiting")], ["Worktree", run.worktree_path || run.project_path],
     ["Agent session", run.agent_sessions?.agent || run.agent_session_id || "—"], ["tmux", run.tmux_target ? `${run.tmux_session} · ${run.tmux_target}` : run.tmux_session || "—"],
-    ["Attempt", run.kind === "tmux" ? "interactive" : `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`],
+    ["Attempt", run.kind === "tmux" ? "interactive" : `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`], ["Role", run.role || "implementer"],
+    ["Epic", run.epic_id || "—"], ["Depends on", (run.dependency_keys || []).join(", ") || "—"],
   ].map(([label, value]) => `<div class="meta"><small>${escapeHtml(label)}</small><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
   $("#workflowStrip").classList.toggle("hidden", run.kind === "tmux");
   renderActions(run); renderWorkflow(run); renderEvents();
   $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
-  renderChecks(run.check_results || []); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet.";
+  renderChecks(run.check_results || []); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {});
 }
 
 function renderActions(run) {
   const actions = [];
   if (run.status === "review") actions.push(`<button class="action-button accept" data-action="accept" type="button">Accept</button>`);
-  if (["review", "failed", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Resume agent</button>`);
+  if (["attention", "review", "failed", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Resume agent</button>`);
   if (["review", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="draft-pr" type="button">Draft PR</button>`);
   if (run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) actions.push(`<button class="action-button" data-action="takeover" type="button">Take over in tmux</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
@@ -177,6 +180,14 @@ function renderChecks(checks) {
   $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${escapeHtml(check.output || "No output.")}</pre></div>`; }).join("") : `<div class="check-output">Checks have not run yet.</div>`;
 }
 
+function renderEvaluation(evaluation) {
+  const components = evaluation.components || [];
+  $("#evaluationResults").innerHTML = evaluation.version ? `
+    <div class="evaluation-head"><strong>${Math.round(Number(evaluation.confidence || 0) * 100)}% confidence</strong><span>${escapeHtml(evaluation.decision || "human_review")}</span></div>
+    ${components.map((item) => `<div class="evaluation-row"><div><strong>${escapeHtml(item.id)}</strong><small>${escapeHtml(item.kind || "signal")}</small></div><span>${Math.round(Number(item.score || 0) * 100)}%</span><span class="${item.verdict === "fail" ? "check-fail" : "check-pass"}">${escapeHtml(item.verdict || "—")}</span></div>`).join("")}
+  ` : `<div class="empty-card">Evaluation has not run yet.</div>`;
+}
+
 function openStream(runId) {
   if (state.view !== "tasks" || state.stream) return;
   const after = state.events.at(-1)?.seq || 0; const stream = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`); state.stream = stream;
@@ -207,11 +218,48 @@ async function runAction(action) {
   } catch (error) { toast(error.message, true); }
 }
 
+async function refreshAttention() {
+  state.attention = (await api("/api/attention?status=open")).items;
+  const counts = state.attention.reduce((value, item) => ({...value, [item.priority]: (value[item.priority] || 0) + 1}), {});
+  $("#attentionNavCount").textContent = state.attention.length || "";
+  $("#attentionSummary").innerHTML = ["critical", "high", "medium", "low"].map((priority) => `<div><strong>${counts[priority] || 0}</strong><span>${priority}</span></div>`).join("");
+  $("#attentionList").innerHTML = state.attention.length ? state.attention.map((item) => {
+    const options = (item.options || []).map((option) => `<button class="${option.id === "takeover" ? "ghost" : "primary"}" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
+    return `<article class="stack-card attention-card priority-${escapeHtml(item.priority)}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(item.type)}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.message)}</p><div class="card-actions">${options}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">Answer…</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></article>`;
+  }).join("") : `<div class="attention-zero"><strong>Inbox zero.</strong><p>No agent currently needs you. Odysseus will keep working within its policy.</p></div>`;
+  $$('[data-attention-answer]').forEach((button) => button.addEventListener("click", () => respondAttention(button.dataset.attentionAnswer, button.dataset.answer)));
+  $$('[data-attention-custom]').forEach((button) => button.addEventListener("click", () => { const response = window.prompt("Answer the agent or add guidance:"); if (response) respondAttention(button.dataset.attentionCustom, response); }));
+  $$('[data-attention-resolve]').forEach((button) => button.addEventListener("click", async () => { await api(`/api/attention/${encodeURIComponent(button.dataset.attentionResolve)}/resolve`, {method: "POST", body: "{}"}); await refreshAttention(); }));
+  $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
+}
+
+async function respondAttention(itemId, response) {
+  try {
+    const result = await api(`/api/attention/${encodeURIComponent(itemId)}/respond`, {method: "POST", body: JSON.stringify({response})});
+    if (result.takeover?.command) await copyCommand(result.takeover.command);
+    else toast("Response recorded; the same agent session was queued to continue.");
+    await Promise.all([refreshAttention(), refreshRuns(), refreshEpics()]);
+  } catch (error) { toast(error.message, true); }
+}
+
+async function refreshEpics() {
+  state.epics = (await api("/api/epics")).epics;
+  $("#epicNavCount").textContent = state.epics.filter((epic) => ["planning", "proposed", "active"].includes(epic.status)).length || "";
+  $("#epicList").innerHTML = state.epics.length ? state.epics.map((epic) => {
+    const tasks = epic.plan?.tasks || [];
+    const graph = tasks.length ? `<div class="dag">${tasks.map((task) => `<div class="dag-node"><div><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(task.role || "implementer")} · ${escapeHtml(task.lane || "default")}</small></div><span>${task.depends_on?.length ? `after ${escapeHtml(task.depends_on.join(", "))}` : "ready"}</span></div>`).join("")}</div>` : "";
+    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(projectById(epic.project_id)?.name || "project")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.plan?.summary || epic.description || "Planning…")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve & queue DAG</button>` : ""}${(epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("")}</div></article>`;
+  }).join("") : `<div class="empty-card">No epics yet. Give the planner a requirement; review its DAG before anything runs.</div>`;
+  $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => { if (!window.confirm("Approve this task graph and queue every ready root task?")) return; try { await api(`/api/epics/${encodeURIComponent(button.dataset.approveEpic)}/approve`, {method: "POST", body: "{}"}); toast("Epic approved. Ready tasks are queued."); await Promise.all([refreshEpics(), refreshRuns()]); } catch (error) { toast(error.message, true); } }));
+  $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
+}
+
 async function refreshProjects() {
   state.projects = (await api("/api/projects")).projects;
   const projectOptions = state.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join("");
   $("#projectFilter").innerHTML = `<option value="all">All projects</option>${projectOptions}`; $("#projectFilter").value = state.projectFilter;
   $("#taskProjectSelect").innerHTML = `<option value="">Custom path</option>${projectOptions}`;
+  $("#epicProjectSelect").innerHTML = `<option value="">Custom path</option>${projectOptions}`;
   $("#inboxProjectSelect").innerHTML = `<option value="">No project</option>${projectOptions}`;
   $("#githubProject").innerHTML = state.projects.filter((project) => project.github_url).map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join("") || `<option value="">No GitHub projects</option>`;
   renderProjects(); renderRuns(); updateGitHubLink();
@@ -268,6 +316,8 @@ function renderIssues(issues, projectId) {
 function bindDialogs() {
   const taskDialog = $("#taskDialog"); [$("#newTaskButton"), $("#emptyNewTask")].forEach((button) => button.addEventListener("click", () => taskDialog.showModal()));
   $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), workflow: "agent-check-review", max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); toast(`Queued ${run.id}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } });
+  $("#newEpicButton").addEventListener("click", () => $("#epicDialog").showModal());
+  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Planning…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Planner proposal is ready for approval."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Create proposal"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const prompt = new FormData(event.currentTarget).get("feedback"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast("Existing agent session queued for continuation."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
   $("#newInboxButton").addEventListener("click", () => $("#inboxDialog").showModal());
   $("#inboxForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); await api("/api/inbox", {method: "POST", body: JSON.stringify({title: data.get("title"), task: data.get("task"), project_id: project?.id || "", project_path: project?.path || ""})}); $("#inboxDialog").close(); event.currentTarget.reset(); await refreshInbox(); });
@@ -277,17 +327,17 @@ function bindDialogs() {
 
 async function init() {
   try {
-    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; $("#laneSelect").innerHTML = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join("");
+    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join(""); $("#laneSelect").innerHTML = laneOptions; $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions;
     bindDialogs();
     $$(".nav-button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
     $$(".filter").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderRuns(); }));
     $$(".tab").forEach((button) => button.addEventListener("click", () => { $$(".tab").forEach((item) => item.classList.toggle("active", item === button)); $$(".tab-pane").forEach((pane) => pane.classList.toggle("active", pane.id === `tab-${button.dataset.tab}`)); }));
-    $("#projectFilter").addEventListener("change", (event) => { state.projectFilter = event.target.value; renderRuns(); updateGitHubLink(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#loadIssues").addEventListener("click", loadIssues);
-    await Promise.all([refreshProjects(), refreshSessions(), refreshInbox()]); await refreshRuns();
+    $("#projectFilter").addEventListener("change", (event) => { state.projectFilter = event.target.value; renderRuns(); updateGitHubLink(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#loadIssues").addEventListener("click", loadIssues);
+    await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns();
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
     setConnection(true);
     window.setInterval(() => refreshRuns().catch(() => setConnection(false)), 3000);
-    window.setInterval(() => Promise.all([refreshSessions(), refreshInbox()]).catch(() => setConnection(false)), 6000);
+    window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]).catch(() => setConnection(false)), 6000);
   } catch (error) { setConnection(false); toast(error.message, true); }
 }
 
