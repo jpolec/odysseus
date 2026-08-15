@@ -23,16 +23,48 @@ retains the compatibility commands `takeover` and `adopt`.
 
 ### Install one command
 
+Run once without a persistent install:
+
+```sh
+uvx --from git+https://github.com/jpolec/odysseus odysseus start --open
+```
+
+Or let pipx own the persistent Python package:
+
+```sh
+pipx install git+https://github.com/jpolec/odysseus
+odysseus doctor
+```
+
+The versioned shell installer is stable-by-default:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jpolec/odysseus/main/install.sh | bash
 odysseus doctor
 odysseus start --open
 ```
 
-The installer clones into `${XDG_DATA_HOME:-$HOME/.local/share}/odysseus`,
-links `odysseus` under `${ODYSSEUS_BIN_DIR:-$HOME/.local/bin}`, refuses to
-replace an unrelated command, and runs the readiness check. Review
+The installer resolves the latest stable GitHub release, keeps side-by-side
+versions under `${XDG_DATA_HOME:-$HOME/.local/share}/odysseus/managed`, links
+`odysseus` under `${ODYSSEUS_BIN_DIR:-$HOME/.local/bin}`, refuses to replace an
+unrelated command, and runs the readiness check. Review
 [`install.sh`](../install.sh) before piping it when required by local policy.
+
+```sh
+odysseus version
+odysseus update --check
+odysseus update
+odysseus rollback
+```
+
+Update backs up mutable state and validates a copy before atomically moving the
+`current` link. It preserves `worktrees/` and `runtime/`. `--edge` explicitly
+selects `main`; the default never does. Update never performs a schema
+downgrade. A rollback that crosses schemas requires the matching checksummed
+backup through `rollback --restore-state`. Maintenance refuses a live server or
+agent worker. Audit storage at any time with `odysseus state verify`. For pipx
+use `pipx upgrade odysseus-agents`; uvx
+owns and refreshes its own tool environment.
 
 ### Install from a checkout
 
@@ -43,7 +75,7 @@ cd odysseus
 odysseus start --open
 ```
 
-There is no Python package installation step. A checkout install links the
+There is no Python package installation step for this path. A checkout install links the
 repository's `bin/odysseus` command, which imports the local package directly.
 Use `bin/odysseus` without installing when developing Odysseus itself.
 
@@ -77,6 +109,11 @@ odysseus start
 ```
 
 Open <http://127.0.0.1:8741/>. Stop with `Ctrl-C`.
+
+If that same Odysseus state is already running, another `start --open` opens it
+without creating a second scheduler. If an unrelated process owns the port,
+the CLI reports the conflict and suggests an alternate port without a
+traceback.
 
 Inside tmux, `prefix` + `O` starts the server in a detached `odysseus-web`
 session if needed and opens the browser. Inspect that server with:

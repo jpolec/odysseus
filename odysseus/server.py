@@ -80,9 +80,16 @@ class OdysseusApp:
         if self.httpd is not None:
             return self.httpd.server_address[:2]
         self.shutdown_event.clear()
-        self.scheduler.start()
-        self.ci.start()
         self.httpd = OdysseusHTTPServer((self.host, self.port), OdysseusHandler, self)
+        # Bind first. A port conflict must not leave background scheduler/CI
+        # threads alive in a process that never became a server.
+        try:
+            self.scheduler.start()
+            self.ci.start()
+        except BaseException:
+            self.httpd.server_close()
+            self.httpd = None
+            raise
         return self.httpd.server_address[:2]
 
     def serve_forever(self) -> None:
@@ -198,6 +205,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             self._json(
                 {
                     "ok": True,
+                    "product": "odysseus",
                     "scheduler_active": self.server.app.scheduler.active_count(),
                     "queued": sum(
                         1 for run in self.server.app.store.list() if run.get("status") == "queued"

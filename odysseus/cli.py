@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import shutil
@@ -11,17 +12,22 @@ import subprocess
 import sys
 import threading
 import webbrowser
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .events import EVENT_SCHEMA_VERSION
 from .ci import CIWatcher
+from .lifecycle import ServerLease
 from .planner import EpicPlanner
 from .resources import resource_path
 from .search import search, statistics
 from .scheduler import ReviewActions, Scheduler
 from .server import OdysseusApp
-from .store import RunStore, default_state_root
+from .state import verify_state
+from .store import RUN_SCHEMA_VERSION, RunStore, default_state_root
 from .tmux import TmuxBridge
 
 
@@ -67,52 +73,95 @@ def _environment_payload(args: argparse.Namespace) -> dict[str, Any]:
     return environment
 
 
-def cmd_serve(args: argparse.Namespace) -> int:
-    store = _store(args)
-    auth_password = ""
-    if args.auth_password_file:
-        try:
-            auth_password = Path(args.auth_password_file).expanduser().read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise ValueError(f"cannot read auth password file: {exc}") from exc
-        if not auth_password:
-            raise ValueError("auth password file is empty")
-    if args.allow_remote and not auth_password and not args.insecure_remote:
-        raise ValueError("--allow-remote requires --auth-password-file (or explicit --insecure-remote)")
-    app = OdysseusApp(
-        store,
-        host=args.host,
-        port=args.port,
-        allow_remote=args.allow_remote,
-        verbose=args.verbose,
-        auth_user=args.auth_user if auth_password else "",
-        auth_password=auth_password,
-        max_http_connections=args.max_http_connections,
-        max_sse_connections=args.max_sse_connections,
-    )
-    host, port = app.start()
-    display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
-    url = f"http://{display_host}:{port}/"
-    print(f"Odysseus is listening on {url}")
-    print(f"State: {store.root}")
-    if args.open:
-        webbrowser.open(url)
-
-    stopped = threading.Event()
-
-    def stop(_signum: int, _frame: Any) -> None:
-        if not stopped.is_set():
-            stopped.set()
-            threading.Thread(target=app.stop, daemon=True).start()
-
-    signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGTERM, stop)
+def _running_odysseus_url(host: str, port: int) -> str:
+    probe_host = "127.0.0.1" if host in {"0.0.0.0", "::", "localhost"} else host
+    if probe_host not in {"127.0.0.1", "::1"}:
+        return ""
+    url = f"http://{probe_host}:{port}"
     try:
-        assert app.httpd is not None
-        app.httpd.serve_forever(poll_interval=0.35)
+        with urllib.request.urlopen(f"{url}/api/health", timeout=1.5) as response:
+            value = json.load(response)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return ""
+    return url if isinstance(value, dict) and value.get("ok") is True else ""
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    lease = ServerLease(args.state_dir)
+    try:
+        lease.acquire()
+    except RuntimeError as exc:
+        existing_url = _running_odysseus_url(args.host, args.port)
+        if "another Odysseus server" in str(exc) and existing_url:
+            print(f"Odysseus is already running at {existing_url}/")
+            if args.open:
+                webbrowser.open(f"{existing_url}/")
+            return 0
+        raise
+    auth_password = ""
+    try:
+        store = _store(args)
+        if args.auth_password_file:
+            try:
+                auth_password = Path(args.auth_password_file).expanduser().read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise ValueError(f"cannot read auth password file: {exc}") from exc
+            if not auth_password:
+                raise ValueError("auth password file is empty")
+        if args.allow_remote and not auth_password and not args.insecure_remote:
+            raise ValueError("--allow-remote requires --auth-password-file (or explicit --insecure-remote)")
+        app = OdysseusApp(
+            store,
+            host=args.host,
+            port=args.port,
+            allow_remote=args.allow_remote,
+            verbose=args.verbose,
+            auth_user=args.auth_user if auth_password else "",
+            auth_password=auth_password,
+            max_http_connections=args.max_http_connections,
+            max_sse_connections=args.max_sse_connections,
+        )
+        try:
+            host, port = app.start()
+        except OSError as exc:
+            if exc.errno != errno.EADDRINUSE:
+                raise ValueError(f"cannot start the local server: {exc}") from exc
+            existing_url = _running_odysseus_url(args.host, args.port)
+            if existing_url:
+                print(f"Odysseus is already running at {existing_url}/")
+                print("No second scheduler was started.")
+                if args.open:
+                    webbrowser.open(f"{existing_url}/")
+                return 0
+            raise ValueError(
+                f"port {args.port} is already used by another process. "
+                f"Stop it or run `odysseus start --port {args.port + 1}`."
+            ) from exc
+        lease.update(host=host, port=port)
+        display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+        url = f"http://{display_host}:{port}/"
+        print(f"Odysseus is listening on {url}")
+        print(f"State: {store.root}")
+        if args.open:
+            webbrowser.open(url)
+
+        stopped = threading.Event()
+
+        def stop(_signum: int, _frame: Any) -> None:
+            if not stopped.is_set():
+                stopped.set()
+                threading.Thread(target=app.stop, daemon=True).start()
+
+        signal.signal(signal.SIGINT, stop)
+        signal.signal(signal.SIGTERM, stop)
+        try:
+            assert app.httpd is not None
+            app.httpd.serve_forever(poll_interval=0.35)
+        finally:
+            if not stopped.is_set():
+                app.stop()
     finally:
-        if not stopped.is_set():
-            app.stop()
+        lease.release()
     return 0
 
 
@@ -345,6 +394,104 @@ def cmd_search(args: argparse.Namespace) -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     _print_json(statistics(_store(args)))
     return 0
+
+
+def cmd_state_verify(args: argparse.Namespace) -> int:
+    result = verify_state(args.state_dir)
+    if result["valid"] and args.migrate:
+        RunStore(args.state_dir)
+        result = verify_state(args.state_dir)
+        result["migrated"] = True
+    else:
+        result["migrated"] = False
+    if args.json:
+        _print_json(result)
+    elif result["valid"]:
+        print(
+            f"State is valid: {result['runs']} runs, {result['events']} events, "
+            f"{result['epics']} epics ({result['root']})"
+        )
+    else:
+        print(f"State verification failed: {result['root']}", file=sys.stderr)
+        for error in result["errors"]:
+            print(f"  - {error}", file=sys.stderr)
+    return 0 if result["valid"] else 1
+
+
+def _install_manifest() -> dict[str, Any]:
+    for parent in Path(__file__).resolve().parents:
+        path = parent / "install.json"
+        if not path.is_file():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict) and value.get("format") == "odysseus-install-v1":
+            return {**value, "manifest_path": str(path)}
+    return {}
+
+
+def cmd_version(args: argparse.Namespace) -> int:
+    manifest = _install_manifest()
+    value = {
+        "version": __version__,
+        "run_schema": RUN_SCHEMA_VERSION,
+        "event_schema": EVENT_SCHEMA_VERSION,
+        "installation": "managed" if manifest else "package-or-checkout",
+        "channel": str(manifest.get("channel") or ""),
+        "ref": str(manifest.get("ref") or ""),
+        "commit": str(manifest.get("commit") or ""),
+        "manifest": str(manifest.get("manifest_path") or ""),
+    }
+    if args.json:
+        _print_json(value)
+    else:
+        print(f"Odysseus {__version__}")
+        print(f"  state schemas  run {RUN_SCHEMA_VERSION}; events {EVENT_SCHEMA_VERSION}")
+        if manifest:
+            print(f"  install        managed {value['channel']} ({value['ref']})")
+        else:
+            print("  install        Python package or source checkout")
+    return 0
+
+
+def _installer_script() -> Path:
+    try:
+        return resource_path("installer", "install.sh")
+    except FileNotFoundError:
+        source = Path(__file__).resolve().parent.parent / "install.sh"
+        if source.is_file():
+            return source
+        raise ValueError("the lifecycle installer is not available in this installation")
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    if not _install_manifest():
+        print(
+            "This copy is managed by a source checkout, uvx, or pipx. "
+            "Use `git pull`, rerun uvx, or `pipx upgrade odysseus-agents`; "
+            "`odysseus update` is reserved for the versioned shell installer.",
+            file=sys.stderr,
+        )
+        return 2
+    command = ["bash", str(_installer_script()), "--state-dir", str(args.state_dir)]
+    command.append("--check" if args.check else "--update")
+    if args.edge:
+        command.append("--edge")
+    if args.target_version:
+        command.extend(["--version", args.target_version])
+    return int(subprocess.run(command, check=False).returncode)
+
+
+def cmd_rollback(args: argparse.Namespace) -> int:
+    if not _install_manifest():
+        print("No versioned shell installation is active; there is nothing to roll back.", file=sys.stderr)
+        return 2
+    command = ["bash", str(_installer_script()), "--rollback", "--state-dir", str(args.state_dir)]
+    if args.restore_state:
+        command.append("--restore-state")
+    return int(subprocess.run(command, check=False).returncode)
 
 
 def cmd_export(args: argparse.Namespace) -> int:
@@ -588,6 +735,27 @@ def parser() -> argparse.ArgumentParser:
 
     stats_parser = sub.add_parser("stats", help="show engineering outcome and agent economics totals")
     stats_parser.set_defaults(func=cmd_stats)
+
+    state_parser = sub.add_parser("state", help="verify or migrate durable state")
+    state_actions = state_parser.add_subparsers(dest="state_command", required=True)
+    state_verify = state_actions.add_parser("verify", help="strictly scan every persisted JSON and NDJSON record")
+    state_verify.add_argument("--migrate", action="store_true", help="migrate supported older records after a clean scan")
+    state_verify.add_argument("--json", action="store_true")
+    state_verify.set_defaults(func=cmd_state_verify)
+
+    version_parser = sub.add_parser("version", help="show version, schemas, and managed install channel")
+    version_parser.add_argument("--json", action="store_true")
+    version_parser.set_defaults(func=cmd_version)
+
+    update_parser = sub.add_parser("update", help="check or atomically install an Odysseus update")
+    update_parser.add_argument("--check", action="store_true")
+    update_parser.add_argument("--edge", action="store_true", help="follow main instead of stable releases")
+    update_parser.add_argument("--version", dest="target_version", help="install one exact release version")
+    update_parser.set_defaults(func=cmd_update)
+
+    rollback_parser = sub.add_parser("rollback", help="switch to the previous managed release")
+    rollback_parser.add_argument("--restore-state", action="store_true", help="restore the matching pre-update state backup")
+    rollback_parser.set_defaults(func=cmd_rollback)
 
     export_parser = sub.add_parser("export", help="export inspectable state and event history as JSON")
     export_parser.add_argument("--output")

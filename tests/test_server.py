@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
 import tempfile
 import threading
 import unittest
@@ -14,8 +15,11 @@ from odysseus.store import RunStore
 
 
 class DummyScheduler:
+    def __init__(self) -> None:
+        self.started = False
+
     def start(self) -> None:
-        pass
+        self.started = True
 
     def stop(self, timeout=10) -> None:  # noqa: ANN001
         pass
@@ -28,6 +32,25 @@ class DummyScheduler:
 
 
 class ServerTests(unittest.TestCase):
+    def test_port_conflict_never_starts_background_scheduler(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, socket.socket() as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen()
+            port = int(occupied.getsockname()[1])
+            scheduler = DummyScheduler()
+            app = OdysseusApp(
+                RunStore(Path(temp) / "state"),
+                host="127.0.0.1",
+                port=port,
+                scheduler=scheduler,
+            )
+
+            with self.assertRaises(OSError):
+                app.start()
+
+            self.assertFalse(scheduler.started)
+            self.assertIsNone(app.httpd)
+
     def test_ui_bootstrap_and_token_protected_create(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -43,7 +66,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.1")
+                self.assertEqual(bootstrap["version"], "0.6.2")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -92,6 +115,10 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/projects") as response:
                     projects = json.load(response)
                 self.assertEqual(len(projects["projects"]), 1)
+
+                with urllib.request.urlopen(f"{base}/api/health") as response:
+                    health = json.load(response)
+                self.assertEqual(health["product"], "odysseus")
 
                 inbox_request = urllib.request.Request(
                     f"{base}/api/inbox",

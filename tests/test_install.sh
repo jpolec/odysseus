@@ -13,9 +13,12 @@ EXPECTED_VERSION="$(python3 -c 'from odysseus import __version__; print(__versio
 
 REMOTE_INSTALL="$TEMP_ROOT/remote-install"
 REMOTE_BIN="$TEMP_ROOT/remote-bin"
+REMOTE_INSTALL_RESOLVED="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).resolve())' "$REMOTE_INSTALL")"
 CURRENT_REF="$(git -C "$REPOSITORY_ROOT" rev-parse HEAD)"
-ODYSSEUS_INSTALL_REPOSITORY="$REPOSITORY_ROOT" ODYSSEUS_INSTALL_REF="$CURRENT_REF" \
-  bash -s -- --install-dir "$REMOTE_INSTALL" --bin-dir "$REMOTE_BIN" --no-doctor < "$REPOSITORY_ROOT/install.sh" >/dev/null
-test -d "$REMOTE_INSTALL/.git"
-test "$(readlink "$REMOTE_BIN/odysseus")" = "$REMOTE_INSTALL/bin/odysseus"
-test "$(git -C "$REMOTE_INSTALL" rev-parse HEAD)" = "$(git -C "$REPOSITORY_ROOT" rev-parse "$CURRENT_REF^{commit}")"
+ODYSSEUS_INSTALL_REPOSITORY="$REPOSITORY_ROOT" \
+  bash -s -- --ref "$CURRENT_REF" --install-dir "$REMOTE_INSTALL" --bin-dir "$REMOTE_BIN" --no-doctor < "$REPOSITORY_ROOT/install.sh" >/dev/null
+test -L "$REMOTE_INSTALL/managed/current"
+test -d "$REMOTE_INSTALL/managed/current/.git"
+test -f "$REMOTE_INSTALL/managed/install.json"
+test "$(readlink "$REMOTE_BIN/odysseus")" = "$REMOTE_INSTALL_RESOLVED/managed/current/bin/odysseus"
+test "$(git -C "$REMOTE_INSTALL/managed/current" rev-parse HEAD)" = "$(git -C "$REPOSITORY_ROOT" rev-parse "$CURRENT_REF^{commit}")"

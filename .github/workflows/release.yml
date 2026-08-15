@@ -9,25 +9,28 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  prove-and-release:
+  prove-and-build:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - uses: astral-sh/setup-uv@v6
-      - name: Verify tag matches application version
-        run: test "$GITHUB_REF_NAME" = "v$(python3 -c 'from odysseus import __version__; print(__version__)')"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - name: Verify tag identity and main ancestry
+        run: |
+          test "$GITHUB_REF_NAME" = "v$(python3 -c 'from odysseus import __version__; print(__version__)')"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Full release proof from tag
         run: scripts/release-proof.sh
       - name: Build source and wheel artifacts
@@ -43,7 +46,26 @@ jobs:
               encoding="utf-8",
           )
           PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: |
+            dist/*
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: prove-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: release-assets
       - name: Publish GitHub release after proof
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* SHA256SUMS --verify-tag --generate-notes --title "Odysseus $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Odysseus $GITHUB_REF_NAME"

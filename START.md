@@ -21,6 +21,11 @@ one-off run use
 You can also clone the repository and run `./install.sh`; the installer
 links the checkout command and does not copy or move your repositories.
 
+The remote shell installer is stable-by-default. It installs a tagged release,
+not `main`; use `odysseus update --edge` only when you intentionally want the
+development channel. Managed updates keep the old version available for
+`odysseus rollback` and back up mutable state before switching.
+
 ## 2. Start the workbench
 
 ```sh
@@ -30,6 +35,10 @@ odysseus start --open
 If the browser does not open, visit <http://127.0.0.1:8741/>. Keep this process
 running: it serves the UI and runs the persistent scheduler. State is stored in
 `~/.odysseus` unless `ODYSSEUS_HOME` or `--state-dir` overrides it.
+
+Running the command again opens the existing instance instead of starting a
+second scheduler. If another application—not Odysseus—owns port 8741, use the
+exact alternate-port command printed by the CLI.
 
 On a fresh state, the landing page shows three readiness checks and one
 repository-path field. Add a Git repository; registration reads metadata but

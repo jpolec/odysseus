@@ -51,4 +51,5 @@ version = {attr = "odysseus.__version__"}
 "share/odysseus/skills/security-review" = ["skills/security-review/SKILL.md"]
 "share/odysseus/skills/test-strategy" = ["skills/test-strategy/SKILL.md"]
 "share/odysseus/scripts" = ["scripts/demo.py", "scripts/session-meta.py"]
+"share/odysseus/installer" = ["install.sh"]
 "share/odysseus/tmux" = ["codex_session_manager.tmux"]

@@ -18,11 +18,12 @@ cd "$REPOSITORY_ROOT"
 printf '%s\n' '[1/6] Static, shell, and repository checks'
 node --check web/app.js
 python3 -m py_compile odysseus/*.py scripts/demo.py
-bash -n install.sh scripts/*.sh tests/test_install.sh tests/test_package.sh
+bash -n install.sh scripts/*.sh tests/test_install.sh tests/test_package.sh tests/test_upgrade.sh
 git diff --check
 
 printf '%s\n' '[2/6] Checkout and exact-commit installer smoke tests'
 ./tests/test_install.sh
+./tests/test_upgrade.sh
 
 printf '%s\n' '[3/6] Complete automated suite'
 python3 -m unittest discover -s tests -v

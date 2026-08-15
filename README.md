@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.1](https://img.shields.io/badge/version-0.6.1-171a16)
+![Version: 0.6.2](https://img.shields.io/badge/version-0.6.2-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -102,14 +102,40 @@ odysseus start --open
 ```
 
 Review [`install.sh`](install.sh) before piping it if that is your preference.
-It clones Odysseus under `~/.local/share`, links only the command into
-`~/.local/bin`, refuses to replace an unrelated file, and runs `doctor`. An
-equally simple checkout-based install is:
+It resolves the latest stable GitHub release, installs that exact tag under
+`~/.local/share`, atomically switches a `current` link, preserves the previous
+release, backs up mutable state, links only the command into `~/.local/bin`,
+and runs `doctor`. It never silently installs `main`. An equally simple
+checkout-based development install is:
 
 ```sh
 git clone https://github.com/jpolec/odysseus.git
 cd odysseus && ./install.sh
 ```
+
+Manage a versioned shell installation without replacing the running release in
+place:
+
+```sh
+odysseus version
+odysseus update --check
+odysseus update
+odysseus rollback
+
+# explicitly opt into main
+odysseus update --edge
+```
+
+Updates are validated against a copy of your state before the atomic switch.
+Install, update, and rollback refuse to run while the server or a live agent
+worker owns the state directory. Backups carry a SHA-256 digest and state
+identity; restore extracts and validates off to the side before replacing any
+live record. Rollback preserves worktrees and runtime directories. A normal
+update never crosses a state-schema downgrade; the matching recovery path is
+the explicit `odysseus rollback --restore-state`. You can audit state directly
+with `odysseus state verify`. Package installs stay owned by their
+package manager: use `pipx upgrade odysseus-agents`; `uvx` resolves its tool
+environment for each invocation.
 
 Without `--open`, visit <http://127.0.0.1:8741/>. The first screen checks local
 readiness and asks for one repository path. Select that project, describe one
@@ -117,6 +143,11 @@ finished outcome, and choose **Start task**. Agent choice, checks, limits,
 Skills, execution environments, planning, Context Receipts, and project history remain available as
 progressive depth instead of blocking the first run. See [START.md](START.md)
 for the complete five-minute path.
+
+Starting the same state twice does not create a second scheduler. If Odysseus
+is already listening on the selected port, `start --open` reports and opens
+that instance. If an unrelated program owns the port, the CLI prints a short
+recovery command instead of a Python traceback.
 
 To explore a populated control plane without spending model tokens:
 
@@ -459,6 +490,9 @@ bin/odysseus draft-pr RUN_ID
 bin/odysseus ci RUN_ID
 bin/odysseus search "failing browser test"
 bin/odysseus stats
+bin/odysseus version
+bin/odysseus update --check
+bin/odysseus rollback
 bin/odysseus export --output odysseus-state.json
 bin/odysseus config --max-parallel 3
 ```

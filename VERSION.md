@@ -2,22 +2,51 @@
 
 ## Current version
 
-**0.6.1 — 2026-08-15**
+**0.6.2 — 2026-08-15**
 
 Version 0.6 adds an explicit runtime boundary without making the simple local
 path harder. Host mode remains the compatibility default; Docker and reviewed
 devcontainers are opt-in task profiles.
 
-## What is available in 0.6.1
+## What is available in 0.6.2
+
+### 0.6.2 Stable Install Lifecycle
+
+- The remote shell installer resolves the latest non-draft, non-prerelease
+  GitHub release tag. `main` is available only through explicit `--edge`;
+  `--version` and `--ref` pin an exact target.
+- Managed releases live side by side. `current` and `previous` symlinks are
+  switched atomically, so an update never rewrites the running checkout.
+- Every activation, including a first managed install over existing state,
+  takes a file-locked backup of mutable JSON/NDJSON while leaving worktrees and
+  runtime in place. SHA-256 metadata binds the archive to its state directory.
+- Restore extracts and strictly verifies JSON, NDJSON, record identities, and
+  supported schemas in staging before a transaction replaces live records.
+  Corrupt or interrupted restores leave the current state and release active.
+- `odysseus version`, `update --check`, `update`, and `rollback` expose the
+  lifecycle. A downgrade across run-schema versions requires the explicit
+  `rollback --restore-state` recovery path.
+- Ownership-checked lifecycle and state-maintenance locks prevent concurrent
+  installers and new servers. Update/rollback refuse a live server or worker.
+  `odysseus state verify` provides a strict, non-destructive storage audit.
+- The release proof performs a real 0.6.1 -> 0.6.2 update, downgrade refusal,
+  corrupt-backup refusal, verified restore, command-link preflight, and first
+  managed install over existing state.
+- Repeating `odysseus start` opens the already running instance when possible;
+  an unrelated port owner produces a short remediation message, never a
+  traceback or a half-started background scheduler.
+- pipx and uvx remain owned by their package managers; the CLI explains the
+  correct upgrade command rather than stealing their command link.
 
 ### 0.6.1 Release Integrity and Standard Packaging
 
 - `pyproject.toml` ships the zero-runtime-dependency `odysseus` console entry
   point as the `odysseus-agents` distribution, including the web UI, demo,
   tmux helper, and generic Skills. A clean wheel is exercised through `uvx`.
-- PR CI remains a fast Python 3.10/3.13 matrix. Pushes to `main` run the full
-  release proof once; `v*` tags must pass that proof before the GitHub Release
-  and checksum-bearing source/wheel artifacts are published.
+- PR CI remains a fast Python 3.10/3.13 matrix. Actions are pinned to immutable
+  commits. Pushes to `main` run the full proof; tag commits must belong to main,
+  and the read-only proof/build job must pass before a separate minimal
+  write-permission job can publish checksum-bearing source/wheel artifacts.
 - Exact-commit installer tests work from branches, tags, and detached CI
   checkouts instead of assuming a branch name.
 - The release proof includes packaged and checkout HTTP boot, health,
@@ -249,7 +278,7 @@ devcontainers are opt-in task profiles.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.1` |
+| Application version | `0.6.2` |
 | Run snapshot schema | `8` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

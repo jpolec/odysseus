@@ -6,6 +6,16 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.2: stable lifecycle
+
+- Latest-stable-by-default remote installation; `--edge`, `--version`, and
+  exact-ref modes are explicit.
+- Side-by-side releases, atomic current/previous switches, checksummed state
+  backups, staging verification, transactional restore, schema-aware rollback,
+  and ownership-checked install/state/server leases.
+- `version`, `update --check`, `update`, `rollback`, and `state verify` commands
+  plus an N-1 -> N -> N-1 proof with fault and live-process cases.
+
 ## Shipped — 0.6.1: release integrity
 
 - Standard Python source/wheel packaging with a zero-runtime-dependency

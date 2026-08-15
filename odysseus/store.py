@@ -182,16 +182,24 @@ class RunStore:
             for path in self.runs_dir.glob("*.json"):
                 try:
                     run = json.loads(path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    continue
+                except OSError as exc:
+                    raise RuntimeError(f"cannot read run record: {path}") from exc
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(f"corrupt run record: {path}") from exc
                 if not isinstance(run, dict):
-                    continue
+                    raise RuntimeError(f"invalid run record: {path}")
+                schema_version = _safe_int(run.get("schema_version"))
+                if schema_version > RUN_SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"run record {path} uses schema {schema_version}; "
+                        f"this Odysseus supports up to {RUN_SCHEMA_VERSION}"
+                    )
                 changed = False
                 for key, value in _run_defaults().items():
                     if key not in run:
                         run[key] = value
                         changed = True
-                if _safe_int(run.get("schema_version")) < RUN_SCHEMA_VERSION:
+                if schema_version < RUN_SCHEMA_VERSION:
                     run["schema_version"] = RUN_SCHEMA_VERSION
                     changed = True
                 if changed:
