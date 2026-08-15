@@ -3,7 +3,12 @@ set -euo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMP_ROOT="$(mktemp -d)"
-trap 'rm -rf "$TEMP_ROOT"' EXIT INT TERM
+LEGACY_PID=''
+cleanup() {
+  if [ -n "$LEGACY_PID" ]; then kill "$LEGACY_PID" >/dev/null 2>&1 || true; wait "$LEGACY_PID" 2>/dev/null || true; fi
+  rm -rf "$TEMP_ROOT"
+}
+trap cleanup EXIT INT TERM
 
 INSTALL_ROOT="$TEMP_ROOT/install"
 BIN_ROOT="$TEMP_ROOT/bin"
@@ -21,6 +26,24 @@ run_installer --version 0.6.1 >/dev/null
 "$BIN_ROOT/odysseus" --version | grep -q 'Odysseus 0.6.1'
 "$BIN_ROOT/odysseus" --state-dir "$STATE_ROOT" doctor --json >/dev/null
 test ! -L "$INSTALL_ROOT/managed/previous"
+
+# Updates from pre-lease releases still detect the old server by process/state.
+"$BIN_ROOT/odysseus" --state-dir "$STATE_ROOT" start --port 0 >"$TEMP_ROOT/legacy-server.log" 2>&1 &
+LEGACY_PID="$!"
+sleep 1
+if ! kill -0 "$LEGACY_PID" 2>/dev/null; then
+  printf '%s\n' 'Could not establish the live pre-lease server test precondition:' >&2
+  sed -n '1,120p' "$TEMP_ROOT/legacy-server.log" >&2
+  exit 1
+fi
+if run_installer --update --ref "$CURRENT_REF" >"$TEMP_ROOT/legacy-maintenance.log" 2>&1; then
+  printf '%s\n' 'Installer accepted a live pre-lease server.' >&2
+  exit 1
+fi
+grep -q 'pre-lease Odysseus server' "$TEMP_ROOT/legacy-maintenance.log"
+kill "$LEGACY_PID"
+wait "$LEGACY_PID" 2>/dev/null || true
+LEGACY_PID=''
 
 # A live server lease and a live worker both close the maintenance race.
 mkdir -p "$STATE_ROOT/runtime/server.lock"

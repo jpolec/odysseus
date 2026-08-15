@@ -21,6 +21,7 @@ EPIC_FINAL_STATUSES = DEPENDENCY_MET_STATUSES | DEPENDENCY_FAILED_STATUSES
 ACTIVE_RUN_STATUSES = frozenset(
     {"starting", "running", "checking", "reviewing", "cancelling", "publishing"}
 )
+EPIC_SCHEMA_VERSION = 2
 
 
 class CycleError(ValueError):
@@ -33,7 +34,8 @@ class EpicStore:
     def __init__(self, store: RunStore) -> None:
         self.store = store
         self.epics_dir = store.root / "epics"
-        self.epics_dir.mkdir(exist_ok=True)
+        if not store.readonly:
+            self.epics_dir.mkdir(exist_ok=True)
 
     def _path(self, epic_id: str):  # noqa: ANN202 - Path type follows store root
         if not EPIC_ID_RE.fullmatch(epic_id):
@@ -54,7 +56,7 @@ class EpicStore:
         compact = stamp.replace("-", "").replace(":", "").replace("T", "-")[:15]
         epic_id = f"epic-{compact}-{secrets.token_hex(2)}"
         epic = {
-            "schema_version": 1,
+            "schema_version": EPIC_SCHEMA_VERSION,
             "id": epic_id,
             "title": title,
             "description": str(request.get("description") or request.get("requirement") or "").strip(),
@@ -72,6 +74,8 @@ class EpicStore:
             "task_run_ids": {},
             "created_at": stamp,
             "updated_at": stamp,
+            "evidence_class": str(request.get("evidence_class") or "observed"),
+            "release": str(request.get("release") or ""),
         }
         with self.store.locked():
             self.store._atomic_json(self._path(epic_id), epic)
@@ -87,6 +91,15 @@ class EpicStore:
             raise RuntimeError(f"corrupt epic record: {path}") from exc
         if not isinstance(value, dict):
             raise RuntimeError(f"invalid epic record: {path}")
+        schema_version = int(value.get("schema_version", 0) or 0)
+        if schema_version > EPIC_SCHEMA_VERSION:
+            raise RuntimeError(
+                f"epic record {path} uses schema {schema_version}; "
+                f"this Odysseus supports up to {EPIC_SCHEMA_VERSION}"
+            )
+        if schema_version < EPIC_SCHEMA_VERSION:
+            value.setdefault("evidence_class", "unclassified")
+            value.setdefault("release", "")
         return value
 
     def list(self) -> list[dict[str, Any]]:
@@ -97,6 +110,10 @@ class EpicStore:
             except (OSError, json.JSONDecodeError):
                 continue
             if isinstance(value, dict):
+                schema_version = int(value.get("schema_version", 0) or 0)
+                if schema_version < EPIC_SCHEMA_VERSION:
+                    value.setdefault("evidence_class", "unclassified")
+                    value.setdefault("release", "")
                 values.append(value)
         return sorted(values, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
@@ -174,6 +191,9 @@ class EpicStore:
                     "block_keys": blocks_by_key[str(spec["task_key"])],
                     "status": "blocked",
                     "blocked_reason": "materializing approved task graph",
+                    "origin": "planner",
+                    "evidence_class": str(epic.get("evidence_class") or "unclassified"),
+                    "release": str(epic.get("release") or ""),
                 }
                 if request.get("max_retries") is None:
                     request.pop("max_retries", None)

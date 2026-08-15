@@ -172,11 +172,44 @@ assert_quiescent_state() {
   python3 - "$STATE_DIR" <<'PY'
 import json
 import os
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
 active = {"starting", "running", "checking", "reviewing", "cancelling", "publishing"}
-root = Path(sys.argv[1])
+root = Path(sys.argv[1]).resolve()
+try:
+    processes = subprocess.run(
+        ["ps", "-axo", "pid=,command="], text=True, capture_output=True, check=False, timeout=5
+    ).stdout.splitlines()
+except (OSError, subprocess.TimeoutExpired):
+    processes = []
+legacy_servers = []
+for line in processes:
+    fields = line.strip().split(None, 1)
+    if len(fields) != 2:
+        continue
+    try:
+        pid = int(fields[0])
+        tokens = shlex.split(fields[1])
+    except (ValueError, IndexError):
+        continue
+    if pid == os.getpid() or not any(token in {"start", "serve", "web"} for token in tokens):
+        continue
+    if not any("odysseus" in Path(token).name.lower() for token in tokens):
+        continue
+    process_state = Path.home() / ".odysseus"
+    if "--state-dir" in tokens:
+        index = tokens.index("--state-dir")
+        if index + 1 < len(tokens):
+            process_state = Path(tokens[index + 1]).expanduser()
+    if process_state.resolve() == root:
+        legacy_servers.append(f"pid {pid}")
+if legacy_servers:
+    raise SystemExit(
+        "A pre-lease Odysseus server still owns this state (" + ", ".join(legacy_servers) + "). Stop it before maintenance."
+    )
 live = []
 for path in sorted((root / "runs").glob("*.json")):
     try:

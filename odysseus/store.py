@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
-from .events import Event, now_iso
+from .events import EVENT_SCHEMA_VERSION, EVENT_TYPES, Event, now_iso
 from .environments import normalize_environment_request
 from .attention import AttentionQueue
 from .epics import EpicStore, VALID_ROLES
@@ -60,7 +60,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 8
+RUN_SCHEMA_VERSION = 9
 
 
 def _safe_int(value: Any) -> int:
@@ -126,6 +126,14 @@ def _run_defaults() -> dict[str, Any]:
         },
         "untrusted_project": False,
         "project_commands_approved": False,
+        "provenance": {
+            "format": "odysseus-run-provenance-v1",
+            "evidence_class": "unclassified",
+            "origin": "legacy",
+            "odysseus_version": "",
+            "release": "",
+            "observed_at": None,
+        },
     }
 
 
@@ -153,18 +161,26 @@ def _pid_alive(pid: Any) -> bool:
 class RunStore:
     """Small, inspectable persistence layer safe across local processes."""
 
-    def __init__(self, root: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | str | None = None,
+        *,
+        migrate: bool = True,
+        readonly: bool = False,
+    ) -> None:
         self.root = Path(root).expanduser() if root is not None else default_state_root()
+        self.readonly = readonly
         self.runs_dir = self.root / "runs"
         self.events_dir = self.root / "events"
         self.worktrees_dir = self.root / "worktrees"
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir.mkdir(exist_ok=True)
-        self.events_dir.mkdir(exist_ok=True)
-        self.worktrees_dir.mkdir(exist_ok=True)
+        if not readonly:
+            self.root.mkdir(parents=True, exist_ok=True)
+            self.runs_dir.mkdir(exist_ok=True)
+            self.events_dir.mkdir(exist_ok=True)
+            self.worktrees_dir.mkdir(exist_ok=True)
         self.lock_path = self.root / ".store.lock"
         self.config_path = self.root / "config.json"
-        if not self.config_path.exists():
+        if not readonly and not self.config_path.exists():
             self._atomic_json(self.config_path, DEFAULT_CONFIG)
         self.projects = ProjectRegistry(self)
         self.knowledge = ProjectKnowledge(self)
@@ -173,7 +189,8 @@ class RunStore:
         self.attention = AttentionQueue(self)
         self.epics = EpicStore(self)
         self.notifications = NotificationManager(self)
-        self._migrate_runs()
+        if migrate and not readonly:
+            self._migrate_runs()
 
     def _migrate_runs(self) -> None:
         """Upgrade old snapshots in place while preserving append-only journals."""
@@ -207,6 +224,17 @@ class RunStore:
 
     @contextmanager
     def locked(self) -> Iterator[None]:
+        if self.readonly:
+            if not self.lock_path.exists():
+                yield
+                return
+            with self.lock_path.open("r") as lock:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_SH)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            return
         with self.lock_path.open("a+") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             try:
@@ -214,8 +242,9 @@ class RunStore:
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
-    @staticmethod
-    def _atomic_json(path: Path, value: Mapping[str, Any]) -> None:
+    def _atomic_json(self, path: Path, value: Mapping[str, Any]) -> None:
+        if self.readonly:
+            raise RuntimeError("state is open read-only")
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         try:
@@ -368,6 +397,15 @@ class RunStore:
         if not isinstance(skills_requested, list) or not all(isinstance(item, str) for item in skills_requested):
             raise ValueError("skills must be a list of skill names")
         environment_request = normalize_environment_request(request.get("environment"))
+        from . import __version__
+
+        evidence_class = str(request.get("evidence_class") or "observed")
+        if kind == "tmux" and "evidence_class" not in request:
+            evidence_class = "imported"
+        if evidence_class not in {"observed", "demo", "test", "imported", "unclassified"}:
+            raise ValueError("evidence_class must be observed, demo, test, imported, or unclassified")
+        origin = str(request.get("origin") or ("tmux" if kind == "tmux" else "api"))
+        release = str(request.get("release") or os.environ.get("ODYSSEUS_RELEASE_TARGET") or __version__)
         selected_skills = self.skills.select(
             project_record,
             task,
@@ -422,6 +460,7 @@ class RunStore:
                 "reasoning_output_tokens": 0,
                 "tool_calls": 0,
                 "cost_usd": 0.0,
+                "cost_observed": False,
                 "session_usage": {},
             },
             **_run_defaults(),
@@ -462,6 +501,14 @@ class RunStore:
             },
             "untrusted_project": bool(request.get("untrusted_project", False)),
             "project_commands_approved": False,
+            "provenance": {
+                "format": "odysseus-run-provenance-v1",
+                "evidence_class": evidence_class,
+                "origin": origin,
+                "odysseus_version": __version__,
+                "release": release,
+                "observed_at": stamp,
+            },
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)
@@ -643,6 +690,7 @@ class RunStore:
             except (TypeError, ValueError):
                 previous_cost, new_cost = 0.0, 0.0
             metrics["cost_usd"] = round(previous_cost + new_cost, 8)
+            metrics["cost_observed"] = True
             return
         if event_type != "agent.usage":
             return
@@ -677,6 +725,50 @@ class RunStore:
                     values.append(value)
                     if len(values) >= limit:
                         break
+        return values
+
+    def events_strict(self, run_id: str) -> list[dict[str, Any]]:
+        """Read a complete event journal or fail instead of truncating/skipping evidence."""
+
+        run = self.get(run_id)
+        path = self._events_path(run_id)
+        if not path.exists():
+            if int(run.get("event_seq", 0) or 0):
+                raise RuntimeError(f"missing event journal: {path}")
+            return []
+        values: list[dict[str, Any]] = []
+        previous_seq = 0
+        with path.open(encoding="utf-8") as handle:
+            for number, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(f"corrupt event journal: {path}:{number}") from exc
+                if not isinstance(value, dict):
+                    raise RuntimeError(f"invalid event journal record: {path}:{number}")
+                version = value.get("v")
+                if not isinstance(version, int) or version < 1 or version > EVENT_SCHEMA_VERSION:
+                    raise RuntimeError(f"unsupported event schema: {path}:{number}")
+                if value.get("type") not in EVENT_TYPES:
+                    raise RuntimeError(f"unknown event type: {path}:{number}")
+                if not isinstance(value.get("source"), str) or not value["source"]:
+                    raise RuntimeError(f"invalid event source: {path}:{number}")
+                if not isinstance(value.get("data"), dict):
+                    raise RuntimeError(f"invalid event data: {path}:{number}")
+                seq = value.get("seq")
+                if not isinstance(seq, int) or seq != previous_seq + 1:
+                    raise RuntimeError(f"non-contiguous event sequence: {path}:{number}")
+                if str(value.get("run_id") or "") != run_id:
+                    raise RuntimeError(f"event run id does not match journal: {path}:{number}")
+                previous_seq = seq
+                values.append(value)
+        if previous_seq != int(run.get("event_seq", 0) or 0):
+            raise RuntimeError(
+                f"event journal tail {previous_seq} does not match run sequence "
+                f"{run.get('event_seq', 0)}: {path}"
+            )
         return values
 
     def claim(self, run_id: str, max_parallel: int | None = None) -> dict[str, Any] | None:

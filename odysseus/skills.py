@@ -46,7 +46,8 @@ class SkillRegistry:
     def __init__(self, store: Any) -> None:
         self.store = store
         self.policy_dir = store.root / "project_skill_policies"
-        self.policy_dir.mkdir(exist_ok=True)
+        if not store.readonly:
+            self.policy_dir.mkdir(exist_ok=True)
 
     def _policy_path(self, project_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id):

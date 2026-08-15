@@ -238,6 +238,29 @@ class SchedulerTests(unittest.TestCase):
                 "budget",
             )
 
+    def test_ignored_review_comment_records_explicit_operator_action(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            run = store.create({"task": "Review comment", "project_path": str(repo)})
+            store.update(run["id"], status="review")
+            item = store.attention.create(
+                {
+                    "type": "review_comment",
+                    "run_id": run["id"],
+                    "title": "Review feedback",
+                    "message": "Consider renaming this.",
+                }
+            )
+
+            result = ReviewActions(store, Scheduler(store)).answer_attention(item["id"], "ignore")
+
+            self.assertEqual(result["attention"]["status"], "resolved")
+            events = store.events_strict(run["id"])
+            self.assertEqual(events[-1]["type"], "attention.answered")
+            self.assertEqual(events[-1]["source"], "user")
+
 
 if __name__ == "__main__":
     unittest.main()

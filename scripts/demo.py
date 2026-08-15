@@ -66,6 +66,8 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "project_path": str(atlas),
             "lane": "codex",
             "checks": ["python3 -m unittest tests.test_webhooks"],
+            "evidence_class": "demo",
+            "origin": "demo",
         }
     )
     store.transition(
@@ -97,6 +99,8 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "project_path": str(quasar),
             "lane": "claude",
             "checks": ["python3 -m unittest tests.test_temporal_boundaries"],
+            "evidence_class": "demo",
+            "origin": "demo",
         }
     )
     store.transition(
@@ -131,6 +135,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "description": "Add passkey registration and login with independent security review.",
             "project_path": str(project),
             "status": "proposed",
+            "evidence_class": "demo",
             "plan": {
                 "summary": "Parallel backend and frontend work converge in an integration task.",
                 "tasks": [
@@ -258,6 +263,8 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "priority": 90,
             "checks": ["python3 -m unittest", "npm test"],
             "budgets": {"timeout_seconds": 1800, "stall_seconds": 300, "max_tokens": 80_000, "max_tool_calls": 120, "max_cost_usd": 8.0},
+            "evidence_class": "demo",
+            "origin": "demo",
         }
     )
     ci_id = ci_run["id"]

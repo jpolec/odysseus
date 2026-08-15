@@ -6,6 +6,22 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.3: observed dogfooding proof
+
+- Versioned run provenance separates observed autonomous work from demos,
+  tests, imported tmux sessions, and legacy unclassified history.
+- `proof` emits privacy-reduced, content-addressed JSON receipts and a public
+  Markdown summary with release filtering and an honest sample threshold.
+- Only terminal attempts with ordered start, agent activity, and outcome events
+  count; early failures remain in the denominator. Delivery claims additionally
+  require final verifier success before artifact creation and outcome. Draft PRs
+  remain distinct from accepted artifacts.
+- Missing cost stays unobserved with an explicit coverage ratio. Operator
+  actions and Needs You response latency are measured separately; repaired CI
+  must finish green and recovered work must progress to completion.
+- Repository-owned checks and `scripts/dogfood.sh` let Odysseus develop and
+  measure Odysseus without publishing seeded numbers as production outcomes.
+
 ## Shipped — 0.6.2: stable lifecycle
 
 - Latest-stable-by-default remote installation; `--edge`, `--version`, and

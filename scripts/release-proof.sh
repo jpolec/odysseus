@@ -35,6 +35,17 @@ printf '%s\n' '[5/6] Reproducible Odysseus-on-Odysseus product state'
 scripts/demo.py --state-dir "$PROOF_STATE" --project "$REPOSITORY_ROOT" >/dev/null
 bin/odysseus --state-dir "$PROOF_STATE" runs --json >/dev/null
 bin/odysseus --state-dir "$PROOF_STATE" stats >/dev/null
+bin/odysseus --state-dir "$PROOF_STATE" proof --json --output "$PROOF_STATE/production-proof.json" >/dev/null
+python3 - "$PROOF_STATE/production-proof.json" <<'PY'
+import json
+import sys
+proof = json.load(open(sys.argv[1], encoding="utf-8"))
+assert proof["metrics"]["autonomous_tasks"] == 0, proof
+assert proof["classifications"]["demo"] >= 1, proof
+assert proof["classifications"]["demo"] == sum(proof["classifications"].values()), proof
+assert proof["metrics"]["observed_tasks"] == 0, proof
+assert len(proof["proof_sha256"]) == 64, proof
+PY
 
 printf '%s\n' '[6/6] Checkout HTTP health, bootstrap, and shutdown smoke test'
 PORT="${ODYSSEUS_RELEASE_PROOF_PORT:-8873}"

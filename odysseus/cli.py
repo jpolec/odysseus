@@ -22,6 +22,7 @@ from .events import EVENT_SCHEMA_VERSION
 from .ci import CIWatcher
 from .lifecycle import ServerLease
 from .planner import EpicPlanner
+from .proof import production_proof, proof_markdown
 from .resources import resource_path
 from .search import search, statistics
 from .scheduler import ReviewActions, Scheduler
@@ -35,8 +36,13 @@ def _print_json(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
 
 
-def _store(args: argparse.Namespace) -> RunStore:
-    return RunStore(args.state_dir)
+def _store(
+    args: argparse.Namespace,
+    *,
+    migrate: bool = True,
+    readonly: bool = False,
+) -> RunStore:
+    return RunStore(args.state_dir, migrate=migrate, readonly=readonly)
 
 
 def _environment_payload(args: argparse.Namespace) -> dict[str, Any]:
@@ -192,6 +198,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             "skills": args.skill,
             "environment": _environment_payload(args),
             "untrusted_project": args.untrusted_project,
+            "origin": "cli",
+            "evidence_class": "observed",
+            "release": args.release,
             "budgets": {key: value for key, value in budget_values.items() if value is not None},
         }
     )
@@ -392,7 +401,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
-    _print_json(statistics(_store(args)))
+    _print_json(statistics(_store(args, migrate=False)))
     return 0
 
 
@@ -416,6 +425,28 @@ def cmd_state_verify(args: argparse.Namespace) -> int:
         for error in result["errors"]:
             print(f"  - {error}", file=sys.stderr)
     return 0 if result["valid"] else 1
+
+
+def cmd_proof(args: argparse.Namespace) -> int:
+    verified = verify_state(args.state_dir)
+    if not verified["valid"]:
+        raise RuntimeError("state verification failed; run `odysseus state verify` for details")
+    proof = production_proof(
+        _store(args, migrate=False, readonly=True),
+        release="" if args.all_releases else args.release,
+        minimum_runs=args.minimum_runs,
+    )
+    content = json.dumps(proof, ensure_ascii=False, indent=2, sort_keys=True) + "\n" if args.json else proof_markdown(proof)
+    if args.output:
+        target = Path(args.output).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        print(target)
+    else:
+        print(content, end="")
+    if args.require_sufficient and not proof["sample_sufficient"]:
+        return 2
+    return 0
 
 
 def _install_manifest() -> dict[str, Any]:
@@ -609,6 +640,7 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--max-retries", type=int, default=2)
     run.add_argument("--base", default="")
     run.add_argument("--priority", type=int, default=50, help="scheduler priority from 0 to 100")
+    run.add_argument("--release", default=__version__, help="release label for dogfooding evidence")
     run.add_argument("--timeout", type=int, help="agent/reviewer timeout in seconds (0 disables)")
     run.add_argument("--stall-timeout", type=int, help="stop after this many seconds without output")
     run.add_argument("--max-tokens", type=int, help="hard token budget (0 disables)")
@@ -742,6 +774,15 @@ def parser() -> argparse.ArgumentParser:
     state_verify.add_argument("--migrate", action="store_true", help="migrate supported older records after a clean scan")
     state_verify.add_argument("--json", action="store_true")
     state_verify.set_defaults(func=cmd_state_verify)
+
+    proof_parser = sub.add_parser("proof", help="produce an honest receipt from explicitly observed agent runs")
+    proof_parser.add_argument("--release", default=__version__, help="release label to aggregate")
+    proof_parser.add_argument("--all-releases", action="store_true", help="aggregate observed runs across releases")
+    proof_parser.add_argument("--minimum-runs", type=int, default=20, help="sample-size threshold for publication")
+    proof_parser.add_argument("--require-sufficient", action="store_true", help="exit 2 when the sample is below threshold")
+    proof_parser.add_argument("--json", action="store_true", help="emit the full machine-readable receipt")
+    proof_parser.add_argument("--output", help="write the receipt to a file")
+    proof_parser.set_defaults(func=cmd_proof)
 
     version_parser = sub.add_parser("version", help="show version, schemas, and managed install channel")
     version_parser.add_argument("--json", action="store_true")

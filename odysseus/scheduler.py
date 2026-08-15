@@ -906,6 +906,12 @@ class ReviewActions:
             return {"attention": item, "run": rejected}
         if item.get("type") == "review_comment":
             if response.strip().lower() in {"ignore", "reject", "resolve"}:
+                self.store.append_event(
+                    run_id,
+                    "attention.answered",
+                    "user",
+                    {"attention_id": item_id, "response": response.strip()},
+                )
                 self.store.attention.resolve(item_id, resolution="ignored")
                 return {"attention": self.store.attention.get(item_id), "run": run}
             response = (

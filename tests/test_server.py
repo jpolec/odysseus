@@ -66,7 +66,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.2")
+                self.assertEqual(bootstrap["version"], "0.6.3")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from odysseus.store import RunStore
+from odysseus.store import RUN_SCHEMA_VERSION, RunStore
 
 
 class StoreTests(unittest.TestCase):
@@ -116,7 +116,7 @@ class StoreTests(unittest.TestCase):
 
             migrated = RunStore(store.root).get(run["id"])
 
-            self.assertEqual(migrated["schema_version"], 8)
+            self.assertEqual(migrated["schema_version"], RUN_SCHEMA_VERSION)
             self.assertEqual(migrated["depends_on"], [])
             self.assertEqual(migrated["evaluation"], {})
             self.assertEqual(

@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.2](https://img.shields.io/badge/version-0.6.2-171a16)
+![Version: 0.6.3](https://img.shields.io/badge/version-0.6.3-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -23,7 +23,8 @@ available without occupying the first-use path.
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
 [Version and capabilities](VERSION.md) · [Security](SECURITY.md) ·
-[Release proof](PROOF.md) · [Protocol and API](docs/odysseus-protocol.md)
+[Release proof](PROOF.md) · [Production proof](PRODUCTION_PROOF.md) ·
+[Protocol and API](docs/odysseus-protocol.md)
 
 ## Why Odysseus
 
@@ -169,6 +170,29 @@ The script writes nine real browser captures—First run, Workspace, Project, At
 Task Summary, Integration, CI repair, Context Receipt, and New task—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 project, task surface, or dialog, so filenames match the visible UI.
+
+## Odysseus develops Odysseus
+
+The repository contains its own deterministic checks in `.odysseus.json` and a
+small dogfooding entry point:
+
+```sh
+scripts/dogfood.sh start
+scripts/dogfood.sh run "Make start explain and recover from a port conflict"
+scripts/dogfood.sh status
+scripts/dogfood.sh proof
+```
+
+Every newly queued autonomous run records a versioned provenance envelope. The
+`proof` command counts only terminal attempts with ordered start, agent activity,
+and outcome evidence; early failures stay in the denominator. Delivery claims
+also require the final verifier to pass before artifact creation and acceptance,
+so merely queueing tasks or editing a status cannot inflate the result.
+Seeded demo, test, imported tmux, and pre-0.6.3 unclassified history are
+excluded. Missing model cost remains unobserved, draft PRs are not acceptance,
+and operator response latency is not mislabeled as active human time. JSON uses
+opaque receipt IDs; Markdown is the public aggregate. See
+[PRODUCTION_PROOF.md](PRODUCTION_PROOF.md).
 
 ## Where tasks come from
 

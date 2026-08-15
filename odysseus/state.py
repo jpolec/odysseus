@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .events import EVENT_SCHEMA_VERSION
+from .epics import EPIC_SCHEMA_VERSION
 from .store import RUN_SCHEMA_VERSION
 
 
@@ -73,8 +74,8 @@ def _verify_ndjson(path: Path, errors: list[str], counts: dict[str, int]) -> Non
             if str(value.get("run_id") or "") != path.stem:
                 errors.append(f"{path}:{number}: run_id does not match journal name")
             seq = value.get("seq")
-            if not isinstance(seq, int) or seq <= previous_seq:
-                errors.append(f"{path}:{number}: event seq must be a strictly increasing integer")
+            if not isinstance(seq, int) or seq != previous_seq + 1:
+                errors.append(f"{path}:{number}: event seq must be a contiguous integer starting at 1")
             elif isinstance(seq, int):
                 previous_seq = seq
 
@@ -122,8 +123,11 @@ def verify_state(root: Path | str) -> dict[str, Any]:
                 if str(value.get("id") or "") != path.stem:
                     errors.append(f"{path}: epic id does not match file name")
                 version = value.get("schema_version")
-                if not isinstance(version, int) or version != 1:
-                    errors.append(f"{path}: unsupported epic schema {version!r}; reader supports 1")
+                if not isinstance(version, int) or version < 1 or version > EPIC_SCHEMA_VERSION:
+                    errors.append(
+                        f"{path}: unsupported epic schema {version!r}; "
+                        f"reader supports 1..{EPIC_SCHEMA_VERSION}"
+                    )
 
     for name in NDJSON_DIRS:
         directory = state_root / name

@@ -323,7 +323,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         try:
             body = self._body()
             if parsed.path == "/api/runs":
-                run = self.server.app.store.create(body)
+                run = self.server.app.store.create({**body, "origin": "web", "evidence_class": "observed"})
                 self._json(run, HTTPStatus.CREATED)
                 return
             if parsed.path == "/api/projects":
@@ -375,7 +375,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 task = f"Implement GitHub issue: {title}\n\n{issue_body}"
                 if url:
                     task += f"\n\nIssue: {url}"
-                run = self.server.app.store.create({"task": task, "title": title, "project_path": project["path"], "lane": body.get("lane") or self.server.app.store.config()["default_lane"]})
+                run = self.server.app.store.create({"task": task, "title": title, "project_path": project["path"], "lane": body.get("lane") or self.server.app.store.config()["default_lane"], "origin": "github", "evidence_class": "observed"})
                 self._json(run, HTTPStatus.CREATED)
                 return
             tmux_match = TMUX_ROUTE.fullmatch(parsed.path)
@@ -471,7 +471,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             item = self.server.app.store.inbox.get(item_id)
             if not item.get("project_path"):
                 raise ValueError("follow-up has no project")
-            run = self.server.app.store.create({"task": item["task"], "title": item["title"], "project_path": item["project_path"], "lane": body.get("lane") or self.server.app.store.config()["default_lane"]})
+            run = self.server.app.store.create({"task": item["task"], "title": item["title"], "project_path": item["project_path"], "lane": body.get("lane") or self.server.app.store.config()["default_lane"], "origin": "inbox", "evidence_class": "observed"})
             self.server.app.store.inbox.update(item_id, status="promoted")
             self.server.app.store.append_event(run["id"], "inbox.promoted", "user", {"inbox_id": item_id})
             self._json(run, HTTPStatus.CREATED)

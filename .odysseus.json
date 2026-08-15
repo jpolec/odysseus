@@ -1,0 +1,17 @@
+{
+  "checks": [
+    "python3 -m unittest discover -s tests -v",
+    "python3 -m compileall -q odysseus scripts/demo.py",
+    "node --check web/app.js",
+    "bash -n install.sh scripts/*.sh tests/*.sh",
+    "git diff --check"
+  ],
+  "environment": {
+    "profile": "host"
+  },
+  "policy": {
+    "min_confidence": 0.9,
+    "require_human_review": true,
+    "required_evaluators": []
+  }
+}

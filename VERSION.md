@@ -2,13 +2,39 @@
 
 ## Current version
 
-**0.6.2 — 2026-08-15**
+**0.6.3 — 2026-08-15**
 
 Version 0.6 adds an explicit runtime boundary without making the simple local
 path harder. Host mode remains the compatibility default; Docker and reviewed
 devcontainers are opt-in task profiles.
 
-## What is available in 0.6.2
+## What is available in 0.6.3
+
+### 0.6.3 Observed Production Proof
+
+- Run snapshot schema 9 adds a provenance envelope: evidence class, origin,
+  Odysseus version, release label, and observation time. New web, CLI, Planner,
+  GitHub, and Inbox tasks are observed; tmux imports are classified separately.
+- `odysseus proof` counts only terminal attempts whose complete journal proves
+  ordered start, agent activity, and outcome events. Early failures remain in
+  the denominator. Accepted changes and draft PRs additionally require final
+  verifier success followed by artifact creation and the outcome event.
+  Queued/active records and status-only edits cannot inflate the sample.
+- Accepted artifacts and opened draft PRs are separate. Missing cost remains
+  unobserved with a coverage ratio; CI recovery must end green and crash
+  recovery must show later progress to a terminal outcome.
+- Explicit user decisions and Needs You response latency replace inferred human
+  time. Automatic attention resolution never counts as an intervention.
+- Every included run receives a privacy-reduced receipt over its private source
+  evidence and complete, untruncated journal. The aggregate SHA-256 also binds
+  evidence policy, classifications, threshold, sufficiency, and metrics.
+- Demo, test, imported tmux, and legacy unclassified runs never contribute to
+  production numbers. The default 20-run threshold is visible and optionally
+  enforceable with `--require-sufficient`.
+- Legacy Epic schema 1 plans materialize as unclassified instead of silently
+  turning into observed production evidence. `.odysseus.json` makes the repository directly runnable through its own
+  workflow. `scripts/dogfood.sh` starts it, queues work on itself, reports
+  observed status, and writes JSON/Markdown release receipts.
 
 ### 0.6.2 Stable Install Lifecycle
 
@@ -278,8 +304,8 @@ devcontainers are opt-in task profiles.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.2` |
-| Run snapshot schema | `8` |
+| Application version | `0.6.3` |
+| Run snapshot schema | `9` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
 | Export format | `odysseus-state-v1` |

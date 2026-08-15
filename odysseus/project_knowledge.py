@@ -126,9 +126,10 @@ class ProjectKnowledge:
     def __init__(self, store: Any) -> None:
         self.store = store
         self.profile_dir = store.root / "project_profiles"
-        self.profile_dir.mkdir(exist_ok=True)
         self.items_dir = store.root / "project_knowledge"
-        self.items_dir.mkdir(exist_ok=True)
+        if not store.readonly:
+            self.profile_dir.mkdir(exist_ok=True)
+            self.items_dir.mkdir(exist_ok=True)
 
     def _profile_path(self, project_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", project_id):

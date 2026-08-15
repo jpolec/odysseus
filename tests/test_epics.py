@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -87,6 +88,25 @@ class EpicTests(unittest.TestCase):
             )
             self.assertIsNotNone(store.claim(mapping["first"], max_parallel=4))
             self.assertIsNone(store.claim(mapping["second"], max_parallel=4))
+
+    def test_legacy_epic_tasks_remain_unclassified(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, project = self._store(Path(temp))
+            epic = store.epics.create({"title": "Legacy", "project_path": str(project)})
+            path = store.epics._path(epic["id"])
+            legacy = json.loads(path.read_text(encoding="utf-8"))
+            legacy["schema_version"] = 1
+            legacy.pop("evidence_class")
+            legacy.pop("release")
+            path.write_text(json.dumps(legacy), encoding="utf-8")
+
+            loaded = store.epics.get(epic["id"])
+            mapping = store.epics.create_task_batch(
+                epic["id"], [{"task_key": "old", "task": "Materialize old plan"}]
+            )
+
+            self.assertEqual(loaded["evidence_class"], "unclassified")
+            self.assertEqual(store.get(mapping["old"])["provenance"]["evidence_class"], "unclassified")
 
 
 if __name__ == "__main__":
