@@ -1,18 +1,18 @@
 # Odysseus
 
-![Version: 0.6.0](https://img.shields.io/badge/version-0.6.0-171a16)
+![Version: 0.6.1](https://img.shields.io/badge/version-0.6.1-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
 ![GitHub Repo stars](https://img.shields.io/github/stars/jpolec/odysseus?style=social)
 
-**A local-first control plane for coding agents and the tmux sessions you
-already use.**
+**Zero runtime dependencies. No database. Auditable NDJSON. Your terminal stays
+first-class.**
 
-Odysseus turns requirements into approval-gated task DAGs, runs agent work in
-separate Git worktrees and optional Docker environments, evaluates the evidence,
-and shows only exceptions in a central **Needs You** queue. Its light web UI is
-also a live window into existing tmux sessions:
+Odysseus adds durable queues, approval-gated task DAGs, isolated Git worktrees,
+optional Docker boundaries, independent evidence, and a focused **Needs You**
+queue to the coding agents and tmux sessions you already use. Its light web UI
+is also a live window into existing tmux sessions:
 discovery is automatic, while tracking and terminal handoff stay explicit.
 
 The web workbench has one visible hierarchy: **workspace -> project -> task**.
@@ -76,7 +76,25 @@ optional and only required for isolated execution. tmux and fzf are needed for
 terminal controls; authenticated `gh` is needed for GitHub issue intake and
 draft pull requests.
 
-Install the `odysseus` command and open the local UI:
+Run directly with `uvx`—nothing is added permanently to your environment:
+
+```sh
+uvx --from git+https://github.com/jpolec/odysseus odysseus start --open
+```
+
+Or install the command persistently with `pipx`:
+
+```sh
+pipx install git+https://github.com/jpolec/odysseus
+odysseus doctor
+odysseus start --open
+```
+
+The Python package has no runtime dependencies. `uvx`/`pipx` install the CLI,
+web assets, bundled generic Skills, and demo. The tmux key bindings remain an
+optional TPM plugin because they must be loaded by tmux itself.
+
+The shell installer is the third option:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/jpolec/odysseus/main/install.sh | bash
@@ -393,7 +411,11 @@ operator command reference.
 
 ## Remote and VPS
 
-The server binds to loopback by default. For a private VPS installation:
+The server binds to loopback by default. It is designed for one operator on a
+workstation or private VPS, not as a public multi-tenant application server.
+HTTP work is threaded and bounded; live SSE streams have a separate limit and
+shut down with the server. JSON/NDJSON writes use an inter-process file lock and
+atomic snapshot replacement. For a private VPS installation:
 
 ```sh
 sudo scripts/install-vps.sh --service-user "$USER"
@@ -411,7 +433,9 @@ sudo scripts/install-vps.sh \
 
 A direct remote bind without a password is refused unless the explicitly
 unsafe override is supplied. Read [SECURITY.md](SECURITY.md) before exposing the
-service.
+service. A reverse proxy or SSH tunnel remains required for TLS and
+internet-facing connection handling; Odysseus does not claim high-availability
+or horizontal multi-user operation.
 
 ## CLI operator commands
 

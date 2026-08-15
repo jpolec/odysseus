@@ -4,3 +4,6 @@ __pycache__/
 .odysseus/
 coverage.xml
 .coverage
+dist/
+build/
+*.egg-info/

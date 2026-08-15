@@ -22,6 +22,7 @@ from .planner import EpicPlanner
 from .scheduler import ReviewActions, Scheduler
 from .search import search, statistics
 from .github import GitHubBridge
+from .resources import resource_path
 from .store import RunStore
 from .tmux import TmuxBridge
 from .worktrees import WorktreeManager
@@ -49,13 +50,15 @@ class OdysseusApp:
         scheduler: Scheduler | None = None,
         auth_user: str = "",
         auth_password: str = "",
+        max_http_connections: int = 64,
+        max_sse_connections: int = 32,
     ) -> None:
         self.store = store
         self.host = host
         self.port = port
         self.allow_remote = allow_remote
         self.verbose = verbose
-        self.static_root = static_root or Path(__file__).resolve().parent.parent / "web"
+        self.static_root = static_root or resource_path("web")
         self.token = secrets.token_urlsafe(24)
         self.scheduler = scheduler or Scheduler(store)
         self.actions = ReviewActions(store, self.scheduler)
@@ -65,11 +68,18 @@ class OdysseusApp:
         self.ci = CIWatcher(store, self.actions, bridge=self.github)
         self.auth_user = auth_user
         self.auth_password = auth_password
+        self.max_http_connections = max(4, int(max_http_connections))
+        self.max_sse_connections = max(1, min(int(max_sse_connections), self.max_http_connections - 1))
+        self.shutdown_event = threading.Event()
+        self.sse_slots = threading.BoundedSemaphore(self.max_sse_connections)
+        self._sse_active = 0
+        self._sse_lock = threading.Lock()
         self.httpd: OdysseusHTTPServer | None = None
 
     def start(self) -> tuple[str, int]:
         if self.httpd is not None:
             return self.httpd.server_address[:2]
+        self.shutdown_event.clear()
         self.scheduler.start()
         self.ci.start()
         self.httpd = OdysseusHTTPServer((self.host, self.port), OdysseusHandler, self)
@@ -81,6 +91,7 @@ class OdysseusApp:
         self.httpd.serve_forever(poll_interval=0.35)
 
     def stop(self) -> None:
+        self.shutdown_event.set()
         self.ci.stop()
         if self.httpd is not None:
             self.httpd.shutdown()
@@ -88,19 +99,64 @@ class OdysseusApp:
             self.httpd = None
         self.scheduler.stop()
 
+    def sse_active(self) -> int:
+        with self._sse_lock:
+            return self._sse_active
+
+    def enter_sse(self) -> bool:
+        if not self.sse_slots.acquire(blocking=False):
+            return False
+        with self._sse_lock:
+            self._sse_active += 1
+        return True
+
+    def leave_sse(self) -> None:
+        with self._sse_lock:
+            self._sse_active = max(0, self._sse_active - 1)
+        self.sse_slots.release()
+
 
 class OdysseusHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
+    allow_reuse_address = True
+    request_queue_size = 64
 
     def __init__(self, address: tuple[str, int], handler: type[BaseHTTPRequestHandler], app: OdysseusApp):
         self.app = app
+        self._request_slots = threading.BoundedSemaphore(app.max_http_connections)
         super().__init__(address, handler)
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        if not self._request_slots.acquire(blocking=False):
+            try:
+                request.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Content-Length: 0\r\nConnection: close\r\nRetry-After: 2\r\n\r\n"
+                )
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
 
 
 class OdysseusHandler(BaseHTTPRequestHandler):
     server: OdysseusHTTPServer
     protocol_version = "HTTP/1.1"
     server_version = f"Odysseus/{__version__}"
+
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(15)
 
     def log_message(self, format: str, *args: Any) -> None:
         if self.server.app.verbose:
@@ -153,6 +209,9 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "ci_red": sum(
                         1 for run in self.server.app.store.list() if (run.get("ci") or {}).get("status") == "failed"
                     ),
+                    "http_connection_limit": self.server.app.max_http_connections,
+                    "sse_connections": self.server.app.sse_active(),
+                    "sse_connection_limit": self.server.app.max_sse_connections,
                 }
             )
             return
@@ -535,6 +594,13 @@ class OdysseusHandler(BaseHTTPRequestHandler):
 
     def _sse(self, run_id: str, parsed: Any) -> None:
         self.server.app.store.get(run_id)
+        if not self.server.app.enter_sse():
+            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
+            self.send_header("Content-Length", "0")
+            self.send_header("Retry-After", "2")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
         query = parse_qs(parsed.query)
         header_after = self.headers.get("Last-Event-ID", "0")
         try:
@@ -549,7 +615,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.end_headers()
         last_ping = time.monotonic()
         try:
-            while True:
+            while not self.server.app.shutdown_event.is_set():
                 events = self.server.app.store.events(run_id, after=after, limit=250)
                 for event in events:
                     after = int(event["seq"])
@@ -563,13 +629,14 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     self.wfile.write(b": keepalive\n\n")
                     self.wfile.flush()
                     last_ping = time.monotonic()
-                time.sleep(0.35)
+                self.server.app.shutdown_event.wait(0.35)
         except (BrokenPipeError, ConnectionResetError, OSError):
             return
         finally:
             # BaseHTTPRequestHandler otherwise attempts to parse another HTTP/1.1
             # request after an EventSource client has disconnected.
             self.close_connection = True
+            self.server.app.leave_sse()
 
     def _static(self, requested: str) -> None:
         routes = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}

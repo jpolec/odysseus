@@ -17,6 +17,7 @@ from typing import Any
 from . import __version__
 from .ci import CIWatcher
 from .planner import EpicPlanner
+from .resources import resource_path
 from .search import search, statistics
 from .scheduler import ReviewActions, Scheduler
 from .server import OdysseusApp
@@ -86,6 +87,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         verbose=args.verbose,
         auth_user=args.auth_user if auth_password else "",
         auth_password=auth_password,
+        max_http_connections=args.max_http_connections,
+        max_sse_connections=args.max_sse_connections,
     )
     host, port = app.start()
     display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
@@ -374,6 +377,12 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     result["state_dir"] = str(store.root)
     result["state_writable"] = os.access(store.root, os.W_OK)
     result["custom_lanes"] = sorted(lanes)
+    try:
+        result["web_assets"] = str(resource_path("web", "index.html"))
+        result["bundled_skills"] = len(list(resource_path("skills").glob("*/SKILL.md")))
+    except FileNotFoundError:
+        result["web_assets"] = None
+        result["bundled_skills"] = 0
     if args.json:
         _print_json(result)
     else:
@@ -395,6 +404,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print(f"  {marker:<7} {labels[name]}{optional}: {location}")
         print()
         print(f"  state   {result['state_dir']} ({'writable' if result['state_writable'] else 'not writable'})")
+        print(f"  assets  {'ready' if result['web_assets'] else 'missing'}; {result['bundled_skills']} bundled Skills")
         if result["git"] and result["python3"] and (result["codex"] or result["claude"]):
             print("\nReady. Run `odysseus start` and add a repository.")
         elif result["git"] and result["python3"]:
@@ -405,7 +415,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_demo(args: argparse.Namespace) -> int:
-    script = Path(__file__).resolve().parent.parent / "scripts" / "demo.py"
+    script = resource_path("scripts", "demo.py")
     if not script.is_file():
         raise ValueError(f"demo script is missing: {script}")
     command = [sys.executable, str(script), "--serve", "--port", str(args.port)]
@@ -437,6 +447,8 @@ def parser() -> argparse.ArgumentParser:
     serve.add_argument("--insecure-remote", action="store_true", help="explicitly allow an unauthenticated remote bind (not recommended)")
     serve.add_argument("--open", action="store_true", help="open the UI in the default browser")
     serve.add_argument("--verbose", action="store_true")
+    serve.add_argument("--max-http-connections", type=int, default=int(os.environ.get("ODYSSEUS_MAX_HTTP_CONNECTIONS", "64")), help="bound concurrent HTTP clients")
+    serve.add_argument("--max-sse-connections", type=int, default=int(os.environ.get("ODYSSEUS_MAX_SSE_CONNECTIONS", "32")), help="bound concurrent live event streams")
     serve.set_defaults(func=cmd_serve)
 
     run = sub.add_parser("run", help="enqueue an agent-check-review task")

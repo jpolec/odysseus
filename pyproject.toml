@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odysseus-agents"
+dynamic = ["version"]
+description = "Zero-runtime-dependency orchestration for coding agents and tmux"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "Jakub Polec"}]
+keywords = ["agents", "coding-agents", "tmux", "orchestration", "worktrees"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Version Control :: Git",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/jpolec/odysseus"
+Documentation = "https://github.com/jpolec/odysseus#readme"
+Issues = "https://github.com/jpolec/odysseus/issues"
+
+[project.scripts]
+odysseus = "odysseus.cli:main"
+
+[tool.setuptools]
+packages = ["odysseus"]
+
+[tool.setuptools.dynamic]
+version = {attr = "odysseus.__version__"}
+
+[tool.setuptools.data-files]
+"share/odysseus/web" = ["web/index.html", "web/app.js", "web/styles.css"]
+"share/odysseus/skills/api-contracts" = ["skills/api-contracts/SKILL.md"]
+"share/odysseus/skills/database-change" = ["skills/database-change/SKILL.md"]
+"share/odysseus/skills/dependency-upgrade" = ["skills/dependency-upgrade/SKILL.md"]
+"share/odysseus/skills/documentation-maintenance" = ["skills/documentation-maintenance/SKILL.md"]
+"share/odysseus/skills/frontend-accessibility" = ["skills/frontend-accessibility/SKILL.md"]
+"share/odysseus/skills/incident-debugging" = ["skills/incident-debugging/SKILL.md"]
+"share/odysseus/skills/performance-review" = ["skills/performance-review/SKILL.md"]
+"share/odysseus/skills/security-review" = ["skills/security-review/SKILL.md"]
+"share/odysseus/skills/test-strategy" = ["skills/test-strategy/SKILL.md"]
+"share/odysseus/scripts" = ["scripts/demo.py", "scripts/session-meta.py"]
+"share/odysseus/tmux" = ["codex_session_manager.tmux"]

@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prove-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@v6
+      - name: Verify tag matches application version
+        run: test "$GITHUB_REF_NAME" = "v$(python3 -c 'from odysseus import __version__; print(__version__)')"
+      - name: Full release proof from tag
+        run: scripts/release-proof.sh
+      - name: Build source and wheel artifacts
+        run: |
+          uv build
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          files = sorted(Path("dist").iterdir())
+          Path("SHA256SUMS").write_text(
+              "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files),
+              encoding="utf-8",
+          )
+          PY
+      - name: Publish GitHub release after proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* SHA256SUMS --verify-tag --generate-notes --title "Odysseus $GITHUB_REF_NAME"

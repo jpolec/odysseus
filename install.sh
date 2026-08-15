@@ -46,12 +46,19 @@ else
   fi
   if [ -d "$INSTALL_DIR/.git" ]; then
     printf 'Updating Odysseus in %s\n' "$INSTALL_DIR"
+    if ! git -C "$INSTALL_DIR" diff --quiet || ! git -C "$INSTALL_DIR" diff --cached --quiet; then
+      printf 'Refusing to replace a modified Odysseus checkout: %s\n' "$INSTALL_DIR" >&2
+      exit 1
+    fi
     git -C "$INSTALL_DIR" fetch --depth 1 origin "$REF"
-    git -C "$INSTALL_DIR" merge --ff-only FETCH_HEAD
+    git -C "$INSTALL_DIR" checkout --detach --force FETCH_HEAD
   else
     printf 'Installing Odysseus in %s\n' "$INSTALL_DIR"
     mkdir -p "$(dirname "$INSTALL_DIR")"
-    git clone --depth 1 --branch "$REF" "$REPOSITORY" "$INSTALL_DIR"
+    git init -q "$INSTALL_DIR"
+    git -C "$INSTALL_DIR" remote add origin "$REPOSITORY"
+    git -C "$INSTALL_DIR" fetch --depth 1 origin "$REF"
+    git -C "$INSTALL_DIR" checkout --detach --force FETCH_HEAD
   fi
   COMMAND_SOURCE="$INSTALL_DIR/bin/odysseus"
 fi

@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .events import now_iso
+from .resources import resource_path
 
 
 VALID_MODES = frozenset({"auto", "required", "disabled"})
 VALID_TASK_MODES = frozenset({"auto", "manual", "none"})
 SKILL_LOCATIONS = (".agents/skills", ".github/skills", ".claude/skills")
-BUNDLED_SKILLS = Path(__file__).resolve().parent.parent / "skills"
+BUNDLED_SKILLS = resource_path("skills")
 SUCCESS_STATUSES = frozenset({"accepted", "pr_created", "completed"})
 TERMINAL_STATUSES = SUCCESS_STATUSES | frozenset({"failed", "cancelled"})
 INTERVENTION_EVENTS = frozenset(

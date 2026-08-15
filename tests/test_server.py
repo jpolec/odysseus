@@ -43,7 +43,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.0")
+                self.assertEqual(bootstrap["version"], "0.6.1")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -170,6 +170,40 @@ class ServerTests(unittest.TestCase):
                     health = json.load(response)
                 self.assertTrue(health["ok"])
             finally:
+                app.stop()
+                thread.join(timeout=2)
+
+    def test_sse_connections_are_bounded_and_visible_in_health(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Stream events", "project_path": str(project)})
+            app = OdysseusApp(
+                store,
+                host="127.0.0.1",
+                port=0,
+                scheduler=DummyScheduler(),
+                max_http_connections=4,
+                max_sse_connections=1,
+            )
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            stream = urllib.request.urlopen(f"{base}/api/runs/{run['id']}/stream", timeout=3)
+            try:
+                with urllib.request.urlopen(f"{base}/api/health") as response:
+                    health = json.load(response)
+                self.assertEqual(health["sse_connections"], 1)
+                self.assertEqual(health["sse_connection_limit"], 1)
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(f"{base}/api/runs/{run['id']}/stream", timeout=3)
+                self.assertEqual(caught.exception.code, 503)
+                caught.exception.close()
+            finally:
+                stream.close()
                 app.stop()
                 thread.join(timeout=2)
 

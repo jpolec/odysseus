@@ -2,13 +2,33 @@
 
 ## Current version
 
-**0.6.0 — 2026-08-15**
+**0.6.1 — 2026-08-15**
 
 Version 0.6 adds an explicit runtime boundary without making the simple local
 path harder. Host mode remains the compatibility default; Docker and reviewed
 devcontainers are opt-in task profiles.
 
-## What is available in 0.6.0
+## What is available in 0.6.1
+
+### 0.6.1 Release Integrity and Standard Packaging
+
+- `pyproject.toml` ships the zero-runtime-dependency `odysseus` console entry
+  point as the `odysseus-agents` distribution, including the web UI, demo,
+  tmux helper, and generic Skills. A clean wheel is exercised through `uvx`.
+- PR CI remains a fast Python 3.10/3.13 matrix. Pushes to `main` run the full
+  release proof once; `v*` tags must pass that proof before the GitHub Release
+  and checksum-bearing source/wheel artifacts are published.
+- Exact-commit installer tests work from branches, tags, and detached CI
+  checkouts instead of assuming a branch name.
+- The release proof includes packaged and checkout HTTP boot, health,
+  bootstrap-version, asset, Skill, and clean-shutdown checks.
+- HTTP request threads and SSE streams have explicit, independently visible
+  concurrency limits. Slow sockets time out and live streams exit when the
+  server stops. The stdlib server remains intentionally single-operator rather
+  than a multi-tenant application tier.
+- README positioning now leads with the product's verifiable properties: no
+  runtime dependencies, no database, append-only NDJSON, and a terminal-first
+  workflow.
 
 ### 0.6.0 Explicit Execution Environments
 
@@ -229,7 +249,7 @@ devcontainers are opt-in task profiles.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.0` |
+| Application version | `0.6.1` |
 | Run snapshot schema | `8` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

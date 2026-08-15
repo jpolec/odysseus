@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .events import now_iso
+from .resources import resource_path
 
 
 SESSION_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -38,7 +39,7 @@ class TmuxBridge:
             if receipts_dir is not None
             else Path(os.environ.get("ODYSSEUS_TMUX_RECEIPTS", "~/.tmux-ai-sessions/receipts")).expanduser()
         )
-        self.session_meta = Path(__file__).resolve().parent.parent / "scripts" / "session-meta.py"
+        self.session_meta = resource_path("scripts", "session-meta.py")
         self._git_roots: dict[str, str] = {}
         self._known_projects: set[str] = set()
         self._cache_at = 0.0

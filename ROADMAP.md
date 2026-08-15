@@ -6,6 +6,17 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.1: release integrity
+
+- Standard Python source/wheel packaging with a zero-runtime-dependency
+  `odysseus` entry point and bundled UI, demo, helpers, and generic Skills.
+- Fast PR CI, full main proof, proof-gated tag releases, release artifacts, and
+  SHA-256 checksums.
+- Exact-commit and packaged install tests plus HTTP boot and shutdown smoke
+  tests.
+- Bounded HTTP and SSE concurrency for the documented single-operator
+  workstation/private-VPS scope.
+
 ## Shipped — 0.2: local agent control plane
 
 - Persistent multi-agent queue with bounded global concurrency.

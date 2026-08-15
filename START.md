@@ -1,12 +1,12 @@
 # Start Odysseus in five minutes
 
-This walkthrough installs one command, starts the local control plane, and runs
-one isolated task. Advanced planning and tmux controls remain optional.
+This walkthrough installs one command, opens the local workbench, and runs one
+isolated task. Advanced planning and tmux controls remain optional.
 
 ## 1. Install and verify
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jpolec/odysseus/main/install.sh | bash
+pipx install git+https://github.com/jpolec/odysseus
 odysseus doctor
 ```
 
@@ -15,11 +15,13 @@ CLI (`codex` or `claude`). Docker is optional and enables isolated execution.
 Install tmux and fzf for terminal session management, and authenticate `gh` for
 GitHub issue intake or draft pull requests.
 
-`doctor` prints a short readiness report. Add `--json` for scripts. To avoid a
-piped installer, clone the repository and run `./install.sh`; the installer
+`doctor` prints a short readiness report. Add `--json` for scripts. For a
+one-off run use
+`uvx --from git+https://github.com/jpolec/odysseus odysseus start --open`.
+You can also clone the repository and run `./install.sh`; the installer
 links the checkout command and does not copy or move your repositories.
 
-## 2. Start the control plane
+## 2. Start the workbench
 
 ```sh
 odysseus start --open
