@@ -358,7 +358,7 @@ def cmd_takeover(args: argparse.Namespace) -> int:
 def cmd_projects(args: argparse.Namespace) -> int:
     store = _store(args)
     if args.add:
-        value: Any = store.projects.upsert(args.add, {"name": args.name or "", "tags": args.tag})
+        value: Any = store.projects.upsert(args.add, {"name": args.name or "", "tags": args.tag}, require_git=True)
     else:
         value = {"projects": store.projects.list()}
     _print_json(value)

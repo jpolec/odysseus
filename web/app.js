@@ -42,6 +42,18 @@ function compactNumber(value) { return new Intl.NumberFormat("en", {notation: "c
 function statusClass(status) { return `status-${String(status || "unknown").replace(/[^a-z_]/g, "")}`; }
 function statusLabel(status) { return String(status || "unknown").replaceAll("_", " "); }
 function projectById(id) { return state.projects.find((project) => project.id === id); }
+function projectName(project) { return project?.display_name || project?.name || project?.folder_name || "Repository"; }
+function projectRepository(project) { return project?.repository || project?.folder_name || "Local repository"; }
+function projectHasDuplicateCheckout(project) { return Boolean(project?.repository) && state.projects.filter((item) => item.repository === project.repository).length > 1; }
+function projectCheckoutLabel(project) {
+  if (projectHasDuplicateCheckout(project)) return `Folder: ${project.folder_name || project.path}`;
+  if (project?.repository && project.repository !== project.folder_name) return project.repository;
+  return project?.folder_name || project?.path || "Local repository";
+}
+function projectOptionLabel(project) {
+  const name = projectName(project);
+  return projectHasDuplicateCheckout(project) ? `${name} — ${project.folder_name}` : name;
+}
 function activeProject() { return state.projectFilter === "all" ? null : projectById(state.projectFilter); }
 function discoveredSessionForRun(run) { return state.sessions.find((session) => session.adopted_run_id === run.id); }
 function preferredProjectId() {
@@ -49,6 +61,7 @@ function preferredProjectId() {
   return candidates.find((id) => id && projectById(id)) || "";
 }
 function syncCustomProject(select, container) {
+  if (!select || !container) return;
   const custom = !select.value;
   container.classList.toggle("hidden", !custom);
   const input = container.querySelector("input");
@@ -69,10 +82,10 @@ function setView(view) {
   $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $$(".view-panel").forEach((panel) => panel.classList.remove("active"));
   $(`#${view}View`)?.classList.add("active");
-  const surfaceNames = {work: "Overview", attention: "Needs You", epics: "Plans", tasks: "Task", sessions: "Terminals", inbox: "Inbox", projects: "Project registry", insights: "Insights", github: "GitHub issues"};
+  const surfaceNames = {work: "Repositories", attention: "Needs You", epics: "Plans", tasks: "Task", sessions: "Terminals", inbox: "Follow-ups", projects: "Manage repositories", insights: "Search & insights", github: "GitHub issues"};
   const project = activeProject();
   const scopedProject = ["work", "tasks", "epics", "github"].includes(view) ? project : null;
-  $("#titleProject").textContent = scopedProject?.name || "Workspace";
+  $("#titleProject").textContent = scopedProject ? projectName(scopedProject) : "Odysseus";
   $("#titleSurface").textContent = surfaceNames[view] || "Overview";
   $("#allWorkButton").classList.toggle("selected", view === "work" && state.projectFilter === "all");
   $("#sidebarAttentionButton").classList.toggle("selected", view === "attention");
@@ -142,19 +155,19 @@ function environmentFromForm(data) {
 
 function renderProjectTree() {
   $("#projectCount").textContent = state.projects.length;
-  $("#allWorkCount").textContent = state.runs.length;
+  $("#allWorkCount").textContent = state.projects.length;
   $("#sidebarAttentionCount").textContent = state.attention.length;
-  $("#taskSectionTitle").textContent = activeProject()?.name?.toUpperCase() || "ALL TASKS";
+  const currentProject = activeProject();
+  $(".task-section").classList.toggle("hidden", !currentProject);
+  $("#taskSectionTitle").textContent = "TASKS";
   $("#projectTree").innerHTML = state.projects.length ? state.projects.map((project) => {
     const selected = project.id === state.projectFilter;
     const runs = runsForProject(project.id);
     const active = runs.filter((run) => activeStatuses.has(run.status)).length;
-    const children = runs.slice(0, 5).map((run) => `<button class="${run.id === state.selectedId ? "selected" : ""}" data-project-run="${escapeHtml(run.id)}" type="button"><span>↳</span><span>${escapeHtml(run.title)}</span></button>`).join("");
-    return `<div class="project-node ${selected ? "selected" : ""}"><button class="project-row ${selected ? "selected" : ""}" data-select-project="${escapeHtml(project.id)}" type="button"><span class="chevron">›</span><strong>${escapeHtml(project.name)}</strong><small>${active || runs.length}</small></button><div class="project-children"><button data-project-overview="${escapeHtml(project.id)}" type="button"><span>⌂</span><span>Overview</span></button>${children || `<button data-project-new="${escapeHtml(project.id)}" type="button"><span>＋</span><span>Start first task</span></button>`}</div></div>`;
+    const count = active ? `${active} active` : `${runs.length} task${runs.length === 1 ? "" : "s"}`;
+    return `<div class="project-node ${selected ? "selected" : ""}"><button class="project-row ${selected ? "selected" : ""}" data-select-project="${escapeHtml(project.id)}" type="button"><span class="repository-icon">R</span><span class="project-row-copy"><strong>${escapeHtml(projectName(project))}</strong><small>${escapeHtml(projectCheckoutLabel(project))}</small></span><span class="project-row-count">${escapeHtml(count)}</span></button></div>`;
   }).join("") : `<div class="empty-list">Add a repository to start.</div>`;
-  $$('[data-select-project], [data-project-overview]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.selectProject || button.dataset.projectOverview)));
-  $$('[data-project-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.projectRun)));
-  $$('[data-project-new]').forEach((button) => button.addEventListener("click", () => { selectProject(button.dataset.projectNew); $("#newTaskButton").click(); }));
+  $$('[data-select-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.selectProject)));
 }
 
 function selectProject(projectId = "all") {
@@ -196,7 +209,7 @@ function renderTaskSkillChoices() {
   container.classList.toggle("hidden", !manual);
   if (!manual) return;
   const skills = (state.taskSkillCatalog?.skills || []).filter((skill) => skill.mode !== "disabled");
-  container.innerHTML = skills.length ? skills.map((skill) => `<label class="task-skill-choice"><input type="checkbox" name="skills" value="${escapeHtml(skill.name)}" ${skill.mode === "required" ? "checked disabled" : ""}><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span>${skill.mode === "required" ? `<em>required</em>` : ""}</label>`).join("") : `<div class="empty-list">Choose a registered project to see its skills.</div>`;
+  container.innerHTML = skills.length ? skills.map((skill) => `<label class="task-skill-choice"><input type="checkbox" name="skills" value="${escapeHtml(skill.name)}" ${skill.mode === "required" ? "checked disabled" : ""}><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span>${skill.mode === "required" ? `<em>required</em>` : ""}</label>`).join("") : `<div class="empty-list">Choose a registered repository to see its skills.</div>`;
 }
 
 function scheduleTaskSkillRecommendations() {
@@ -224,14 +237,14 @@ function renderTaskSkillRecommendations() {
   const container = $("#taskSkillRecommendations");
   const selected = (state.taskSkillRecommendations?.recommendations || []).filter((item) => item.selected);
   container.classList.toggle("hidden", $("#taskSkillMode").value !== "auto" || !selected.length);
-  container.innerHTML = selected.length ? `<small>AUTO WILL ATTACH</small>${selected.map((item) => `<div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml((item.reasons || [])[0] || "project policy")}</span></div>`).join("")}` : "";
+  container.innerHTML = selected.length ? `<small>AUTO WILL ATTACH</small>${selected.map((item) => `<div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml((item.reasons || [])[0] || "repository policy")}</span></div>`).join("")}` : "";
 }
 
 function renderProjectSkills() {
   const catalog = state.projectSkills;
   const skills = catalog?.skills || [];
   $("#projectSkillCount").textContent = `${skills.filter((skill) => skill.mode !== "disabled").length} enabled`;
-  $("#projectSkillList").innerHTML = skills.length ? skills.map((skill) => { const stats = skill.effectiveness || {}; const outcome = stats.runs ? `${stats.runs} run${stats.runs === 1 ? "" : "s"}${stats.success_rate === null ? " · awaiting outcomes" : ` · ${Math.round(Number(stats.success_rate) * 100)}% successful`}` : "No project history yet"; return `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small><em class="skill-effectiveness">${escapeHtml(outcome)}</em></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div>${stats.runs ? `<p class="skill-stats">Average ${compactNumber(stats.avg_tokens)} tokens · $${Number(stats.avg_cost_usd || 0).toFixed(4)} · ${Number(stats.interventions || 0)} human interventions</p>` : ""}<pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`; }).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
+  $("#projectSkillList").innerHTML = skills.length ? skills.map((skill) => { const stats = skill.effectiveness || {}; const outcome = stats.runs ? `${stats.runs} run${stats.runs === 1 ? "" : "s"}${stats.success_rate === null ? " · awaiting outcomes" : ` · ${Math.round(Number(stats.success_rate) * 100)}% successful`}` : "No repository history yet"; return `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small><em class="skill-effectiveness">${escapeHtml(outcome)}</em></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div>${stats.runs ? `<p class="skill-stats">Average ${compactNumber(stats.avg_tokens)} tokens · $${Number(stats.avg_cost_usd || 0).toFixed(4)} · ${Number(stats.interventions || 0)} human interventions</p>` : ""}<pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`; }).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
   $$('[data-skill-policy]').forEach((select) => {
     select.addEventListener("click", (event) => event.stopPropagation());
     select.addEventListener("change", async (event) => {
@@ -265,7 +278,7 @@ function renderProjectMemory() {
   const items = catalog?.items || [];
   const active = items.filter((item) => item.enabled).length;
   $("#projectMemoryCount").textContent = `${active} active`;
-  $("#projectMemoryList").innerHTML = items.length ? items.map((item) => `<article class="memory-item ${item.enabled ? "" : "disabled"}"><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.content)}</p><span>${[...(item.triggers || []).map((value) => `trigger: ${value}`), ...(item.folders || []).map((value) => `folder: ${value}`)].map(escapeHtml).join(" · ") || "Always attach"}</span></div><label class="memory-toggle"><input type="checkbox" data-memory-toggle="${escapeHtml(item.id)}" ${item.enabled ? "checked" : ""}><span>${item.enabled ? "On" : "Off"}</span></label><button class="ghost compact" data-memory-edit="${escapeHtml(item.id)}" type="button">Edit</button></article>`).join("") : `<div class="empty-list">No project-specific memory yet. Add only facts that agents cannot infer reliably from the repository.</div>`;
+  $("#projectMemoryList").innerHTML = items.length ? items.map((item) => `<article class="memory-item ${item.enabled ? "" : "disabled"}"><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.content)}</p><span>${[...(item.triggers || []).map((value) => `trigger: ${value}`), ...(item.folders || []).map((value) => `folder: ${value}`)].map(escapeHtml).join(" · ") || "Always attach"}</span></div><label class="memory-toggle"><input type="checkbox" data-memory-toggle="${escapeHtml(item.id)}" ${item.enabled ? "checked" : ""}><span>${item.enabled ? "On" : "Off"}</span></label><button class="ghost compact" data-memory-edit="${escapeHtml(item.id)}" type="button">Edit</button></article>`).join("") : `<div class="empty-list">No repository-specific memory yet. Add only facts that agents cannot infer reliably from the codebase.</div>`;
   const suggestions = catalog?.suggestions || [];
   $("#memorySuggestions").classList.toggle("hidden", !suggestions.length);
   $("#memorySuggestions").innerHTML = suggestions.length ? `<header><div><small>SUGGESTED FROM HISTORY</small><strong>Repeated guidance worth remembering</strong></div><span>${suggestions.length}</span></header>${suggestions.map((item, index) => `<article><div><strong>${escapeHtml(item.content)}</strong><small>Seen ${item.evidence_count} times · requires your approval</small></div><button class="ghost compact" data-memory-suggestion="${index}" type="button">Review & add</button></article>`).join("")}` : "";
@@ -290,17 +303,17 @@ function renderProjectKnowledge() {
   home.classList.toggle("hidden", !project);
   if (!project) return;
   if (!overview || overview.project?.id !== project.id) {
-    $("#projectAbout").textContent = "Loading README, instructions, commits, and project activity…";
+    $("#projectAbout").textContent = "Loading README, instructions, commits, and repository activity…";
     $("#projectAboutSource").textContent = "";
     $("#projectContextSources").innerHTML = `<div class="empty-list">Discovering repository context…</div>`;
-    $("#projectSkillList").innerHTML = `<div class="empty-list">Loading project skills…</div>`;
-    $("#projectMemoryList").innerHTML = `<div class="empty-list">Loading project memory…</div>`;
+    $("#projectSkillList").innerHTML = `<div class="empty-list">Loading repository skills…</div>`;
+    $("#projectMemoryList").innerHTML = `<div class="empty-list">Loading repository memory…</div>`;
     $("#projectCommitList").innerHTML = `<div class="empty-list">Loading Git history…</div>`;
-    $("#projectTimeline").innerHTML = `<div class="empty-list">Building project timeline…</div>`;
+    $("#projectTimeline").innerHTML = `<div class="empty-list">Building repository timeline…</div>`;
     return;
   }
   $("#projectAbout").textContent = overview.about;
-  $("#projectAboutSource").textContent = overview.profile?.summary ? "Odysseus project brief" : overview.readme?.path ? `Read from ${overview.readme.path}` : "No README found";
+  $("#projectAboutSource").textContent = overview.profile?.summary ? "Odysseus repository overview" : overview.readme?.path ? `Read from ${overview.readme.path}` : "No README found";
   $("#projectNotes").textContent = overview.profile?.notes || "";
   $("#projectNotes").classList.toggle("hidden", !overview.profile?.notes);
   $("#projectStack").innerHTML = (overview.stack || []).map((item) => `<span>${escapeHtml(item)}</span>`).join("") || `<span>Stack not inferred</span>`;
@@ -308,7 +321,7 @@ function renderProjectKnowledge() {
   $("#projectContextCount").textContent = `${sources.length} source${sources.length === 1 ? "" : "s"}`;
   $("#projectContextSources").innerHTML = sources.length ? sources.map((source) => `<div class="context-source"><span>${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.path)}</strong><small>${escapeHtml(source.summary || "Detected repository context")}</small></div><code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></div>`).join("") : `<div class="empty-list">No README or agent instruction files detected.</div>`;
   $("#projectCommitList").innerHTML = (overview.commits || []).length ? overview.commits.map((commit) => `<div class="project-commit"><code>${escapeHtml(commit.short_sha)}</code><div><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.author)} · ${relativeTime(commit.ts)} ago</small></div></div>`).join("") : `<div class="empty-list">No Git commits found.</div>`;
-  $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Project activity will appear after its first task.</div>`;
+  $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Repository activity will appear after its first task.</div>`;
   renderProjectSkills();
   renderProjectMemory();
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
@@ -329,10 +342,10 @@ function renderJourney() {
     else button.removeAttribute("aria-current");
   });
   $('[data-journey-step="1"] small').textContent = project
-    ? project.name
+    ? `${projectName(project)} · ${project.folder_name || "local folder"}`
     : state.projects.length ? "Pick a Git repository" : "Add your first Git repository";
   $('[data-journey-step="2"] small').textContent = project
-    ? `Say what “done” means in ${project.name}`
+    ? `Say what “done” means in ${projectName(project)}`
     : "One clear, finished outcome";
   $('[data-journey-step="3"] small').textContent = projectAttention.length
     ? `${projectAttention.length} decision${projectAttention.length === 1 ? "" : "s"} waiting for you`
@@ -347,17 +360,38 @@ function renderJourney() {
     if (!state.projects.length) { $("#projectDialog").showModal(); return; }
     if (!project) {
       if (state.projects.length === 1) selectProject(state.projects[0].id);
-      else { selectProject("all"); toast("Choose a project first."); return; }
+      else { selectProject("all"); toast("Choose a repository first."); return; }
     } else setView("work");
     window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
   };
   buttons[2].onclick = () => {
-    if (!project) { toast("Choose a project first."); return; }
+    if (!project) { toast("Choose a repository first."); return; }
     if (projectAttention.length) { setView("attention"); return; }
     if (projectRuns.length) { selectRun(projectRuns[0].id); return; }
     toast("Describe the first change before there is anything to follow.");
     window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
   };
+}
+
+function renderCurrentRepositoryHint() {
+  const container = $("#currentRepositoryHint");
+  const candidate = state.bootstrap?.current_repository;
+  const registered = candidate?.path && state.projects.some((project) => project.path === candidate.path);
+  const visible = state.projects.length > 0 && !activeProject() && candidate?.path && !registered;
+  container.classList.toggle("hidden", !visible);
+  if (!visible) { container.innerHTML = ""; return; }
+  container.innerHTML = `<div><span class="inline-step"><b>1</b><span>CURRENT REPOSITORY</span></span><h2>Work on ${escapeHtml(projectName(candidate))}?</h2><p>${escapeHtml(projectRepository(candidate))}</p><small>${escapeHtml(candidate.path)}</small></div><button class="primary" id="addCurrentRepository" type="button">Use this repository</button>`;
+  $("#addCurrentRepository").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    try {
+      button.disabled = true; button.textContent = "Adding…";
+      const registeredProject = await api("/api/projects", {method: "POST", body: JSON.stringify({path: candidate.path})});
+      await refreshProjects();
+      selectProject(registeredProject.id);
+      toast(`${projectName(registeredProject)} is ready. Describe the first change.`);
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; button.textContent = "Use this repository"; }
+  });
 }
 
 function renderQuickStart() {
@@ -377,12 +411,12 @@ function renderQuickStart() {
     container.className = "quick-start first-run-card";
     container.innerHTML = `
       <div class="first-run-copy">
-        <span class="inline-step"><b>1</b><span>CHOOSE A PROJECT</span></span>
+        <span class="inline-step"><b>1</b><span>CHOOSE A REPOSITORY</span></span>
         <h2>Connect one repository.</h2>
         <p>Odysseus reads the existing README and agent instructions, then keeps every task on its own branch and worktree. Your source checkout is not modified by registration.</p>
         <form class="quick-project-form" id="quickProjectForm">
-          <label for="quickProjectPath">Repository path</label>
-          <div><input id="quickProjectPath" name="path" required placeholder="${escapeHtml(state.bootstrap?.working_directory || "/absolute/path/to/repository")}"><button class="primary" type="submit">Add repository</button></div>
+          <label for="quickProjectPath">Repository folder</label>
+          <div><input id="quickProjectPath" name="path" required value="${escapeHtml(state.bootstrap?.current_repository?.path || "")}" placeholder="${escapeHtml(state.bootstrap?.working_directory || "/absolute/path/to/repository")}"><button class="primary" type="submit">Add repository</button></div>
         </form>
         <button class="text-button" id="copyDemoCommand" type="button">Not ready to run an agent? Copy the no-token demo command</button>
       </div>
@@ -401,7 +435,7 @@ function renderQuickStart() {
         const registered = await api("/api/projects", {method: "POST", body: JSON.stringify({path})});
         await refreshProjects();
         selectProject(registered.id);
-        toast(`${registered.name} is ready. Describe the first change.`);
+        toast(`${projectName(registered)} is ready. Describe the first change.`);
       } catch (error) { toast(error.message, true); }
       finally { button.disabled = false; button.textContent = "Add repository"; }
     });
@@ -411,7 +445,7 @@ function renderQuickStart() {
   container.className = "quick-start quick-task-card";
   container.innerHTML = `
     <form id="quickTaskForm">
-      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>DESCRIBE A CHANGE</span></span><h2>What should change in ${escapeHtml(project.name)}?</h2></div><span class="safety-note">Source checkout stays untouched</span></div>
+      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>DESCRIBE A CHANGE</span></span><h2>What should Codex change in ${escapeHtml(projectName(project))}?</h2></div><span class="safety-note">Your main checkout stays untouched</span></div>
       <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Example: Make installation errors short and actionable, and add a regression test."></textarea>
       <p class="quick-task-promise">Odysseus creates an isolated branch, runs the agent and checks, then brings the result back for review.</p>
       <div class="quick-task-actions"><button class="primary" type="submit">Start task</button><button class="ghost" id="quickPlanTask" type="button">Plan larger work</button><button class="text-button" id="quickAdvancedTask" type="button">More options…</button></div>
@@ -453,38 +487,40 @@ function renderWork() {
   const needs = project ? attentionForProject(project.id).length : state.attention.length;
   const complete = runs.filter((run) => ["accepted", "pr_created", "completed"].includes(run.status)).length;
   const terminals = project ? projectTerminalCount(project) : state.sessions.length;
-  $("#workBreadcrumb").textContent = project ? "PROJECT" : "WORKSPACE";
-  $("#workTitle").textContent = project?.name || (state.projects.length ? "All work" : "Welcome to Odysseus");
-  $("#workDescription").textContent = project ? "Describe a change. Odysseus runs the agent and checks; you review the result." : state.projects.length ? "Choose a project to start or continue work." : "Add a Git repository, describe a change, then review the result.";
-  $("#workMeta").innerHTML = project ? `<span>${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : state.projects.length ? `<span>${state.projects.length} registered projects</span><span>${state.bootstrap?.max_parallel || 0} parallel slots</span><span>Local-first workspace</span>` : "";
-  $("#workMeta").classList.toggle("hidden", !project && !state.projects.length);
+  $("#workBreadcrumb").textContent = project ? "GIT REPOSITORY" : "ODYSSEUS";
+  $("#workTitle").textContent = project ? projectName(project) : (state.projects.length ? "Repositories" : "Welcome to Odysseus");
+  $("#workDescription").textContent = project ? "Tell Codex what should change. Odysseus isolates the work, verifies it, and returns it for your decision." : state.projects.length ? "Choose the repository you want Codex to change." : "Add one Git repository, describe a change, then review the result.";
+  $("#workMeta").innerHTML = project ? `<span>${escapeHtml(projectRepository(project))}</span><span>Folder: ${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : "";
+  $("#workMeta").classList.toggle("hidden", !project);
   $("#workSummary").innerHTML = [
-    [project ? runs.length : state.projects.length, project ? "Tasks" : "Projects", project ? "in this repository" : "registered repositories"],
+    [project ? runs.length : state.projects.length, project ? "Tasks" : "Repositories", project ? "in this repository" : "registered repositories"],
     [active, "In progress", "running or queued"],
     [needs, "Needs you", needs ? "decisions waiting" : "nothing waiting"],
     [project ? terminals : complete, project ? "Terminals" : "Completed", project ? "agent panes" : "accepted changes"],
   ].map(([value, label, note]) => `<div class="work-stat"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
-  $("#workSummary").classList.toggle("hidden", !state.projects.length);
+  $("#workSummary").classList.toggle("hidden", !project);
   renderJourney();
+  renderCurrentRepositoryHint();
   renderQuickStart();
   renderProjectKnowledge();
   $("#workPlanButton").classList.toggle("hidden", !project);
   $("#workNewTaskButton").classList.toggle("hidden", !state.projects.length);
   $("#newTaskButton").classList.toggle("hidden", !state.projects.length);
-  $("#workListEyebrow").textContent = project ? "TASKS" : "PROJECTS";
-  $("#workListTitle").textContent = project ? "Recent work" : "Your workspace";
+  $("#workListEyebrow").textContent = project ? "TASKS" : "REPOSITORIES";
+  $("#workListTitle").textContent = project ? "Recent work" : "Your repositories";
   const secondary = $("#workSecondaryAction");
-  secondary.textContent = project ? "View plans" : "Add project";
+  secondary.textContent = project ? "View plans" : "Add repository";
   secondary.onclick = () => project ? setView("epics") : $("#projectDialog").showModal();
   $("#workList").closest(".work-section").classList.toggle("hidden", !state.projects.length);
   if (!project) {
     $("#workList").innerHTML = state.projects.length ? state.projects.map((item) => {
       const itemRuns = runsForProject(item.id); const itemActive = itemRuns.filter((run) => activeStatuses.has(run.status)).length; const itemNeeds = attentionForProject(item.id).length;
-      return `<button class="project-overview-card" data-work-project="${escapeHtml(item.id)}" type="button"><span class="project-glyph">${escapeHtml(item.name.slice(0, 1).toUpperCase())}</span><div><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.path)}</p></div><div class="project-card-signals"><span>${itemRuns.length} tasks</span><span>${itemActive} active</span>${itemNeeds ? `<span class="needs">${itemNeeds} need you</span>` : ""}</div></button>`;
-    }).join("") : `<div class="empty-card"><strong>No projects yet.</strong><br>Add a repository, then describe the first task.</div>`;
+      const checkoutNote = projectHasDuplicateCheckout(item) ? `Local checkout · ${item.folder_name}` : `Local folder · ${item.path}`;
+      return `<button class="project-overview-card" data-work-project="${escapeHtml(item.id)}" type="button"><span class="project-glyph">${escapeHtml(projectName(item).slice(0, 1).toUpperCase())}</span><div><h3>${escapeHtml(projectName(item))}</h3><p class="repository-reference">${escapeHtml(projectRepository(item))}</p><small>${escapeHtml(checkoutNote)}</small></div><div class="project-card-signals"><span>${itemRuns.length} tasks</span><span>${itemActive} active</span>${itemNeeds ? `<span class="needs">${itemNeeds} need you</span>` : ""}</div></button>`;
+    }).join("") : `<div class="empty-card"><strong>No repositories yet.</strong><br>Add one, then describe the first task.</div>`;
     $$('[data-work-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.workProject)));
   } else {
-    $("#workList").innerHTML = runs.length ? runs.map((run) => `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(run.task || run.workflow)}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span></button>`).join("") : `<div class="empty-card"><strong>No tasks in ${escapeHtml(project.name)}.</strong><br>Choose New task and describe one finished outcome.</div>`;
+    $("#workList").innerHTML = runs.length ? runs.map((run) => `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(run.task || run.workflow)}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span></button>`).join("") : `<div class="empty-card"><strong>No tasks in ${escapeHtml(projectName(project))}.</strong><br>Describe the first change above.</div>`;
     $$('[data-work-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.workRun)));
   }
 }
@@ -502,7 +538,7 @@ function renderRuns() {
     return `<button class="task-card ${run.id === state.selectedId ? "selected" : ""}" data-run-id="${escapeHtml(run.id)}" type="button">
       <div class="task-card-top"><span class="mini-status ${statusClass(run.status)}">${escapeHtml(status)}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
       <h3>${escapeHtml(title)}</h3>
-      <div class="task-card-meta"><span>${escapeHtml(run.lane)}${run.kind === "tmux" ? "" : ` · P${escapeHtml(run.priority ?? 50)}`}</span><span>${escapeHtml(projectById(run.project_id)?.name || run.kind || run.workflow)}</span></div>
+      <div class="task-card-meta"><span>${escapeHtml(run.lane)}${run.kind === "tmux" ? "" : ` · P${escapeHtml(run.priority ?? 50)}`}</span><span>${escapeHtml(projectById(run.project_id) ? projectName(projectById(run.project_id)) : run.kind || run.workflow)}</span></div>
       <div class="task-signals">${signals}</div>
     </button>`;
   }).join("") : `<div class="empty-list">No tasks in this view.</div>`;
@@ -556,8 +592,8 @@ function renderDetail(run, diff) {
   status.textContent = interactive ? "tracked tmux terminal" : statusLabel(run.status); status.className = `status-pill ${statusClass(run.status)}`;
   $("#detailId").textContent = run.id;
   const project = projectById(run.project_id);
-  $("#detailProjectName").textContent = project?.name || "Project";
-  $("#titleProject").textContent = project?.name || "Workspace";
+  $("#detailProjectName").textContent = projectName(project);
+  $("#titleProject").textContent = projectName(project);
   $("#titleSurface").textContent = run.title;
   $("#detailTitle").textContent = discovered?.title || discovered?.window_name || run.title;
   $("#detailTask").textContent = interactive ? `Existing ${run.lane} session in tmux ${discovered?.tmux_session || run.tmux_session || "—"}${(discovered?.tmux_target || run.tmux_target) ? `, pane ${discovered?.tmux_target || run.tmux_target}` : ""}.` : run.task;
@@ -574,11 +610,11 @@ function renderDetail(run, diff) {
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
   renderEnvironment(run);
   const metadata = interactive ? [
-    ["Run ID", run.id], ["Agent", run.lane], ["Repository", projectById(run.project_id)?.name || run.project_path],
+    ["Run ID", run.id], ["Agent", run.lane], ["Repository", projectById(run.project_id) ? projectName(projectById(run.project_id)) : run.project_path],
     ["tmux location", `${discovered?.tmux_session || run.tmux_session || "—"} · ${discovered?.tmux_target || run.tmux_target || "—"}`],
     ["Live pane state", discovered?.status || "not currently visible"], ["Tracking", "durable shortcut"], ["Control", "original terminal"],
   ] : [
-    ["Run ID", run.id], ["Agent", run.lane], ["Environment", run.environment?.profile || "host"], ["Workflow", run.workflow], ["Project", projectById(run.project_id)?.name || run.project_path],
+    ["Run ID", run.id], ["Agent", run.lane], ["Environment", run.environment?.profile || "host"], ["Workflow", run.workflow], ["Repository", projectById(run.project_id) ? projectName(projectById(run.project_id)) : run.project_path],
     ["Branch", run.branch || "waiting"], ["Worktree", run.worktree_path || run.project_path],
     ["Agent session", run.agent_sessions?.agent || run.agent_session_id || "—"], ["tmux", run.tmux_target ? `${run.tmux_session} · ${run.tmux_target}` : run.tmux_session || "—"],
     ["Attempt", `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`], ["Role", run.role || "implementer"],
@@ -604,7 +640,7 @@ function renderEnvironment(run) {
   if (run.kind === "tmux") { node.classList.add("hidden"); return; }
   node.classList.remove("hidden");
   const profile = environment.profile || "host";
-  const profileLabel = profile === "project-default" ? "Project default" : profile;
+  const profileLabel = profile === "project-default" ? "Repository default" : profile;
   const isolated = profile === "docker";
   const ports = Object.entries(environment.ports || {});
   const details = [
@@ -629,7 +665,7 @@ function renderNarrative(run) {
     blocked: ["DEPENDENCY GATE", "Waiting for predecessor work", "This task starts only after every required artifact has been accepted.", "Check Needs You", "warn", "⊘"],
     starting: ["ISOLATING", "Creating a safe workspace", "The source checkout stays untouched while Odysseus prepares a dedicated branch and worktree.", "No action needed", "active", "01"],
     running: ["IMPLEMENTING", "The agent is working", "Tool calls, messages, and usage appear in Activity while the implementation changes the isolated worktree.", "No action needed", "active", "02"],
-    checking: ["VERIFYING", "Running deterministic checks", "Configured tests and project checks are evaluating the implementation independently of the agent.", "No action needed", "active", "03"],
+    checking: ["VERIFYING", "Running deterministic checks", "Configured tests and repository checks are evaluating the implementation independently of the agent.", "No action needed", "active", "03"],
     reviewing: ["REVIEWING", "Independent evidence review", "A separate reviewer is checking the diff and deterministic results before the human gate.", "No action needed", "active", "04"],
     review: ["DECISION READY", "The change is ready for you", "Inspect the diff, checks, evaluation, and merge risk. Accept it or resume the agent with precise feedback.", "Your decision", "attention", "!"],
     attention: ["QUESTION", "The agent needs one decision", "Answer in Needs You; Odysseus will continue the same agent thread and preserve the current worktree.", "Needs you", "attention", "?"],
@@ -707,7 +743,7 @@ function renderContextReceipt(run) {
     const content = source.kind === "skill" ? String(snapshot?.content || "").slice(0, 16000) : String(snapshot?.content || "");
     return `<details class="receipt-source"><summary><span class="receipt-kind">${escapeHtml(source.kind)}</span><span><strong>${escapeHtml(source.title)}</strong><small>${escapeHtml(source.reason)}</small></span><code>${escapeHtml(String(source.sha256 || "").slice(0, 10))}</code></summary><div><span>${escapeHtml(source.path)}</span><span>${compactNumber(source.bytes)} bytes</span></div><pre>${escapeHtml(content || "Snapshot content is unavailable.")}</pre></details>`;
   }).join("");
-  $("#contextReceipt").innerHTML = `<section class="receipt-head"><div><small>CONTEXT RECEIPT</small><strong>${escapeHtml(receipt.version)}</strong><p>These immutable snapshots are exactly what Odysseus attached when the task was queued.</p></div><code title="Complete bundle digest">${escapeHtml(receipt.bundle_sha256 || "")}</code></section><div class="receipt-source-list">${sourceRows || `<div class="empty-card">No project or skill context was attached.</div>`}</div>`;
+  $("#contextReceipt").innerHTML = `<section class="receipt-head"><div><small>CONTEXT RECEIPT</small><strong>${escapeHtml(receipt.version)}</strong><p>These immutable snapshots are exactly what Odysseus attached when the task was queued.</p></div><code title="Complete bundle digest">${escapeHtml(receipt.bundle_sha256 || "")}</code></section><div class="receipt-source-list">${sourceRows || `<div class="empty-card">No repository or skill context was attached.</div>`}</div>`;
 }
 
 function renderEvaluation(evaluation) {
@@ -807,39 +843,51 @@ async function refreshEpics() {
   $("#epicList").innerHTML = visibleEpics.length ? visibleEpics.map((epic) => {
     const tasks = epic.plan?.tasks || [];
     const graph = tasks.length ? `<div class="dag">${tasks.map((task) => `<div class="dag-node"><div><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(task.role || "implementer")} · ${escapeHtml(task.lane || "default")}</small></div><span>${task.depends_on?.length ? `after ${escapeHtml(task.depends_on.join(", "))}` : "ready"}</span></div>`).join("")}</div>` : "";
-    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(projectById(epic.project_id)?.name || "project")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.plan?.summary || epic.description || "Planning…")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${(epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("")}</div></article>`;
+    const epicProject = projectById(epic.project_id);
+    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.plan?.summary || epic.description || "Planning…")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${(epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("")}</div></article>`;
   }).join("") : `<div class="empty-card">No plans yet. Describe a larger feature; review the proposed tasks before anything starts.</div>`;
   $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => { if (!window.confirm("Approve this task graph and start every ready root task?")) return; try { await api(`/api/epics/${encodeURIComponent(button.dataset.approveEpic)}/approve`, {method: "POST", body: "{}"}); toast("Plan approved. Ready tasks are queued."); await Promise.all([refreshEpics(), refreshRuns()]); } catch (error) { toast(error.message, true); } }));
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
 }
 
 async function refreshProjects() {
-  state.projects = (await api("/api/projects")).projects;
-  const projectOptions = state.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join("");
-  $("#projectFilter").innerHTML = `<option value="all">All projects</option>${projectOptions}`; $("#projectFilter").value = state.projectFilter;
+  state.projects = (await api("/api/projects")).projects.filter((project) => project.git_repository !== false);
+  const projectOptions = state.projects.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(projectOptionLabel(project))}</option>`).join("");
+  $("#projectFilter").innerHTML = `<option value="all">All repositories</option>${projectOptions}`; $("#projectFilter").value = state.projectFilter;
   const preferred = preferredProjectId();
-  $("#taskProjectSelect").innerHTML = `${projectOptions}<option value="">Other repository path…</option>`;
-  $("#epicProjectSelect").innerHTML = `${projectOptions}<option value="">Other repository path…</option>`;
+  $("#taskProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
+  $("#epicProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
   if (preferred) { $("#taskProjectSelect").value = preferred; $("#epicProjectSelect").value = preferred; }
   syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject"));
   syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject"));
-  $("#inboxProjectSelect").innerHTML = `<option value="">No project</option>${projectOptions}`;
-  $("#githubProject").innerHTML = state.projects.filter((project) => project.github_url).map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join("") || `<option value="">No GitHub projects</option>`;
+  $("#inboxProjectSelect").innerHTML = `<option value="">No repository</option>${projectOptions}`;
+  $("#githubProject").innerHTML = state.projects.filter((project) => project.github_url).map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(projectOptionLabel(project))}</option>`).join("") || `<option value="">No GitHub repositories</option>`;
   renderProjects(); renderRuns(); renderProjectTree(); renderWork(); updateGitHubLink();
 }
 
 function renderProjects() {
   $("#projectList").innerHTML = state.projects.length ? state.projects.map((project) => `
     <article class="collection-card"><div class="card-row"><span class="mini-status status-accepted">registered</span><span class="run-id">${escapeHtml(project.branch || "git")}</span></div>
-      <h3>${escapeHtml(project.name)}</h3><p>${escapeHtml(project.path)}</p><div class="card-meta">${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("") || "<span>automatic</span>"}</div>
-      <div class="card-actions"><button class="ghost" data-filter-project="${escapeHtml(project.id)}" type="button">View tasks</button>${project.github_url ? `<a class="action-button" href="${escapeHtml(project.github_url)}" target="_blank" rel="noreferrer">GitHub</a>` : ""}</div></article>`).join("") : `<div class="empty-card">No projects yet. Queue a task, launch a managed tmux session, or add one here.</div>`;
+      <h3>${escapeHtml(projectName(project))}</h3><p><strong>${escapeHtml(projectRepository(project))}</strong><br><span class="local-folder">${escapeHtml(project.path)}</span></p><div class="card-meta"><span>${escapeHtml(project.folder_name || "local checkout")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+      <div class="card-actions"><button class="ghost" data-filter-project="${escapeHtml(project.id)}" type="button">Open repository</button>${project.github_url ? `<a class="action-button" href="${escapeHtml(project.github_url)}" target="_blank" rel="noreferrer">GitHub</a>` : ""}<button class="text-button danger-text" data-forget-project="${escapeHtml(project.id)}" type="button">Forget</button></div></article>`).join("") : `<div class="empty-card">No repositories yet. Add one local Git repository to start.</div>`;
   $$('[data-filter-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.filterProject)));
+  $$('[data-forget-project]').forEach((button) => button.addEventListener("click", async () => {
+    const project = projectById(button.dataset.forgetProject);
+    if (!project || !window.confirm(`Forget ${projectOptionLabel(project)} in Odysseus?\n\nThe repository and every file in ${project.path} stay untouched.`)) return;
+    try {
+      await api(`/api/projects/${encodeURIComponent(project.id)}`, {method: "DELETE"});
+      if (state.projectFilter === project.id) state.projectFilter = "all";
+      await refreshProjects();
+      selectProject("all");
+      toast(`${projectName(project)} was removed from the list. Its files were not changed.`);
+    } catch (error) { toast(error.message, true); }
+  }));
 }
 
 function updateGitHubLink() {
   const project = projectById(state.selected?.project_id || (state.projectFilter !== "all" ? state.projectFilter : "")); const link = $("#githubButton");
   const url = project?.github_url || state.bootstrap?.repository_url || "https://github.com/jpolec/odysseus";
-  link.classList.remove("disabled"); link.href = url; link.title = project?.github_url ? `Open ${project.name} on GitHub` : "Open Odysseus on GitHub";
+  link.classList.remove("disabled"); link.href = url; link.title = project?.github_url ? `Open ${projectName(project)} on GitHub` : "Open Odysseus on GitHub";
 }
 
 async function refreshSessions() {
@@ -877,7 +925,7 @@ function renderSessions() {
 
 async function refreshInbox() { state.inbox = (await api("/api/inbox")).items; renderInbox(); $("#inboxNavCount").textContent = state.inbox.filter((item) => item.status === "open").length || ""; }
 function renderInbox() {
-  $("#inboxList").innerHTML = state.inbox.length ? state.inbox.map((item) => `<article class="stack-card"><div class="card-row"><span class="mini-status ${item.status === "open" ? "status-queued" : "status-accepted"}">${escapeHtml(item.status)}</span><span class="run-id">${relativeTime(item.updated_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.task)}</p><div class="card-meta"><span>${escapeHtml(item.source)}</span><span>${escapeHtml(projectById(item.project_id)?.name || "no project")}</span><span>${escapeHtml(item.priority)}</span></div><div class="card-actions">${item.status === "open" && item.project_path ? `<button class="primary" data-promote="${escapeHtml(item.id)}" type="button">Queue as agent task</button>` : ""}${item.status === "open" ? `<button class="ghost" data-resolve="${escapeHtml(item.id)}" type="button">Resolve</button>` : ""}</div></article>`).join("") : `<div class="empty-card"><strong>No parked follow-ups.</strong><br>Use “Add follow-up” to save work for later. Adding an item does not start an agent; “Queue as agent task” does.</div>`;
+  $("#inboxList").innerHTML = state.inbox.length ? state.inbox.map((item) => { const inboxProject = projectById(item.project_id); return `<article class="stack-card"><div class="card-row"><span class="mini-status ${item.status === "open" ? "status-queued" : "status-accepted"}">${escapeHtml(item.status)}</span><span class="run-id">${relativeTime(item.updated_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.task)}</p><div class="card-meta"><span>${escapeHtml(item.source)}</span><span>${escapeHtml(inboxProject ? projectName(inboxProject) : "no repository")}</span><span>${escapeHtml(item.priority)}</span></div><div class="card-actions">${item.status === "open" && item.project_path ? `<button class="primary" data-promote="${escapeHtml(item.id)}" type="button">Queue as agent task</button>` : ""}${item.status === "open" ? `<button class="ghost" data-resolve="${escapeHtml(item.id)}" type="button">Resolve</button>` : ""}</div></article>`; }).join("") : `<div class="empty-card"><strong>No parked follow-ups.</strong><br>Use “Add follow-up” to save work for later. Adding an item does not start an agent; “Queue as agent task” does.</div>`;
   $$('[data-resolve]').forEach((button) => button.addEventListener("click", async () => { await api(`/api/inbox/${encodeURIComponent(button.dataset.resolve)}/resolve`, {method: "POST", body: "{}"}); await refreshInbox(); }));
   $$('[data-promote]').forEach((button) => button.addEventListener("click", async () => { const run = await api(`/api/inbox/${encodeURIComponent(button.dataset.promote)}/promote`, {method: "POST", body: "{}"}); await Promise.all([refreshInbox(), refreshRuns()]); await selectRun(run.id); }));
 }
@@ -923,9 +971,9 @@ async function runSearch(query = "") {
 function bindDialogs() {
   const projectProfileDialog = $("#projectProfileDialog");
   $("#editProjectBrief").addEventListener("click", () => { const form = $("#projectProfileForm"); form.elements.summary.value = state.projectOverview?.profile?.summary || ""; form.elements.notes.value = state.projectOverview?.profile?.notes || ""; projectProfileDialog.showModal(); });
-  $("#projectProfileForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); try { submit.disabled = true; await api(`/api/projects/${encodeURIComponent(project.id)}/profile`, {method: "POST", body: JSON.stringify({summary: data.get("summary"), notes: data.get("notes")})}); projectProfileDialog.close(); await refreshProjectOverview(); toast("Project brief saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
+  $("#projectProfileForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); try { submit.disabled = true; await api(`/api/projects/${encodeURIComponent(project.id)}/profile`, {method: "POST", body: JSON.stringify({summary: data.get("summary"), notes: data.get("notes")})}); projectProfileDialog.close(); await refreshProjectOverview(); toast("Repository overview saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
   $("#addProjectMemory").addEventListener("click", () => openKnowledgeDialog());
-  $("#knowledgeForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); const payload = {id: data.get("id"), source: data.get("source"), title: data.get("title"), content: data.get("content"), triggers: String(data.get("triggers") || "").split(",").map((value) => value.trim()).filter(Boolean), folders: String(data.get("folders") || "").split(",").map((value) => value.trim()).filter(Boolean), enabled: data.get("enabled") === "on"}; try { submit.disabled = true; state.projectKnowledge = await api(`/api/projects/${encodeURIComponent(project.id)}/knowledge`, {method: "POST", body: JSON.stringify(payload)}); $("#knowledgeDialog").close(); renderProjectMemory(); toast("Project memory saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
+  $("#knowledgeForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); const payload = {id: data.get("id"), source: data.get("source"), title: data.get("title"), content: data.get("content"), triggers: String(data.get("triggers") || "").split(",").map((value) => value.trim()).filter(Boolean), folders: String(data.get("folders") || "").split(",").map((value) => value.trim()).filter(Boolean), enabled: data.get("enabled") === "on"}; try { submit.disabled = true; state.projectKnowledge = await api(`/api/projects/${encodeURIComponent(project.id)}/knowledge`, {method: "POST", body: JSON.stringify(payload)}); $("#knowledgeDialog").close(); renderProjectMemory(); toast("Repository memory saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
   const taskDialog = $("#taskDialog");
   [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); taskDialog.showModal(); }));
   $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); });
@@ -934,14 +982,14 @@ function bindDialogs() {
   $("#environmentProfile").addEventListener("change", (event) => $("#environmentOptions").classList.toggle("hidden", event.currentTarget.value !== "docker"));
   $("#untrustedProject").addEventListener("change", (event) => { if (!event.currentTarget.checked) return; const select = $("#environmentProfile"); const docker = select.querySelector('option[value="docker"]'); if (docker?.disabled) { event.currentTarget.checked = false; toast("Install Docker before running an untrusted repository.", true); return; } select.value = "docker"; select.dispatchEvent(new Event("change")); });
   $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
-  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); let environment; try { environment = environmentFromForm(data); } catch (error) { toast(error.message, true); return; } const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), environment, untrusted_project: data.get("untrusted_project") === "on", workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); $("#environmentOptions").classList.add("hidden"); state.taskSkillCatalog = null; state.taskSkillRecommendations = null; renderTaskSkillChoices(); renderTaskSkillRecommendations(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
+  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } let environment; try { environment = environmentFromForm(data); } catch (error) { toast(error.message, true); return; } const payload = {task: data.get("task"), title: data.get("title"), project_path: project.path, lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), environment, untrusted_project: data.get("untrusted_project") === "on", workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); $("#environmentOptions").classList.add("hidden"); state.taskSkillCatalog = null; state.taskSkillRecommendations = null; renderTaskSkillChoices(); renderTaskSkillRecommendations(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
-  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
+  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_path: project.path, planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
   $("#newInboxButton").addEventListener("click", () => $("#inboxDialog").showModal());
   $("#inboxForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); await api("/api/inbox", {method: "POST", body: JSON.stringify({title: data.get("title"), task: data.get("task"), project_id: project?.id || "", project_path: project?.path || ""})}); $("#inboxDialog").close(); event.currentTarget.reset(); await refreshInbox(); });
   [$("#addProjectButton"), $("#manageAddProjectButton")].forEach((button) => button?.addEventListener("click", () => $("#projectDialog").showModal()));
-  $("#projectForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); try { const registered = await api("/api/projects", {method: "POST", body: JSON.stringify({path: data.get("path"), name: data.get("name"), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean)})}); $("#projectDialog").close(); event.currentTarget.reset(); await refreshProjects(); selectProject(registered.id); toast(`${registered.name} is ready.`); } catch (error) { toast(error.message, true); } });
+  $("#projectForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); try { const registered = await api("/api/projects", {method: "POST", body: JSON.stringify({path: data.get("path"), name: data.get("name"), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean)})}); $("#projectDialog").close(); event.currentTarget.reset(); await refreshProjects(); selectProject(registered.id); toast(`${projectName(registered)} is ready.`); } catch (error) { toast(error.message, true); } });
 }
 
 async function init() {

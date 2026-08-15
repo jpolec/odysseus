@@ -196,6 +196,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                         for name in ("git", "codex", "claude", "tmux", "gh", "docker", "devcontainer")
                     },
                     "working_directory": str(Path.cwd()),
+                    "current_repository": self.server.app.store.projects.describe(Path.cwd()),
                     "repository_url": "https://github.com/jpolec/odysseus",
                     "ci": config.get("ci") or {},
                 }
@@ -327,7 +328,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json(run, HTTPStatus.CREATED)
                 return
             if parsed.path == "/api/projects":
-                self._json(self.server.app.store.projects.upsert(str(body.get("path") or ""), body), HTTPStatus.CREATED)
+                self._json(self.server.app.store.projects.upsert(str(body.get("path") or ""), body, require_git=True), HTTPStatus.CREATED)
                 return
             recommend_match = PROJECT_SKILL_RECOMMEND_ROUTE.fullmatch(parsed.path)
             if recommend_match:

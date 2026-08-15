@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import tempfile
 import webbrowser
 from pathlib import Path
@@ -18,6 +19,16 @@ from odysseus.server import OdysseusApp  # noqa: E402
 from odysseus.store import RunStore  # noqa: E402
 
 
+def _init_sample_repository(path: Path) -> None:
+    """Make each demo codebase behave like a real repository in the UI."""
+    subprocess.run(
+        ["git", "init", "-q", str(path)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def seed(state_dir: Path, project: Path) -> RunStore:
     if state_dir.exists() and any(state_dir.iterdir()):
         raise ValueError(f"demo state directory is not empty: {state_dir}")
@@ -28,8 +39,8 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         }
     )
 
-    # The demo is deliberately multi-project so the first screen documents the
-    # real workspace -> project -> task hierarchy instead of a flat task list.
+    # The demo is deliberately multi-repository so the first screen documents
+    # the real repository -> task hierarchy instead of a flat task list.
     sample_root = state_dir / "sample-projects"
     atlas = sample_root / "atlas-payments"
     quasar = sample_root / "quasar-data"
@@ -38,6 +49,8 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     (atlas / "README.md").write_text("# Atlas Payments\n\nIdempotent payment and ledger services.\n", encoding="utf-8")
     (atlas / "AGENTS.md").write_text("Run webhook and ledger compatibility tests before review.\n", encoding="utf-8")
     (quasar / "README.md").write_text("# Quasar Data\n\nResearch pipelines with temporal safety gates.\n", encoding="utf-8")
+    _init_sample_repository(atlas)
+    _init_sample_repository(quasar)
     store.projects.upsert(atlas, {"name": "Atlas Payments", "tags": ["demo", "payments"]})
     store.projects.upsert(quasar, {"name": "Quasar Data", "tags": ["demo", "research"]})
     primary = store.projects.upsert(project, {"name": "Odysseus", "tags": ["demo", "orchestration"]})

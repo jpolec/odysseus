@@ -6,6 +6,22 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.5: repository clarity
+
+- The visible product model now has three explicit nouns: Odysseus is the
+  application, a repository is one local Git checkout, and a task is one agent
+  change. “Project” remains an internal API name only.
+- Repository remotes provide the default display identity; local checkout
+  folders and paths remain separately visible, including multiple checkouts of
+  the same repository.
+- A repository used to launch Odysseus can be added with one click. The primary
+  Explorer shows repositories first and only reveals tasks after selection;
+  secondary tools stay under **More**.
+- Passive tmux discovery no longer mutates the repository list or leaks managed
+  worktrees into it. Explicit tracking remains available.
+- Stale registry entries can be forgotten without deleting or modifying local
+  repository files.
+
 ## Shipped — 0.6.4: one visible path
 
 - A persistent, clickable **1 Choose a project -> 2 Describe a change ->

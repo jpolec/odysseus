@@ -1,14 +1,71 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+from odysseus.projects import repository_identity
 from odysseus.store import RUN_SCHEMA_VERSION, RunStore
 
 
 class StoreTests(unittest.TestCase):
+    def test_repository_identity_normalizes_https_and_ssh_remotes(self) -> None:
+        self.assertEqual(
+            repository_identity("https://github.com/jpolec/odysseus.git"),
+            {"provider": "github.com", "repository": "jpolec/odysseus", "repository_name": "odysseus"},
+        )
+        self.assertEqual(
+            repository_identity("git@gitlab.example.com:group/platform/api.git"),
+            {"provider": "gitlab.example.com", "repository": "group/platform/api", "repository_name": "api"},
+        )
+
+    def test_project_uses_repository_name_and_keeps_checkout_folder_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "old-folder-name"
+            project.mkdir()
+            subprocess.run(["git", "init", "-q", str(project)], check=True)
+            subprocess.run(
+                ["git", "-C", str(project), "remote", "add", "origin", "https://github.com/jpolec/odysseus.git"],
+                check=True,
+            )
+            store = RunStore(root / "state")
+
+            described = store.projects.describe(project)
+            self.assertEqual(described["name"], "odysseus")
+            self.assertEqual(store.projects.list(), [])
+            registered = store.projects.upsert(project)
+
+            self.assertEqual(registered["name"], "odysseus")
+            self.assertTrue(registered["git_repository"])
+            self.assertEqual(registered["repository"], "jpolec/odysseus")
+            self.assertEqual(registered["folder_name"], "old-folder-name")
+            self.assertEqual(registered["name_source"], "automatic")
+            renamed = store.projects.upsert(project, {"name": "Odysseus Control"})
+            self.assertEqual(renamed["name"], "Odysseus Control")
+            self.assertEqual(store.projects.get(registered["id"])["name"], "Odysseus Control")
+            store.projects.remove(registered["id"])
+            self.assertEqual(store.projects.list(), [])
+            self.assertTrue(project.is_dir())
+
+            plain_folder = root / "not-a-repository"
+            plain_folder.mkdir()
+            with self.assertRaisesRegex(ValueError, "not a Git repository"):
+                store.projects.upsert(plain_folder, require_git=True)
+
+    def test_internal_odysseus_worktrees_are_not_user_projects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = RunStore(Path(temp) / "state")
+            internal = store.worktrees_dir / "source" / "task-run"
+            internal.mkdir(parents=True)
+
+            registered = store.projects.upsert(internal)
+
+            self.assertEqual(store.projects.list(), [])
+            self.assertEqual(store.projects.get(registered["id"])["path"], str(internal.resolve()))
+
     def test_run_and_events_are_durable_json_and_ndjson(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

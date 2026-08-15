@@ -2,13 +2,42 @@
 
 ## Current version
 
-**0.6.4 — 2026-08-15**
+**0.6.5 — 2026-08-15**
 
-Version 0.6.4 makes the product's simple path explicit without removing its
-depth. Host mode remains the compatibility default; Docker and reviewed
-devcontainers are opt-in task profiles.
+Version 0.6.5 makes repository identity and navigation match the way Codex
+users already think: application -> Git repository -> task. The web UI uses
+**repository** consistently; “project” remains only an internal API concept.
 
-## What is available in 0.6.4
+## What is available in 0.6.5
+
+### 0.6.5 Repository Clarity
+
+- Odysseus is always identified as the application. A project is explicitly
+  one local Git repository, and a task is one natural-language change for an
+  agent.
+- Automatic project names come from the Git remote (`owner/repository`) instead
+  of an arbitrary local folder. The checkout folder and full path stay visible
+  as separate location metadata.
+- Multiple checkouts of one repository share the repository identity and are
+  distinguished by folder, so an old clone and a development checkout are no
+  longer presented as unrelated products.
+- Starting Odysseus inside an unregistered Git repository produces a one-click
+  **Use this repository** suggestion. No registration write occurs until the
+  operator chooses it.
+- The Explorer no longer duplicates task trees inside project trees or mixes
+  every repository's tasks by default. Tasks appear after choosing a project;
+  infrequent Plans, Follow-ups, GitHub, Insights, and management surfaces live
+  under **More**.
+- Tmux discovery is read-only. Merely seeing a Codex or Claude pane can no
+  longer register its directory—or an internal Odysseus worktree—as a project.
+  Existing internal worktree records are hidden from the user project list;
+  explicit **Track in Odysseus** still creates the durable entry.
+- New registrations accept only Git repositories. Legacy plain folders are
+  omitted from the web UI instead of appearing as unexplained projects.
+- **Forget** removes a stale repository from Odysseus while explicitly leaving
+  the repository directory and its files untouched.
+
+## Earlier 0.6 releases
 
 ### 0.6.4 Clarity
 
@@ -26,8 +55,6 @@ devcontainers are opt-in task profiles.
 - The same model becomes a compact vertical sequence on narrow and mobile
   screens. All orchestration, evidence, policy, and terminal capabilities from
   0.6.3 remain available through progressive disclosure.
-
-## Earlier 0.6 releases
 
 ### 0.6.3 Observed Production Proof
 
@@ -323,7 +350,7 @@ devcontainers are opt-in task profiles.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.4` |
+| Application version | `0.6.5` |
 | Run snapshot schema | `9` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

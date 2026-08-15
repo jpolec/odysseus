@@ -41,10 +41,16 @@ second scheduler. If another application—not Odysseus—owns port 8741, use th
 exact alternate-port command printed by the CLI.
 
 On a fresh state, the landing page shows one persistent path: **1 Choose a
-project -> 2 Describe a change -> 3 Follow & review**. The numbered circles are
+repository -> 2 Describe a change -> 3 Follow & review**. The numbered circles are
 also shortcuts. Add a Git repository; registration reads metadata but does not
 modify the checkout. Readiness checks stay visible as quiet diagnostics rather
-than competing steps.
+than competing steps. Plain folders are rejected with a short error instead of
+being added as ambiguous repositories.
+
+If Odysseus was started inside a Git repository, **Use this repository** adds
+that exact checkout with one click. Its repository name comes from the Git remote;
+the local folder and absolute path are shown separately. Seeing an unrelated
+tmux pane never adds its folder to the repository list.
 
 ## 3. Optional: tour the populated UI without agents
 
@@ -57,7 +63,7 @@ odysseus demo
 Open <http://127.0.0.1:8742/>. The disposable state contains a passkey plan,
 parallel task roots, a blocked integration task, a structured agent question,
 a review gate, composed artifacts, merge risk, failed GitHub CI, token/tool
-metrics, Project Memory, skill routing, a Context Receipt, search, and
+metrics, Repository Memory, skill routing, a Context Receipt, search, and
 explainable evaluation. Stop with
 `Ctrl-C`; your normal `~/.odysseus` state is untouched.
 
@@ -65,13 +71,13 @@ explainable evaluation. Stop with
 
 In the web UI:
 
-1. Select the project in the Explorer.
+1. Select the Git repository in the Explorer.
 2. Describe one finished outcome in **What should change?**
 3. Select **Start task**.
 
 The large text box is the only required input. Write the desired result as you
 would to Codex, including constraints and what “done” means. The selected
-project supplies the repository, default agent, and automatically relevant
+repository supplies the default agent and automatically relevant
 generic Skills. Select **More options…** only when defaults are not enough; it
 opens the full task form without losing the text you entered.
 
@@ -92,12 +98,12 @@ bin/odysseus run \
 Odysseus creates an `odysseus/<run-id>` branch and isolated Git worktree, runs
 the implementation agent, executes the checks, asks a read-only agent for
 review, evaluates the independent signals, and stops at the human decision
-gate unless an explicit project policy permits auto-accept eligibility.
+gate unless an explicit repository policy permits auto-accept eligibility.
 
 The default `host` profile is the easiest compatibility path, but a worktree is
 not an operating-system sandbox. For an isolated task, open **More options…**,
 select **Docker**, and provide an image containing the agent CLI and
-project tools. The CLI equivalent is:
+repository tools. The CLI equivalent is:
 
 ```sh
 bin/odysseus run \
@@ -114,7 +120,7 @@ it requires Docker and pauses for approval before repository-supplied commands.
 
 ## 5. Or plan a larger requirement
 
-Select a project and then **Plan feature**, or run:
+Select a repository and then **Plan feature**, or run:
 
 ```sh
 bin/odysseus plan \

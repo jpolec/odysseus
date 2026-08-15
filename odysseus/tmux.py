@@ -41,7 +41,7 @@ class TmuxBridge:
         )
         self.session_meta = resource_path("scripts", "session-meta.py")
         self._git_roots: dict[str, str] = {}
-        self._known_projects: set[str] = set()
+        self._managed_worktrees: dict[str, str] = {}
         self._cache_at = 0.0
         self._cache: list[dict[str, Any]] = []
 
@@ -85,20 +85,21 @@ class TmuxBridge:
             "agent_session_id": session_match.group(0) if session_match else "",
         }
 
-    def _register_project(self, path: str) -> None:
+    def _canonical_project_path(self, path: str) -> str:
         if not path or not Path(path).is_dir():
-            return
+            return path
         try:
             root = self._git_roots.get(path)
             if root is None:
                 result = _run("git", "-C", path, "rev-parse", "--show-toplevel", timeout=3)
                 root = result.stdout.strip() if result.returncode == 0 else ""
                 self._git_roots[path] = root
-            if root and root not in self._known_projects:
-                project = self.store.projects.upsert(root)
-                self._known_projects.add(str(project["path"]))
+            if not root:
+                return path
+            resolved = str(Path(root).resolve())
+            return self._managed_worktrees.get(resolved, resolved)
         except (OSError, subprocess.TimeoutExpired, ValueError):
-            return
+            return path
 
     @staticmethod
     def _panes() -> list[dict[str, str]]:
@@ -193,7 +194,11 @@ class TmuxBridge:
     def list(self) -> list[dict[str, Any]]:
         if time.monotonic() - self._cache_at < 2:
             return [dict(item) for item in self._cache]
-        self._known_projects = {str(item.get("path") or "") for item in self.store.projects.list()}
+        self._managed_worktrees = {
+            str(Path(str(run.get("worktree_path"))).resolve()): str(run.get("project_path"))
+            for run in self.store.list()
+            if run.get("worktree_path") and run.get("project_path")
+        }
         panes = self._panes()
         pane_lanes = self._agent_roots(panes)
         metadata_cache: dict[str, dict[str, str]] = {}
@@ -236,11 +241,12 @@ class TmuxBridge:
                 continue
             receipt = receipts.get(name, {})
             first_pane = (panes_by_session.get(name) or [{}])[0]
-            project_path = str(
+            working_path = str(
                 project_option
                 or receipt.get("project_path")
                 or first_pane.get("path", "")
             )
+            project_path = self._canonical_project_path(working_path)
             lane = str(lane_option or receipt.get("lane") or "")
             if not lane:
                 if name.startswith("codex-"):
@@ -264,6 +270,7 @@ class TmuxBridge:
                 "id": name,
                 "tmux_session": name,
                 "project_path": project_path,
+                "working_path": working_path,
                 "lane": lane,
                 "role": str(role_option or receipt.get("role") or "general"),
                 "command": str(command_option or receipt.get("command") or first_pane.get("command", "")),
@@ -281,7 +288,6 @@ class TmuxBridge:
                 **meta,
             }
             sessions.append(record)
-            self._register_project(project_path)
         managed_names = {item["tmux_session"] for item in sessions}
         session_details = {
             line.split("\t", 1)[0]: line.split("\t")
@@ -295,6 +301,7 @@ class TmuxBridge:
             detail = session_details.get(pane["session"], [])
             identifier = f"pane-{pane['target'].lstrip('%')}"
             pane_title = str(pane.get("pane_title") or "")
+            working_path = pane["path"]
             record = {
                 "id": identifier,
                 "tmux_session": pane["session"],
@@ -304,7 +311,8 @@ class TmuxBridge:
                 "window_name": str(pane.get("window_name") or ""),
                 "pane_title": pane_title,
                 "title": self._pane_display_title(pane, lane),
-                "project_path": pane["path"],
+                "project_path": self._canonical_project_path(working_path),
+                "working_path": working_path,
                 "lane": lane,
                 "role": "existing",
                 "command": pane["command"],
@@ -319,7 +327,6 @@ class TmuxBridge:
                 "metadata_confidence": "tmux",
             }
             sessions.append(record)
-            self._register_project(pane["path"])
         sessions = sorted(sessions, key=lambda item: int(item.get("activity_at_epoch", 0)), reverse=True)
         self._cache = [dict(item) for item in sessions]
         self._cache_at = time.monotonic()

@@ -160,8 +160,8 @@ The last command writes a public aggregate Markdown file and a locally ignored
 JSON receipt. For another project, use the underlying command directly:
 
 ```sh
-odysseus --state-dir ~/.odysseus proof --release 0.6.4
-odysseus --state-dir ~/.odysseus proof --release 0.6.4 --json --output proof.json
+odysseus --state-dir ~/.odysseus proof --release 0.6.5
+odysseus --state-dir ~/.odysseus proof --release 0.6.5 --json --output proof.json
 ```
 
 Classification as `observed` is necessary but not sufficient. A counted outcome
@@ -176,10 +176,12 @@ insufficient; add `--require-sufficient` when publication should fail closed.
 
 ### From the web UI
 
-The workbench keeps the same three numbered circles visible on every project:
+The workbench keeps the same three numbered circles visible for every repository:
 
-1. **Choose a project.** Add a repository on first use or select one in the
-   Explorer.
+1. **Choose a repository.** This is one local Git checkout. Add its folder
+   on first use, accept the one-click current-repository suggestion, or select
+   an existing repository in the Explorer. The Git remote supplies its default
+   name; the local checkout folder is shown separately.
 2. **Describe a change.** Write one finished outcome and choose **Start task**.
    Default agent routing, Skills, checks, budgets, and review policy are applied
    automatically. Use **More options…** only when this task needs overrides.
@@ -469,10 +471,11 @@ bin/odysseus adopt TMUX_SESSION
 Tracking creates a durable run/event record. It does not restart the agent,
 move the pane, inject keystrokes, or invent telemetry from before tracking.
 
-## Work across projects
+## Work across repositories
 
-Projects register automatically from tasks and discovered sessions. Register
-or refresh a project manually when you want it available before the first task:
+Repositories register from managed tasks or explicit operator action. Passive
+tmux discovery is read-only and never changes the repository list. Add or
+refresh a repository before its first task with:
 
 ```sh
 bin/odysseus projects \
@@ -482,29 +485,29 @@ bin/odysseus projects \
   --tag production
 ```
 
-Use the project selector in **Tasks** to narrow the task rail. **Projects** shows
-repository paths, tags, branch information, and recognized GitHub remotes.
+Use the repository selector in **Tasks** to narrow the task rail. **Manage
+repositories** shows paths, tags, branch information, and recognized GitHub remotes.
 
-### Use Project Overview, Skills, and Memory
+### Use Repository Overview, Skills, and Memory
 
-Select a project in the Explorer and open **Overview**:
+Select a repository in the Explorer:
 
-- **Project brief** uses the repository README by default. **Edit brief** stores
+- **Repository overview** uses the README by default. **Edit overview** stores
   an optional private summary and notes in Odysseus; it never rewrites README.
 - **Repository context** lists detected agent instructions and stack markers.
-  Recent commits and Project Log explain what happened across runs.
-- **Project Skills** are generic engineering playbooks. Expand one to inspect
+  Recent commits and Task History explain what happened across runs.
+- **Skills** are generic engineering playbooks. Expand one to inspect
   it, then choose Auto, Required, or Disabled for this repository. Bundled
   skills cover common security, database, API, test, accessibility,
   dependency, performance, incident, and documentation work.
-- **Project Memory** is only for facts unique to this codebase. Add a title,
+- **Repository Memory** is only for facts unique to this codebase. Add a title,
   exact guidance, task triggers, and optional folder signals. An item with no
   triggers or folders is always attached; use that sparingly. Toggle an item
   off without deleting its history.
 
 Repository-local skills can be added at `.agents/skills/NAME/SKILL.md`,
 `.github/skills/NAME/SKILL.md`, or `.claude/skills/NAME/SKILL.md`. A local skill
-overrides a bundled skill with the same `name` for that project only. Minimal
+overrides a bundled skill with the same `name` for that repository only. Minimal
 format:
 
 ```markdown

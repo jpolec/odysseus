@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.4](https://img.shields.io/badge/version-0.6.4-171a16)
+![Version: 0.6.5](https://img.shields.io/badge/version-0.6.5-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -15,11 +15,16 @@ queue to the coding agents and tmux sessions you already use. Its light web UI
 is also a live window into existing tmux sessions:
 discovery is automatic, while tracking and terminal handoff stay explicit.
 
-The web workbench keeps one path visible at all times: **1 Choose a project ->
+The web workbench keeps one path visible at all times: **1 Choose a repository ->
 2 Describe a change -> 3 Follow & review**. Each numbered step is also a
 shortcut to the right place. Agent selection, checks, budgets, evaluation, and
 integration evidence remain available under **More options** without occupying
 the first-use path.
+
+The nouns are literal: **Odysseus is the application, a repository is one local
+Git checkout, and a task is one requested change**. The Git remote supplies the
+human-facing name; the local folder and absolute path identify the exact
+checkout. Passive tmux discovery never adds repositories by itself.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
@@ -49,23 +54,23 @@ the first-use path.
 - **Choose the runtime boundary.** Keep host compatibility, use a repository
   devcontainer, or run agent/check/review commands in disposable Docker
   containers with scoped mounts, credentials, ports, network, CPU, and memory.
-- **Operate more than one repository.** Projects, tasks, tmux sessions, GitHub
+- **Operate more than one repository.** Repositories, tasks, tmux sessions, GitHub
   issues, and follow-ups share one local control plane.
-- **Onboard from evidence.** A project's Overview reads its existing README,
+- **Onboard from evidence.** A repository's Overview reads its existing README,
   detects agent instructions and stack markers, shows recent commits, and
   projects every significant task event into one human-readable timeline.
-- **Reuse engineering judgment.** Each project gets a previewable catalog of
+- **Reuse engineering judgment.** Each repository gets a previewable catalog of
   generic security, database, API, testing, accessibility, performance, and
   maintenance skills. Set a skill to Auto, Required, or Disabled; task-specific
   manual selection stays optional.
 - **Know why context was used.** Every task stores a Context Receipt containing
   the exact README, instruction, brief, and skill snapshots sent to the agent,
   with selection reasons and content digests visible under Evidence.
-- **Remember project-specific facts safely.** Project Memory attaches enabled
+- **Remember repository-specific facts safely.** Repository Memory attaches enabled
   guidance by trigger or folder. Repeated feedback becomes a suggestion, never
   automatic memory; an operator must review and save it.
 - **Route skills from local evidence.** Auto selection explains task signals
-  and, once enough outcomes exist, adjusts ranking with this project's success
+  and, once enough outcomes exist, adjusts ranking with this repository's success
   and intervention history.
 - **Stay inspectable.** State is JSON plus append-only NDJSON. The runtime uses
   Python's standard library and browser-native JavaScript—no database, Redis,
@@ -143,7 +148,7 @@ Without `--open`, visit <http://127.0.0.1:8741/>. The first screen shows the
 same three numbered steps used everywhere else: choose one repository, describe
 one finished outcome, then follow and review the result. Select **Start task**
 after step 2. Agent choice, checks, limits,
-Skills, execution environments, planning, Context Receipts, and project history remain available as
+Skills, execution environments, planning, Context Receipts, and repository history remain available as
 progressive depth instead of blocking the first run. See [START.md](START.md)
 for the complete five-minute path.
 
@@ -159,7 +164,7 @@ odysseus demo
 ```
 
 Open <http://127.0.0.1:8742/>. The disposable state demonstrates multiple
-projects, a planned task DAG, Needs You, merge risk, artifact composition, a failed CI
+repositories, a planned task DAG, Needs You, merge risk, artifact composition, a failed CI
 repair loop, tool telemetry, checks, evaluation, search, and outcome metrics.
 
 Reproduce the web screenshots from that exact state with local Chrome/Chromium:
@@ -168,10 +173,10 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes nine real browser captures—First run, Workspace, Project, Attention,
+The script writes nine real browser captures—First run, Repositories, Repository, Attention,
 Task Summary, Integration, CI repair, Context Receipt, and New task—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
-project, task surface, or dialog, so filenames match the visible UI.
+repository, task surface, or dialog, so filenames match the visible UI.
 
 ## Odysseus develops Odysseus
 
@@ -205,7 +210,7 @@ opaque receipt IDs; Markdown is the public aggregate. See
 | **Plan feature** / `bin/odysseus plan ...` | A read-only planner proposes a DAG; tasks exist only after explicit approval. |
 | Existing Codex/Claude tmux pane | It appears in **Agent terminals** automatically; no import button is required. |
 | **Track in Odysseus** on a tmux pane | A durable shortcut is created without restarting, controlling, or interrupting the pane. |
-| Inbox **Queue as agent task** | A human or agent follow-up becomes a queued task in its project. |
+| Inbox **Queue as agent task** | A human or agent follow-up becomes a queued task in its repository. |
 | GitHub **Queue issue** | An open issue becomes a queued task through authenticated `gh`. |
 
 Automatic discovery does not silently turn arbitrary panes into autonomous
@@ -216,7 +221,7 @@ durable Odysseus shortcut.
 ### What to enter in the web forms
 
 - **New task** is for one focused outcome. Write the request in natural
-  language and choose the project. Odysseus uses the default agent and project
+  language and choose the repository. Odysseus uses the default agent and repository
   checks and automatically relevant engineering skills; manual skill selection,
   execution environment, agent selection, custom checks, priority, retries, and budgets stay
   under **More options…**.
@@ -343,10 +348,10 @@ and terminal handoff are explicit, auditable transitions. **Copy tmux command**
 means exactly that: Odysseus copies a safe command which you paste into your own
 terminal to open the same pane.
 
-## Projects, inbox, and GitHub
+## Repositories, inbox, and GitHub
 
-Projects register automatically when a task is queued or a tmux session is
-discovered. You can also register one directly:
+Repositories register when a managed task is queued or when you add one
+explicitly. Passive tmux discovery never changes this list. Add one directly:
 
 ```sh
 bin/odysseus projects --add /srv/repos/api --tag backend --tag production

@@ -1,11 +1,29 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from odysseus.tmux import TmuxBridge
 
 
 class TmuxTests(unittest.TestCase):
+    def test_managed_worktree_resolves_to_source_without_registering_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "odysseus"
+            worktree = root / "state" / "worktrees" / "task"
+            source.mkdir()
+            worktree.mkdir(parents=True)
+            bridge = TmuxBridge(SimpleNamespace(), receipts_dir=root / "receipts")
+            bridge._managed_worktrees = {str(worktree.resolve()): str(source.resolve())}
+            with patch("odysseus.tmux._run", return_value=SimpleNamespace(returncode=0, stdout=str(worktree))):
+                resolved = bridge._canonical_project_path(str(worktree))
+
+            self.assertEqual(resolved, str(source.resolve()))
+
     def test_pane_status_uses_only_tmux_visible_signals(self) -> None:
         self.assertEqual(TmuxBridge._pane_status("[ ! ] Action Required | QJ_REPO"), "waiting")
         self.assertEqual(TmuxBridge._pane_status("Working"), "working")

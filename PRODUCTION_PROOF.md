@@ -32,9 +32,9 @@ threshold was met. Odysseus does not backfill or guess old outcomes.
 ## Generate a receipt
 
 ```sh
-odysseus proof --release 0.6.4
-odysseus proof --release 0.6.4 --json --output proof.json
-odysseus proof --release 0.6.4 --require-sufficient
+odysseus proof --release 0.6.5
+odysseus proof --release 0.6.5 --json --output proof.json
+odysseus proof --release 0.6.5 --require-sufficient
 ```
 
 For this repository:

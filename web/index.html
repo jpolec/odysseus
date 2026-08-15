@@ -9,11 +9,11 @@
   </head>
   <body data-view="work">
     <header class="titlebar">
-      <a class="brand" href="#" aria-label="Open Odysseus workspace">
+      <a class="brand" href="#" aria-label="Open Odysseus repositories">
         <span class="brand-mark" aria-hidden="true">O</span>
-        <strong>ODYSSEUS</strong>
+        <span class="brand-copy"><strong>ODYSSEUS</strong><small>Coding agents, organized</small></span>
       </a>
-      <div class="title-context" aria-label="Current location"><span id="titleProject">Workspace</span><i>/</i><strong id="titleSurface">Overview</strong></div>
+      <div class="title-context" aria-label="Current location"><span id="titleProject">Odysseus</span><i>/</i><strong id="titleSurface">Repositories</strong></div>
       <label class="global-search" title="Press Enter to search all local Odysseus history"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m14.2 13.3 3.4 3.4-.9.9-3.4-3.4a6.5 6.5 0 1 1 .9-.9ZM9.1 14.2a5.1 5.1 0 1 0 0-10.2 5.1 5.1 0 0 0 0 10.2Z"/></svg><input id="globalSearch" type="search" placeholder="Search tasks and events" aria-label="Search all Odysseus history"><kbd>⌘K</kbd></label>
       <div class="topbar-status">
         <span class="connection" title="Live connection to the Odysseus server"><i></i><span id="connectionLabel">Connecting</span></span>
@@ -24,56 +24,57 @@
 
     <main class="workbench">
       <nav class="activity-bar" aria-label="Primary views">
-        <button class="nav-button active" data-view="work" type="button" aria-label="Projects and work" title="Projects and work"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h6l2 2h9v11h-17v-13Zm1.5 2v9.5h14V9h-8.1l-2-2H5Z"/></svg></button>
+        <button class="nav-button active" data-view="work" type="button" aria-label="Repositories and tasks" title="Repositories and tasks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h6l2 2h9v11h-17v-13Zm1.5 2v9.5h14V9h-8.1l-2-2H5Z"/></svg></button>
         <button class="nav-button" data-view="attention" type="button" aria-label="Needs You" title="Needs You"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.8L4.4 16v1.5h15.2V16L18 12.8V9a6 6 0 0 0-6-6Zm-4.5 6a4.5 4.5 0 0 1 9 0v4.2l1.4 2.8H6.1l1.4-2.8V9Zm2.2 10a2.5 2.5 0 0 0 4.6 0H9.7Z"/></svg><span class="activity-badge nav-count" id="attentionNavCount"></span></button>
         <button class="nav-button" data-view="sessions" type="button" aria-label="Agent terminals" title="Agent terminals"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4.5h18v15H3v-15ZM4.5 6v12h15V6h-15Zm2.2 2.2 3.1 3.1-3.1 3.1-1-1 2-2-2-2 1-1Zm4.8 5.1h5v1.4h-5v-1.4Z"/></svg><span class="activity-badge nav-count" id="sessionNavCount"></span></button>
-        <button class="nav-button" data-view="inbox" type="button" aria-label="Inbox" title="Inbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14l2 10v6H3v-6L5 4Zm1.2 1.5-1.6 8h4l1 2h4.8l1-2h4l-1.6-8H6.2ZM4.5 15v3.5h15V15h-3.2l-1 2H8.7l-1-2H4.5Z"/></svg><span class="activity-badge nav-count" id="inboxNavCount"></span></button>
-        <button class="nav-button" data-view="insights" type="button" aria-label="Insights and search" title="Insights and search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9h3v10H4Zm6.5 0V4h3v15h-3Zm6.5 0v-7h3v7h-3Z"/></svg></button>
         <span class="activity-spacer"></span>
-        <a class="github-button" id="githubButton" href="https://github.com/jpolec/odysseus" target="_blank" rel="noreferrer" aria-label="Open project on GitHub" title="Open project on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg></a>
+        <a class="github-button" id="githubButton" href="https://github.com/jpolec/odysseus" target="_blank" rel="noreferrer" aria-label="Open Odysseus on GitHub" title="Open Odysseus on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.11.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.17.08 1.78 1.2 1.78 1.2 1.04 1.78 2.72 1.27 3.38.97.1-.75.4-1.27.74-1.56-2.57-.29-5.27-1.29-5.27-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.47.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.58.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg></a>
       </nav>
 
       <aside class="project-explorer" id="projectExplorer">
-        <div class="explorer-title"><span>EXPLORER</span><button class="icon-button small" id="addProjectButton" type="button" aria-label="Add project" title="Add project">＋</button></div>
-        <button class="workspace-link selected" id="allWorkButton" type="button"><span class="workspace-icon">⌂</span><strong>All work</strong><span id="allWorkCount">0</span></button>
+        <div class="explorer-title"><span>REPOSITORIES</span><button class="icon-button small" id="addProjectButton" type="button" aria-label="Add repository" title="Add repository">＋</button></div>
+        <button class="workspace-link selected" id="allWorkButton" type="button"><span class="workspace-icon">⌂</span><strong>All repositories</strong><span id="allWorkCount">0</span></button>
         <button class="workspace-link" id="sidebarAttentionButton" type="button"><span class="workspace-icon">!</span><strong>Needs You</strong><span id="sidebarAttentionCount">0</span></button>
         <section class="explorer-section">
-          <header><span>PROJECTS</span><small id="projectCount">0</small></header>
+          <header><span>YOUR REPOSITORIES</span><small id="projectCount">0</small></header>
           <div class="project-tree" id="projectTree"></div>
         </section>
-        <section class="explorer-section task-section">
-          <header><span id="taskSectionTitle">ALL TASKS</span><small id="runCount">0</small></header>
-          <select id="projectFilter" class="visually-hidden" aria-label="Project filter"><option value="all">All projects</option></select>
+        <section class="explorer-section task-section hidden">
+          <header><span id="taskSectionTitle">TASKS</span><small id="runCount">0</small></header>
+          <select id="projectFilter" class="visually-hidden" aria-label="Repository filter"><option value="all">All repositories</option></select>
           <div class="filters" role="group" aria-label="Filter tasks"><button class="filter active" data-filter="all" type="button">All</button><button class="filter" data-filter="active" type="button">Active</button><button class="filter" data-filter="review" type="button">Review</button></div>
           <div class="task-list" id="taskList" aria-live="polite"></div>
         </section>
         <section class="explorer-section explorer-tools">
           <header><span>MORE</span></header>
           <button data-open-view="epics" type="button"><span>◇</span> Plans <small class="nav-count" id="epicNavCount"></small></button>
+          <button data-open-view="inbox" type="button"><span>□</span> Follow-ups <small class="nav-count" id="inboxNavCount"></small></button>
           <button data-open-view="github" type="button"><span>#</span> GitHub issues</button>
-          <button data-open-view="projects" type="button"><span>⚙</span> Project registry</button>
+          <button data-open-view="insights" type="button"><span>⌕</span> Search &amp; insights</button>
+          <button data-open-view="projects" type="button"><span>⚙</span> Manage repositories</button>
         </section>
       </aside>
 
       <section class="workspace">
         <section class="view-panel work-view active" id="workView">
           <header class="work-header">
-            <div><p class="breadcrumb" id="workBreadcrumb">WORKSPACE</p><h1 id="workTitle">All work</h1><p id="workDescription">Choose a project, describe a change, then review the result.</p></div>
+            <div><p class="breadcrumb" id="workBreadcrumb">ODYSSEUS</p><h1 id="workTitle">Repositories</h1><p id="workDescription">Choose the repository you want Codex to change.</p></div>
             <div class="work-actions"><button class="ghost" id="workPlanButton" type="button">Plan feature</button><button class="primary" id="workNewTaskButton" type="button">＋ New task</button></div>
           </header>
           <nav class="journey-stepper" id="journeyStepper" aria-label="How to use Odysseus">
-            <button data-journey-step="1" type="button"><span class="journey-number">1</span><span><strong>Choose a project</strong><small>Pick a Git repository</small></span></button>
+            <button data-journey-step="1" type="button"><span class="journey-number">1</span><span><strong>Choose a repository</strong><small>Pick the code Codex should change</small></span></button>
             <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>Describe a change</strong><small>Say what “done” should mean</small></span></button>
             <button data-journey-step="3" type="button"><span class="journey-number">3</span><span><strong>Follow &amp; review</strong><small>Odysseus asks only when needed</small></span></button>
           </nav>
+          <section class="current-repository-hint hidden" id="currentRepositoryHint" aria-live="polite"></section>
           <div class="work-meta" id="workMeta"></div>
           <section class="quick-start" id="quickStart" aria-live="polite"></section>
           <div class="work-summary" id="workSummary"></div>
-          <section class="project-home hidden" id="projectHome" aria-label="Project knowledge">
+          <section class="project-home hidden" id="projectHome" aria-label="Repository overview">
             <div class="project-home-grid">
               <article class="project-knowledge-card project-about-card">
-                <header><div><p class="eyebrow">ABOUT</p><h2>Project brief</h2></div><button class="ghost compact" id="editProjectBrief" type="button">Edit brief</button></header>
-                <p class="project-about" id="projectAbout">Loading project context…</p>
+                <header><div><p class="eyebrow">ABOUT</p><h2>Repository overview</h2></div><button class="ghost compact" id="editProjectBrief" type="button">Edit overview</button></header>
+                <p class="project-about" id="projectAbout">Loading repository context…</p>
                 <p class="project-source" id="projectAboutSource"></p>
                 <div class="project-notes hidden" id="projectNotes"></div>
               </article>
@@ -84,15 +85,15 @@
               </article>
             </div>
             <details class="project-deep-section">
-              <summary><span><strong>Project knowledge and history</strong><small>Skills, memory, recent commits, and the audit timeline</small></span><span>Open details</span></summary>
+              <summary><span><strong>Repository knowledge and history</strong><small>Skills, memory, recent commits, and the audit timeline</small></span><span>Open details</span></summary>
               <div class="project-deep-content">
                 <article class="project-knowledge-card project-skills-card">
-                  <header><div><p class="eyebrow">PROJECT SKILLS</p><h2>Reusable engineering guidance</h2><p class="card-description">Odysseus can load small, generic playbooks when a task matches. Project-local skills override the bundled catalog.</p></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
-                  <div class="project-skill-list" id="projectSkillList"><div class="empty-list">Loading project skills…</div></div>
+                  <header><div><p class="eyebrow">SKILLS</p><h2>Reusable engineering guidance</h2><p class="card-description">Odysseus can load small, generic playbooks when a task matches. Repository-local skills override the bundled catalog.</p></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
+                  <div class="project-skill-list" id="projectSkillList"><div class="empty-list">Loading repository skills…</div></div>
                 </article>
                 <article class="project-knowledge-card project-memory-card">
-                  <header><div><p class="eyebrow">PROJECT MEMORY</p><h2>Repository-specific knowledge</h2><p class="card-description">Store facts unique to this codebase. Triggers and folders attach only relevant memory to a task; every attachment appears in its Context Receipt.</p></div><div class="memory-head-actions"><span class="quiet-badge" id="projectMemoryCount">0 active</span><button class="ghost compact" id="addProjectMemory" type="button">Add memory</button></div></header>
-                  <div class="project-memory-list" id="projectMemoryList"><div class="empty-list">Loading project memory…</div></div>
+                  <header><div><p class="eyebrow">REPOSITORY MEMORY</p><h2>Codebase-specific knowledge</h2><p class="card-description">Store facts unique to this codebase. Triggers and folders attach only relevant memory to a task; every attachment appears in its Context Receipt.</p></div><div class="memory-head-actions"><span class="quiet-badge" id="projectMemoryCount">0 active</span><button class="ghost compact" id="addProjectMemory" type="button">Add memory</button></div></header>
+                  <div class="project-memory-list" id="projectMemoryList"><div class="empty-list">Loading repository memory…</div></div>
                   <div class="memory-suggestions hidden" id="memorySuggestions"></div>
                 </article>
                 <div class="project-home-grid project-history-grid">
@@ -101,14 +102,14 @@
                     <div class="project-commit-list" id="projectCommitList"></div>
                   </article>
                   <article class="project-knowledge-card">
-                    <header><div><p class="eyebrow">PROJECT LOG</p><h2>What happened and how</h2></div></header>
+                    <header><div><p class="eyebrow">TASK HISTORY</p><h2>What happened and how</h2></div></header>
                     <div class="project-timeline" id="projectTimeline"></div>
                   </article>
                 </div>
               </div>
             </details>
           </section>
-          <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">PROJECTS</p><h2 id="workListTitle">Your workspace</h2></div><button class="ghost" id="workSecondaryAction" type="button">Add project</button></div><div class="work-list" id="workList"></div></section>
+          <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">REPOSITORIES</p><h2 id="workListTitle">Your repositories</h2></div><button class="ghost" id="workSecondaryAction" type="button">Add repository</button></div><div class="work-list" id="workList"></div></section>
         </section>
 
         <section class="view-panel collection-view" id="attentionView">
@@ -126,13 +127,13 @@
           <div class="empty-state" id="emptyState">
             <div class="orbit" aria-hidden="true"><span>O</span></div>
             <p class="eyebrow">NO TASK SELECTED</p>
-            <h2>Choose a project, then describe a change.</h2>
+            <h2>Choose a repository, then describe a change.</h2>
             <p>Odysseus runs the agent and checks. You follow progress and make the final decision.</p>
           <div class="empty-actions"><button class="primary" id="emptyNewTask" type="button">Start a task</button><button class="ghost" data-open-view="sessions" type="button">Existing terminal sessions</button></div>
           </div>
 
           <article class="run-detail hidden" id="runDetail">
-            <div class="detail-breadcrumb"><button class="back-button" id="backToProject" type="button">‹</button><span id="detailProjectName">Project</span><i>/</i><strong>Task</strong></div>
+            <div class="detail-breadcrumb"><button class="back-button" id="backToProject" type="button">‹</button><span id="detailProjectName">Repository</span><i>/</i><strong>Task</strong></div>
             <header class="detail-head">
               <div class="detail-heading">
                 <div class="status-row"><span class="status-pill" id="detailStatus">—</span><span class="run-id" id="detailId">—</span></div>
@@ -222,34 +223,34 @@
         </section>
 
         <section class="view-panel collection-view" id="projectsView">
-          <div class="page-head"><div><p class="eyebrow">WORKSPACE SETTINGS</p><h1>Project registry</h1><p>Add repositories to the Explorer. Existing code and project files are never moved.</p></div><button class="primary" id="manageAddProjectButton" type="button">Add project</button></div>
+          <div class="page-head"><div><p class="eyebrow">LOCAL REPOSITORIES</p><h1>Manage repositories</h1><p>Each entry is one local Git repository. Odysseus reads it in place and never moves your code.</p></div><button class="primary" id="manageAddProjectButton" type="button">Add repository</button></div>
           <div class="card-grid" id="projectList"></div>
         </section>
 
         <section class="view-panel collection-view" id="insightsView">
           <div class="page-head"><div><p class="eyebrow">ENGINEERING OUTCOMES</p><h1>Insights</h1><p>Search the complete local record and measure agents by successful changes, not activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
           <div class="insight-grid" id="insightStats"></div>
-          <section class="search-panel"><div class="panel-head"><div><p class="eyebrow">LOCAL FULL-TEXT SEARCH</p><h3>Tasks, events, plans, projects, attention</h3></div></div><label class="insight-search"><input id="insightSearch" type="search" placeholder="Search task intent, CI error, tool output…"><button class="primary" id="runSearch" type="button">Search</button></label><div class="stack-list" id="searchResults"><div class="empty-card">Search stays local to the Odysseus state directory.</div></div></section>
+          <section class="search-panel"><div class="panel-head"><div><p class="eyebrow">LOCAL FULL-TEXT SEARCH</p><h3>Tasks, events, plans, repositories, attention</h3></div></div><label class="insight-search"><input id="insightSearch" type="search" placeholder="Search task intent, CI error, tool output…"><button class="primary" id="runSearch" type="button">Search</button></label><div class="stack-list" id="searchResults"><div class="empty-card">Search stays local to the Odysseus state directory.</div></div></section>
         </section>
 
         <section class="view-panel collection-view" id="githubView">
-          <div class="page-head"><div><p class="eyebrow">TASK INTAKE</p><h1>GitHub issues</h1><p>Queue an open issue directly into the selected project workflow.</p></div><div class="inline-controls"><select id="githubProject"></select><button class="ghost" id="loadIssues" type="button">Load issues</button></div></div>
-          <div class="stack-list" id="issueList"><div class="empty-card">Choose a GitHub project and load its open issues.</div></div>
+          <div class="page-head"><div><p class="eyebrow">TASK INTAKE</p><h1>GitHub issues</h1><p>Queue an open issue directly into the selected repository workflow.</p></div><div class="inline-controls"><select id="githubProject"></select><button class="ghost" id="loadIssues" type="button">Load issues</button></div></div>
+          <div class="stack-list" id="issueList"><div class="empty-card">Choose a GitHub repository and load its open issues.</div></div>
         </section>
       </section>
     </main>
 
     <dialog id="projectProfileDialog"><form method="dialog" id="projectProfileForm">
-      <div class="dialog-head"><div><p class="eyebrow">PROJECT KNOWLEDGE</p><h2>Edit project brief</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>This lives in Odysseus, not in the repository.</strong><p>Leave the summary empty to use the repository README automatically. Notes are operator context and never overwrite project files.</p></div>
-      <label>Short description <span class="field-help">What this project is and why it exists.</span><textarea name="summary" rows="4" placeholder="Uses README automatically when empty."></textarea></label>
-      <label>Operator notes <span class="field-help">Important boundaries, current focus, or onboarding facts.</span><textarea name="notes" rows="7" placeholder="Optional project-specific context."></textarea></label>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Save brief</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">REPOSITORY KNOWLEDGE</p><h2>Edit repository overview</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>This lives in Odysseus, not in the repository.</strong><p>Leave the summary empty to use the repository README automatically. Notes are operator context and never overwrite repository files.</p></div>
+      <label>Short description <span class="field-help">What this codebase is and why it exists.</span><textarea name="summary" rows="4" placeholder="Uses README automatically when empty."></textarea></label>
+      <label>Operator notes <span class="field-help">Important boundaries, current focus, or onboarding facts.</span><textarea name="notes" rows="7" placeholder="Optional repository-specific context."></textarea></label>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Save overview</button></div>
     </form></dialog>
 
     <dialog id="knowledgeDialog"><form method="dialog" id="knowledgeForm">
-      <div class="dialog-head"><div><p class="eyebrow">PROJECT MEMORY</p><h2>Teach Odysseus about this repository</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Keep this specific to one project.</strong><p>Use generic Skills for security, databases, or testing. Use Project Memory for local architecture, commands, constraints, and conventions.</p></div>
+      <div class="dialog-head"><div><p class="eyebrow">REPOSITORY MEMORY</p><h2>Teach Odysseus about this repository</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Keep this specific to one repository.</strong><p>Use generic Skills for security, databases, or testing. Use Repository Memory for local architecture, commands, constraints, and conventions.</p></div>
       <input type="hidden" name="id">
       <input type="hidden" name="source" value="operator">
       <label>Title <input name="title" required maxlength="200" placeholder="Billing migration rule"></label>
@@ -261,19 +262,15 @@
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
       <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> DESCRIBE A CHANGE</p><h2>What should change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Choose a project and describe one finished outcome.</strong><p>Odysseus handles the worktree, agent, checks, and review. Your source checkout stays untouched.</p></div>
+      <div class="dialog-intro"><strong>Choose a repository and describe one finished outcome.</strong><p>Odysseus handles the worktree, agent, checks, and review. Your source checkout stays untouched.</p></div>
       <label>Task
         <span class="field-help">Write the outcome, important constraints, and what “done” means.</span>
         <textarea name="task" id="taskPrompt" rows="5" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
       </label>
       <details class="prompt-example"><summary>Show a good task example</summary><p>Update the setup command in README, verify every referenced path exists, and run the documentation checks. Do not change application behavior.</p></details>
-      <label>Project
+      <label>Repository
         <span class="field-help">The repository where this task belongs.</span>
-        <select name="project_id" id="taskProjectSelect"><option value="">Other repository path…</option></select>
-      </label>
-      <label class="custom-project" id="taskCustomProject">Absolute repository path
-        <span class="field-help">A local Git repository visible to the Odysseus server.</span>
-        <input name="project_path" placeholder="/Users/me/code/my-project">
+        <select name="project_id" id="taskProjectSelect" required><option value="">Add a repository first</option></select>
       </label>
       <details class="advanced"><summary>More options…</summary>
         <label>Implementation agent
@@ -281,24 +278,24 @@
           <select name="lane" id="laneSelect"></select>
         </label>
         <label>Execution environment
-          <span class="field-help">Project default uses `.odysseus.json` when present. Docker is the isolated option.</span>
-          <select name="environment_profile" id="environmentProfile"><option value="">Project default — recommended</option><option value="host">Host — compatibility, not isolated</option><option value="docker">Docker — isolated command runtime</option><option value="devcontainer">Devcontainer — reviewed repository configuration</option></select>
+          <span class="field-help">Repository default uses `.odysseus.json` when present. Docker is the isolated option.</span>
+          <select name="environment_profile" id="environmentProfile"><option value="">Repository default — recommended</option><option value="host">Host — compatibility, not isolated</option><option value="docker">Docker — isolated command runtime</option><option value="devcontainer">Devcontainer — reviewed repository configuration</option></select>
         </label>
         <div class="environment-options hidden" id="environmentOptions">
-          <label>Docker image <span class="field-help">Required unless the project supplies a reviewed default.</span><input name="environment_image" placeholder="ghcr.io/your-org/coding-agent:latest"></label>
+          <label>Docker image <span class="field-help">Required unless the repository supplies a reviewed default.</span><input name="environment_image" placeholder="ghcr.io/your-org/coding-agent:latest"></label>
           <div class="form-row"><label>Network <select name="environment_network"><option value="bridge">Bridge</option><option value="none">None</option></select></label><label>Credential env names <input name="environment_allow_env" placeholder="OPENAI_API_KEY, GH_TOKEN"></label></div>
           <div class="form-row"><label>CPU limit <input name="environment_cpus" type="number" min="0.1" max="64" step="0.1" placeholder="2"></label><label>Memory limit <input name="environment_memory" placeholder="4g"></label></div>
           <label>Preview ports <span class="field-help">One `NAME=CONTAINER_PORT` per line. Odysseus allocates host ports automatically.</span><textarea name="environment_ports" rows="2" placeholder="APP_PORT=3000&#10;DEBUG_PORT=9229"></textarea></label>
         </div>
         <label class="checkbox-row"><input type="checkbox" name="untrusted_project" id="untrustedProject"> Treat this repository as untrusted; use Docker and approve repository commands before execution</label>
         <label>Engineering skills
-          <span class="field-help">Auto selects relevant project guidance. Manual lets you choose; None sends no skill playbooks.</span>
+          <span class="field-help">Auto selects relevant repository guidance. Manual lets you choose; None sends no skill playbooks.</span>
           <select name="skill_mode" id="taskSkillMode"><option value="auto">Auto — recommended</option><option value="manual">Choose manually</option><option value="none">None</option></select>
         </label>
         <div class="task-skill-recommendations hidden" id="taskSkillRecommendations"></div>
         <div class="task-skill-choices hidden" id="taskSkillChoices" aria-label="Choose task skills"></div>
         <label>Verification commands <span class="optional">optional</span>
-          <span class="field-help">Trusted shell commands, one per line. Empty uses project defaults.</span>
+          <span class="field-help">Trusted shell commands, one per line. Empty uses repository defaults.</span>
           <textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea>
         </label>
         <div class="form-row"><label>Display title <input name="title" placeholder="Generated from the request"></label><label>Priority (0–100) <input name="priority" type="number" min="0" max="100" value="50"></label></div>
@@ -321,11 +318,7 @@
       <details class="prompt-example"><summary>When should I use this?</summary><p>Use a plan when work can be split into backend, frontend, migration, tests, or independent review tasks. For one focused change, choose “New task” instead.</p></details>
       <label>Repository
         <span class="field-help">The planner inspects this repository read-only.</span>
-        <select name="project_id" id="epicProjectSelect"><option value="">Other repository path…</option></select>
-      </label>
-      <label class="custom-project" id="epicCustomProject">Absolute repository path
-        <span class="field-help">A local Git repository visible to the Odysseus server.</span>
-        <input name="project_path" placeholder="/Users/me/code/my-project">
+        <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
       </label>
       <details class="advanced"><summary>Advanced: choose agents and verification commands</summary>
         <div class="form-row"><label>Planning agent <select name="planner_lane" id="plannerLaneSelect"></select></label><label>Implementation agent <select name="lane" id="epicLaneSelect"></select></label></div>
@@ -345,14 +338,16 @@
 
     <dialog id="inboxDialog"><form method="dialog" id="inboxForm">
       <div class="dialog-head"><div><p class="eyebrow">CAPTURE</p><h2>Add follow-up</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <label>Title <input name="title" required></label><label>Task <textarea name="task" rows="4" required></textarea></label><label>Project <select name="project_id" id="inboxProjectSelect"><option value="">No project</option></select></label>
+      <label>Title <input name="title" required></label><label>Task <textarea name="task" rows="4" required></textarea></label><label>Repository <select name="project_id" id="inboxProjectSelect"><option value="">No repository</option></select></label>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Add to inbox</button></div>
     </form></dialog>
 
     <dialog id="projectDialog"><form method="dialog" id="projectForm">
-      <div class="dialog-head"><div><p class="eyebrow">REGISTER</p><h2>Add project</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <label>Absolute path <input name="path" required placeholder="/srv/repos/project"></label><label>Display name <input name="name" placeholder="Defaults to directory name"></label><label>Tags <input name="tags" placeholder="client, backend, priority"></label>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Add project</button></div>
+      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>1</span> CHOOSE A REPOSITORY</p><h2>Add a Git repository</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>A repository is the code Codex will work on.</strong><p>Choose its local folder. Odysseus reads the name from Git and leaves the existing checkout in place.</p></div>
+      <label>Repository folder <span class="field-help">An absolute path on the computer running Odysseus.</span><input name="path" required placeholder="/Users/me/code/my-project"></label>
+      <details class="advanced"><summary>More options…</summary><label>Custom display name <span class="field-help">Usually unnecessary; the Git repository name is used automatically.</span><input name="name" placeholder="Optional"></label><label>Tags <input name="tags" placeholder="client, backend, priority"></label></details>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Add repository</button></div>
     </form></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

@@ -66,11 +66,12 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.4")
+                self.assertEqual(bootstrap["version"], "0.6.5")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
                 self.assertTrue(bootstrap["working_directory"])
+                self.assertIsInstance(bootstrap["current_repository"], dict)
 
                 body = json.dumps({"task": "Test API", "project_path": str(project)}).encode()
                 forbidden = urllib.request.Request(
@@ -79,6 +80,20 @@ class ServerTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as caught:
                     urllib.request.urlopen(forbidden)
                 self.assertEqual(caught.exception.code, 403)
+                caught.exception.close()
+
+                invalid_repository = urllib.request.Request(
+                    f"{base}/api/projects",
+                    data=json.dumps({"path": str(project)}).encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Odysseus-Token": bootstrap["token"],
+                    },
+                )
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(invalid_repository)
+                self.assertEqual(caught.exception.code, 400)
+                self.assertIn("not a Git repository", caught.exception.read().decode())
                 caught.exception.close()
 
                 request = urllib.request.Request(
@@ -104,9 +119,12 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('data-journey-step="1"', html)
                 self.assertIn('data-journey-step="2"', html)
                 self.assertIn('data-journey-step="3"', html)
-                self.assertIn("Choose a project", html)
+                self.assertIn("Choose a repository", html)
                 self.assertIn("Describe a change", html)
                 self.assertIn("Follow &amp; review", html)
+                self.assertIn("Manage repositories", html)
+                self.assertIn("A repository is the code Codex will work on", html)
+                self.assertNotIn("Other repository path", html)
                 self.assertIn('id="projectHome"', html)
                 self.assertIn('id="projectTimeline"', html)
                 self.assertIn('id="projectSkillList"', html)
