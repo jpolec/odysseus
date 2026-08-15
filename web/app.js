@@ -314,6 +314,52 @@ function renderProjectKnowledge() {
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
 }
 
+function renderJourney() {
+  const project = activeProject();
+  const projectRuns = project ? runsForProject(project.id) : [];
+  const projectAttention = project ? attentionForProject(project.id) : [];
+  const current = !project ? 1 : projectRuns.length ? 3 : 2;
+  const buttons = $$('[data-journey-step]');
+  buttons.forEach((button) => {
+    const step = Number(button.dataset.journeyStep);
+    button.classList.toggle("done", step < current);
+    button.classList.toggle("current", step === current);
+    button.classList.toggle("upcoming", step > current);
+    if (step === current) button.setAttribute("aria-current", "step");
+    else button.removeAttribute("aria-current");
+  });
+  $('[data-journey-step="1"] small').textContent = project
+    ? project.name
+    : state.projects.length ? "Pick a Git repository" : "Add your first Git repository";
+  $('[data-journey-step="2"] small').textContent = project
+    ? `Say what “done” means in ${project.name}`
+    : "One clear, finished outcome";
+  $('[data-journey-step="3"] small').textContent = projectAttention.length
+    ? `${projectAttention.length} decision${projectAttention.length === 1 ? "" : "s"} waiting for you`
+    : projectRuns.length ? "Watch progress; act only when asked" : "Odysseus runs the agent and checks";
+  buttons[0].onclick = () => {
+    setView("work");
+    if (!state.projects.length) { $("#projectDialog").showModal(); return; }
+    selectProject("all");
+    window.requestAnimationFrame(() => $('[data-work-project]')?.focus());
+  };
+  buttons[1].onclick = () => {
+    if (!state.projects.length) { $("#projectDialog").showModal(); return; }
+    if (!project) {
+      if (state.projects.length === 1) selectProject(state.projects[0].id);
+      else { selectProject("all"); toast("Choose a project first."); return; }
+    } else setView("work");
+    window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
+  };
+  buttons[2].onclick = () => {
+    if (!project) { toast("Choose a project first."); return; }
+    if (projectAttention.length) { setView("attention"); return; }
+    if (projectRuns.length) { selectRun(projectRuns[0].id); return; }
+    toast("Describe the first change before there is anything to follow.");
+    window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
+  };
+}
+
 function renderQuickStart() {
   const container = $("#quickStart");
   const project = activeProject();
@@ -331,7 +377,7 @@ function renderQuickStart() {
     container.className = "quick-start first-run-card";
     container.innerHTML = `
       <div class="first-run-copy">
-        <span class="step-badge">FIRST RUN · ABOUT 3 MINUTES</span>
+        <span class="inline-step"><b>1</b><span>CHOOSE A PROJECT</span></span>
         <h2>Connect one repository.</h2>
         <p>Odysseus reads the existing README and agent instructions, then keeps every task on its own branch and worktree. Your source checkout is not modified by registration.</p>
         <form class="quick-project-form" id="quickProjectForm">
@@ -340,11 +386,12 @@ function renderQuickStart() {
         </form>
         <button class="text-button" id="copyDemoCommand" type="button">Not ready to run an agent? Copy the no-token demo command</button>
       </div>
-      <ol class="first-run-steps">
-        <li class="done"><span>1</span><div><strong>Odysseus is running</strong><small>Local control plane connected</small></div></li>
-        <li class="${capabilities.git ? "done" : "missing"}"><span>2</span><div><strong>${capabilities.git ? "Git is ready" : "Git is missing"}</strong><small>Required for branches and worktrees</small></div></li>
-        <li class="${agentsReady ? "done" : "missing"}"><span>3</span><div><strong>${agentsReady ? "Agent CLI is ready" : "Install an agent CLI"}</strong><small>${capabilities.codex ? "Codex CLI detected" : capabilities.claude ? "Claude Code detected" : "Codex CLI or Claude Code is required for real tasks"}</small></div></li>
-      </ol>`;
+      <div class="setup-checks" aria-label="Local setup status">
+        <p>READY CHECK</p>
+        <div class="done"><span>✓</span><div><strong>Odysseus is running</strong><small>Local service connected</small></div></div>
+        <div class="${capabilities.git ? "done" : "missing"}"><span>${capabilities.git ? "✓" : "!"}</span><div><strong>${capabilities.git ? "Git is ready" : "Git is missing"}</strong><small>Branches and worktrees</small></div></div>
+        <div class="${agentsReady ? "done" : "missing"}"><span>${agentsReady ? "✓" : "!"}</span><div><strong>${agentsReady ? "Agent CLI is ready" : "Install an agent CLI"}</strong><small>${capabilities.codex ? "Codex CLI detected" : capabilities.claude ? "Claude Code detected" : "Codex CLI or Claude Code is required"}</small></div></div>
+      </div>`;
     $("#quickProjectForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.currentTarget.querySelector("button");
@@ -364,9 +411,10 @@ function renderQuickStart() {
   container.className = "quick-start quick-task-card";
   container.innerHTML = `
     <form id="quickTaskForm">
-      <div class="quick-task-heading"><div><span class="step-badge">NEXT CHANGE</span><h2>What should change in ${escapeHtml(project.name)}?</h2></div><span class="safety-note">Source checkout stays untouched</span></div>
-      <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Describe one finished outcome, important constraints, and how to verify it."></textarea>
-      <div class="quick-task-actions"><button class="primary" type="submit">Start task</button><button class="ghost" id="quickPlanTask" type="button">Plan larger work</button><button class="text-button" id="quickAdvancedTask" type="button">Agent, checks & limits…</button></div>
+      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>DESCRIBE A CHANGE</span></span><h2>What should change in ${escapeHtml(project.name)}?</h2></div><span class="safety-note">Source checkout stays untouched</span></div>
+      <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Example: Make installation errors short and actionable, and add a regression test."></textarea>
+      <p class="quick-task-promise">Odysseus creates an isolated branch, runs the agent and checks, then brings the result back for review.</p>
+      <div class="quick-task-actions"><button class="primary" type="submit">Start task</button><button class="ghost" id="quickPlanTask" type="button">Plan larger work</button><button class="text-button" id="quickAdvancedTask" type="button">More options…</button></div>
     </form>`;
   $("#quickTaskForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -407,7 +455,7 @@ function renderWork() {
   const terminals = project ? projectTerminalCount(project) : state.sessions.length;
   $("#workBreadcrumb").textContent = project ? "PROJECT" : "WORKSPACE";
   $("#workTitle").textContent = project?.name || (state.projects.length ? "All work" : "Welcome to Odysseus");
-  $("#workDescription").textContent = project ? "Start a change, see current tasks, or inspect the repository context agents receive." : state.projects.length ? "Choose a project, see what is moving, and start the next task." : "Connect a repository, then describe the result you want. Odysseus handles the agent workflow and shows you only the decisions.";
+  $("#workDescription").textContent = project ? "Describe a change. Odysseus runs the agent and checks; you review the result." : state.projects.length ? "Choose a project to start or continue work." : "Add a Git repository, describe a change, then review the result.";
   $("#workMeta").innerHTML = project ? `<span>${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : state.projects.length ? `<span>${state.projects.length} registered projects</span><span>${state.bootstrap?.max_parallel || 0} parallel slots</span><span>Local-first workspace</span>` : "";
   $("#workMeta").classList.toggle("hidden", !project && !state.projects.length);
   $("#workSummary").innerHTML = [
@@ -417,6 +465,7 @@ function renderWork() {
     [project ? terminals : complete, project ? "Terminals" : "Completed", project ? "agent panes" : "accepted changes"],
   ].map(([value, label, note]) => `<div class="work-stat"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
   $("#workSummary").classList.toggle("hidden", !state.projects.length);
+  renderJourney();
   renderQuickStart();
   renderProjectKnowledge();
   $("#workPlanButton").classList.toggle("hidden", !project);
@@ -501,6 +550,7 @@ function renderDetail(run, diff) {
   $("#emptyState").classList.add("hidden");
   $("#runDetail").classList.remove("hidden");
   const interactive = run.kind === "tmux";
+  $(".journey-context").classList.toggle("hidden", interactive);
   const discovered = interactive ? discoveredSessionForRun(run) : null;
   const status = $("#detailStatus");
   status.textContent = interactive ? "tracked tmux terminal" : statusLabel(run.status); status.className = `status-pill ${statusClass(run.status)}`;

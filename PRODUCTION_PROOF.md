@@ -24,16 +24,17 @@ It excludes:
 - tmux sessions adopted after work started (`imported`);
 - history created before provenance existed (`unclassified`).
 
-This means the first 0.6.3 proof may honestly contain zero or only a few runs.
+This means the first proof for a new release may honestly contain zero or only
+a few runs.
 The default publication threshold is 20, and the receipt states whether that
 threshold was met. Odysseus does not backfill or guess old outcomes.
 
 ## Generate a receipt
 
 ```sh
-odysseus proof --release 0.6.3
-odysseus proof --release 0.6.3 --json --output proof.json
-odysseus proof --release 0.6.3 --require-sufficient
+odysseus proof --release 0.6.4
+odysseus proof --release 0.6.4 --json --output proof.json
+odysseus proof --release 0.6.4 --require-sufficient
 ```
 
 For this repository:

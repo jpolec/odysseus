@@ -160,8 +160,8 @@ The last command writes a public aggregate Markdown file and a locally ignored
 JSON receipt. For another project, use the underlying command directly:
 
 ```sh
-odysseus --state-dir ~/.odysseus proof --release 0.6.3
-odysseus --state-dir ~/.odysseus proof --release 0.6.3 --json --output proof.json
+odysseus --state-dir ~/.odysseus proof --release 0.6.4
+odysseus --state-dir ~/.odysseus proof --release 0.6.4 --json --output proof.json
 ```
 
 Classification as `observed` is necessary but not sufficient. A counted outcome
@@ -176,14 +176,15 @@ insufficient; add `--require-sufficient` when publication should fail closed.
 
 ### From the web UI
 
-1. Add a repository on the guided first-run screen.
-2. Select that project and describe one finished outcome in the inline task
-   composer.
-3. Choose **Start task**. Default agent routing, Skills, checks, budgets, and
-   review policy are applied automatically.
-4. Open **Agent, checks & limits…** only when this task needs overrides.
-5. Watch **Summary**, then inspect **Changes**, **Activity**, and **Evidence**
-   before deciding what happens next.
+The workbench keeps the same three numbered circles visible on every project:
+
+1. **Choose a project.** Add a repository on first use or select one in the
+   Explorer.
+2. **Describe a change.** Write one finished outcome and choose **Start task**.
+   Default agent routing, Skills, checks, budgets, and review policy are applied
+   automatically. Use **More options…** only when this task needs overrides.
+3. **Follow & review.** Watch the Summary and respond only when **Needs You**
+   appears. Inspect Changes, Activity, and Evidence before the final decision.
 
 In the default Auto mode, Odysseus previews the generic Skills it will attach
 after you type the task. Open Advanced only to choose Skills manually or attach

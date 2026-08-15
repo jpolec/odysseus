@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.3](https://img.shields.io/badge/version-0.6.3-171a16)
+![Version: 0.6.4](https://img.shields.io/badge/version-0.6.4-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -15,10 +15,11 @@ queue to the coding agents and tmux sessions you already use. Its light web UI
 is also a live window into existing tmux sessions:
 discovery is automatic, while tracking and terminal handoff stay explicit.
 
-The web workbench has one visible hierarchy: **workspace -> project -> task**.
-Choose a repository in the Explorer, see its current work, and start one task.
-Agent selection, checks, budgets, evaluation, and integration evidence remain
-available without occupying the first-use path.
+The web workbench keeps one path visible at all times: **1 Choose a project ->
+2 Describe a change -> 3 Follow & review**. Each numbered step is also a
+shortcut to the right place. Agent selection, checks, budgets, evaluation, and
+integration evidence remain available under **More options** without occupying
+the first-use path.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
@@ -138,9 +139,10 @@ with `odysseus state verify`. Package installs stay owned by their
 package manager: use `pipx upgrade odysseus-agents`; `uvx` resolves its tool
 environment for each invocation.
 
-Without `--open`, visit <http://127.0.0.1:8741/>. The first screen checks local
-readiness and asks for one repository path. Select that project, describe one
-finished outcome, and choose **Start task**. Agent choice, checks, limits,
+Without `--open`, visit <http://127.0.0.1:8741/>. The first screen shows the
+same three numbered steps used everywhere else: choose one repository, describe
+one finished outcome, then follow and review the result. Select **Start task**
+after step 2. Agent choice, checks, limits,
 Skills, execution environments, planning, Context Receipts, and project history remain available as
 progressive depth instead of blocking the first run. See [START.md](START.md)
 for the complete five-minute path.
@@ -217,7 +219,7 @@ durable Odysseus shortcut.
   language and choose the project. Odysseus uses the default agent and project
   checks and automatically relevant engineering skills; manual skill selection,
   execution environment, agent selection, custom checks, priority, retries, and budgets stay
-  under **Customize agent, checks, and limits**.
+  under **More options…**.
 - **Plan feature** is for a feature that should become several
   dependent or parallel tasks. Describe the finished feature, not the task
   breakdown. The Planner proposes the graph and nothing runs before approval.

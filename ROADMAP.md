@@ -6,6 +6,19 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.4: one visible path
+
+- A persistent, clickable **1 Choose a project -> 2 Describe a change ->
+  3 Follow & review** path anchors first use, normal project work, and mobile.
+- Readiness checks become quiet diagnostics rather than a second numbered
+  process. The task composer requires only a Codex-style natural-language
+  outcome.
+- Advanced routing, checks, Skills, limits, and environments remain available
+  under **More options…**, preserving depth without front-loading complexity.
+- Task detail explains the operator's role and sends step 3 to the current run
+  or **Needs You** item. Imported tmux sessions remain clearly distinct from
+  Odysseus-managed tasks.
+
 ## Shipped — 0.6.3: observed dogfooding proof
 
 - Versioned run provenance separates observed autonomous work from demos,

@@ -2,13 +2,32 @@
 
 ## Current version
 
-**0.6.3 — 2026-08-15**
+**0.6.4 — 2026-08-15**
 
-Version 0.6 adds an explicit runtime boundary without making the simple local
-path harder. Host mode remains the compatibility default; Docker and reviewed
+Version 0.6.4 makes the product's simple path explicit without removing its
+depth. Host mode remains the compatibility default; Docker and reviewed
 devcontainers are opt-in task profiles.
 
-## What is available in 0.6.3
+## What is available in 0.6.4
+
+### 0.6.4 Clarity
+
+- A persistent, clickable three-step path now anchors the web workbench:
+  **1 Choose a project -> 2 Describe a change -> 3 Follow & review**.
+- The current step is visually distinct. Completed and upcoming steps remain
+  visible, and each step takes the operator directly to the relevant surface.
+- First-run readiness is presented as unnumbered diagnostics, so it no longer
+  competes with the actual product workflow.
+- The task composer speaks in Codex terms: one natural-language outcome is the
+  only required input. Agent, check, Skill, budget, and environment overrides
+  remain under **More options…**.
+- Task details repeat step 3 and explain the operator's job: watch progress and
+  act when Odysseus asks. Imported tmux sessions do not claim this managed flow.
+- The same model becomes a compact vertical sequence on narrow and mobile
+  screens. All orchestration, evidence, policy, and terminal capabilities from
+  0.6.3 remain available through progressive disclosure.
+
+## Earlier 0.6 releases
 
 ### 0.6.3 Observed Production Proof
 
@@ -304,7 +323,7 @@ devcontainers are opt-in task profiles.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.3` |
+| Application version | `0.6.4` |
 | Run snapshot schema | `9` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

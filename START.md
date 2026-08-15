@@ -40,9 +40,11 @@ Running the command again opens the existing instance instead of starting a
 second scheduler. If another application—not Odysseus—owns port 8741, use the
 exact alternate-port command printed by the CLI.
 
-On a fresh state, the landing page shows three readiness checks and one
-repository-path field. Add a Git repository; registration reads metadata but
-does not modify the checkout. The project page then shows one large task field.
+On a fresh state, the landing page shows one persistent path: **1 Choose a
+project -> 2 Describe a change -> 3 Follow & review**. The numbered circles are
+also shortcuts. Add a Git repository; registration reads metadata but does not
+modify the checkout. Readiness checks stay visible as quiet diagnostics rather
+than competing steps.
 
 ## 3. Optional: tour the populated UI without agents
 
@@ -68,10 +70,10 @@ In the web UI:
 3. Select **Start task**.
 
 The large text box is the only required input. Write the desired result as you
-would to an engineer, including constraints and what “done” means. The selected
+would to Codex, including constraints and what “done” means. The selected
 project supplies the repository, default agent, and automatically relevant
-generic Skills. Select **Agent, checks & limits…** only when defaults are not
-enough; it opens the full task form without losing the text you entered.
+generic Skills. Select **More options…** only when defaults are not enough; it
+opens the full task form without losing the text you entered.
 
 The equivalent CLI command is:
 
@@ -93,8 +95,8 @@ review, evaluates the independent signals, and stops at the human decision
 gate unless an explicit project policy permits auto-accept eligibility.
 
 The default `host` profile is the easiest compatibility path, but a worktree is
-not an operating-system sandbox. For an isolated task, open **Agent, checks &
-limits…**, select **Docker**, and provide an image containing the agent CLI and
+not an operating-system sandbox. For an isolated task, open **More options…**,
+select **Docker**, and provide an image containing the agent CLI and
 project tools. The CLI equivalent is:
 
 ```sh

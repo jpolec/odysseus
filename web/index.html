@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <title>Odysseus — Agent Control Plane</title>
+    <title>Odysseus — Coding agents, organized</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body data-view="work">
@@ -48,7 +48,7 @@
           <div class="task-list" id="taskList" aria-live="polite"></div>
         </section>
         <section class="explorer-section explorer-tools">
-          <header><span>PROJECT TOOLS</span></header>
+          <header><span>MORE</span></header>
           <button data-open-view="epics" type="button"><span>◇</span> Plans <small class="nav-count" id="epicNavCount"></small></button>
           <button data-open-view="github" type="button"><span>#</span> GitHub issues</button>
           <button data-open-view="projects" type="button"><span>⚙</span> Project registry</button>
@@ -58,9 +58,14 @@
       <section class="workspace">
         <section class="view-panel work-view active" id="workView">
           <header class="work-header">
-            <div><p class="breadcrumb" id="workBreadcrumb">WORKSPACE</p><h1 id="workTitle">All work</h1><p id="workDescription">Choose a project, see what is moving, and start the next task.</p></div>
+            <div><p class="breadcrumb" id="workBreadcrumb">WORKSPACE</p><h1 id="workTitle">All work</h1><p id="workDescription">Choose a project, describe a change, then review the result.</p></div>
             <div class="work-actions"><button class="ghost" id="workPlanButton" type="button">Plan feature</button><button class="primary" id="workNewTaskButton" type="button">＋ New task</button></div>
           </header>
+          <nav class="journey-stepper" id="journeyStepper" aria-label="How to use Odysseus">
+            <button data-journey-step="1" type="button"><span class="journey-number">1</span><span><strong>Choose a project</strong><small>Pick a Git repository</small></span></button>
+            <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>Describe a change</strong><small>Say what “done” should mean</small></span></button>
+            <button data-journey-step="3" type="button"><span class="journey-number">3</span><span><strong>Follow &amp; review</strong><small>Odysseus asks only when needed</small></span></button>
+          </nav>
           <div class="work-meta" id="workMeta"></div>
           <section class="quick-start" id="quickStart" aria-live="polite"></section>
           <div class="work-summary" id="workSummary"></div>
@@ -120,10 +125,10 @@
         <div class="task-view view-panel" id="tasksView">
           <div class="empty-state" id="emptyState">
             <div class="orbit" aria-hidden="true"><span>O</span></div>
-            <p class="eyebrow">LOCAL-FIRST ORCHESTRATION</p>
-            <h2>One place for agents and terminals.</h2>
-            <p>Queue isolated agent work, follow tool calls and tokens, or adopt sessions already running in tmux.</p>
-          <div class="empty-actions"><button class="primary" id="emptyNewTask" type="button">Start a task</button><button class="ghost" data-open-view="sessions" type="button">See tmux sessions</button></div>
+            <p class="eyebrow">NO TASK SELECTED</p>
+            <h2>Choose a project, then describe a change.</h2>
+            <p>Odysseus runs the agent and checks. You follow progress and make the final decision.</p>
+          <div class="empty-actions"><button class="primary" id="emptyNewTask" type="button">Start a task</button><button class="ghost" data-open-view="sessions" type="button">Existing terminal sessions</button></div>
           </div>
 
           <article class="run-detail hidden" id="runDetail">
@@ -131,6 +136,7 @@
             <header class="detail-head">
               <div class="detail-heading">
                 <div class="status-row"><span class="status-pill" id="detailStatus">—</span><span class="run-id" id="detailId">—</span></div>
+                <div class="journey-context"><span>3</span><strong>Follow &amp; review</strong><small>Watch progress. Act only when Odysseus asks.</small></div>
                 <h2 id="detailTitle">—</h2><p id="detailTask">—</p>
               </div>
               <div class="actions" id="runActions"></div>
@@ -254,7 +260,7 @@
     </form></dialog>
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
-      <div class="dialog-head"><div><p class="eyebrow">NEW TASK</p><h2>What should change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> DESCRIBE A CHANGE</p><h2>What should change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="dialog-intro"><strong>Choose a project and describe one finished outcome.</strong><p>Odysseus handles the worktree, agent, checks, and review. Your source checkout stays untouched.</p></div>
       <label>Task
         <span class="field-help">Write the outcome, important constraints, and what “done” means.</span>
@@ -269,7 +275,7 @@
         <span class="field-help">A local Git repository visible to the Odysseus server.</span>
         <input name="project_path" placeholder="/Users/me/code/my-project">
       </label>
-      <details class="advanced"><summary>Customize agent, checks, and limits</summary>
+      <details class="advanced"><summary>More options…</summary>
         <label>Implementation agent
           <span class="field-help">Leave the default unless this task needs a specific CLI.</span>
           <select name="lane" id="laneSelect"></select>
