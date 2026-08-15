@@ -80,6 +80,14 @@ retention, and cleanup remain below.
   operator ownership, and history-derived suggestions that require approval.
 - Explainable skill routing from task signals, policy, and sufficiently
   observed outcomes on the current repository.
+- A first-run path built around one repository and one outcome: guided local
+  readiness, inline project registration, a quick task composer, and advanced
+  controls disclosed only when requested.
+- One-command source installation, a stable `odysseus start` entry point,
+  readable/JSON diagnostics, and `odysseus demo` for a no-token product tour.
+- A reproducible release-proof gate covering syntax, both installer paths, the
+  complete test suite, and Odysseus-on-Odysseus demo/CLI state without claiming
+  seeded outcomes as real model work.
 
 Current boundary: the router chooses context Skills, not the agent model.
 Project Memory is deterministic and operator-approved; semantic code retrieval,
@@ -136,10 +144,10 @@ prevent two agents from fighting over the same port, database, or credentials.
 
 ## Cross-cutting adoption track
 
-- One-command verified installer, Homebrew tap, signed versioned releases, and
-  an explicit upgrade/rollback path.
-- A five-minute first-run checklist that creates a safe demo task before asking
-  the operator to configure advanced policy.
+- Extend the shipped source installer with a Homebrew tap, signed versioned
+  artifacts, and an explicit upgrade/rollback path.
+- Keep the shipped five-minute first-run flow continuously tested against a
+  clean state before asking the operator to configure advanced policy.
 - Reproducible dogfooding state and real browser screenshots for every major
   release; examples must be generated from the shipped server, never mockups.
 - Secure phone access over an authenticated private-network listener, with

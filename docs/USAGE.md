@@ -21,17 +21,31 @@ retains the compatibility commands `takeover` and `adopt`.
 
 ## Installation
 
-### Run from a checkout
+### Install one command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jpolec/odysseus/main/install.sh | bash
+odysseus doctor
+odysseus start --open
+```
+
+The installer clones into `${XDG_DATA_HOME:-$HOME/.local/share}/odysseus`,
+links `odysseus` under `${ODYSSEUS_BIN_DIR:-$HOME/.local/bin}`, refuses to
+replace an unrelated command, and runs the readiness check. Review
+[`install.sh`](../install.sh) before piping it when required by local policy.
+
+### Install from a checkout
 
 ```sh
 git clone https://github.com/jpolec/odysseus.git
 cd odysseus
-bin/odysseus doctor
-bin/odysseus serve --open
+./install.sh
+odysseus start --open
 ```
 
-There is no Python package installation step. `bin/odysseus` resolves the
-checkout and imports the local package directly.
+There is no Python package installation step. A checkout install links the
+repository's `bin/odysseus` command, which imports the local package directly.
+Use `bin/odysseus` without installing when developing Odysseus itself.
 
 ### Install the tmux plugin with TPM
 
@@ -59,7 +73,7 @@ set -g @ai_session_lanes 'codex claude'
 Foreground, with logs visible:
 
 ```sh
-bin/odysseus serve
+odysseus start
 ```
 
 Open <http://127.0.0.1:8741/>. Stop with `Ctrl-C`.
@@ -80,7 +94,7 @@ curl -fsS http://127.0.0.1:8741/api/health
 ### Disposable product tour
 
 ```sh
-scripts/demo.py --serve
+odysseus demo
 ```
 
 Open <http://127.0.0.1:8742/>. This uses a new temporary state directory and no
@@ -98,12 +112,14 @@ scripts/capture-web-screenshots.sh
 
 ### From the web UI
 
-1. Open **Tasks** and select **New task**.
-2. Choose a project or enter an absolute repository path.
-3. Choose the implementation lane and optional check commands.
-4. Queue the task and watch the **Activity** stream.
-5. Inspect **Diff**, **Integration**, **Checks**, **Review**, **Evaluation**, and
-   **CI** before deciding what happens next.
+1. Add a repository on the guided first-run screen.
+2. Select that project and describe one finished outcome in the inline task
+   composer.
+3. Choose **Start task**. Default agent routing, Skills, checks, budgets, and
+   review policy are applied automatically.
+4. Open **Agent, checks & limits…** only when this task needs overrides.
+5. Watch **Summary**, then inspect **Changes**, **Activity**, and **Evidence**
+   before deciding what happens next.
 
 In the default Auto mode, Odysseus previews the generic Skills it will attach
 after you type the task. Open Advanced only to choose Skills manually or attach

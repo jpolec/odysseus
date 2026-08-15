@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import tempfile
+import webbrowser
 from pathlib import Path
 import sys
 
@@ -324,6 +325,7 @@ def main() -> int:
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--project", type=Path, default=REPOSITORY_ROOT)
     parser.add_argument("--serve", action="store_true")
+    parser.add_argument("--open", action="store_true")
     parser.add_argument("--port", type=int, default=8742)
     args = parser.parse_args()
     state_dir = args.state_dir or Path(tempfile.mkdtemp(prefix="odysseus-demo-"))
@@ -333,7 +335,11 @@ def main() -> int:
     if not args.serve:
         return 0
     app = OdysseusApp(store, host="127.0.0.1", port=args.port)
-    print(f"Odysseus demo: http://127.0.0.1:{args.port}/")
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"Odysseus demo: {url}")
+    app.start()
+    if args.open:
+        webbrowser.open(url)
     try:
         app.serve_forever()
     except KeyboardInterrupt:

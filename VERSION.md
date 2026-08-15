@@ -2,14 +2,32 @@
 
 ## Current version
 
-**0.5.3 — 2026-08-14**
+**0.5.4 — 2026-08-15**
 
 Version 0.5 makes project context and reusable engineering guidance visible at
 the project level. Repository evidence remains read-only, while project briefs,
 skill policies, and exact per-run skill snapshots live in private Odysseus
 state.
 
-## What is available in 0.5.3
+## What is available in 0.5.4
+
+### 0.5.4 Product Proof and Simpler First Run
+
+- `install.sh` supports a reviewed checkout install and a one-command GitHub
+  install, creates only an `odysseus` command link, refuses to overwrite an
+  unrelated file, and finishes with a local readiness check.
+- `odysseus start` is the plain-language entry point for the scheduler and web
+  UI. `odysseus demo` opens a disposable populated tour without agent tokens.
+- `doctor` now defaults to a readable required/optional dependency report and
+  retains stable machine output through `doctor --json`.
+- A clean state opens with repository registration and real capability status.
+  A selected project opens with one inline outcome field; default routing,
+  Skills, worktree isolation, checks, and review are applied automatically.
+- Advanced task settings remain one click away and preserve the draft. Project
+  Skills, Memory, Git history, and the audit timeline are grouped under one
+  progressive-disclosure section instead of dominating routine work.
+- The deterministic demo and nine-view screenshot capture path remain tied to
+  shipped fresh/demo server state rather than UI mockups.
 
 ### 0.5.3 Project Memory and Explainable Skill Routing
 
@@ -181,7 +199,7 @@ state.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.5.3` |
+| Application version | `0.5.4` |
 | Run snapshot schema | `7` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
@@ -208,7 +226,7 @@ the application, run-schema, event-envelope, and export-format markers.
   credentials, CPU, RAM, or network access. Runtime isolation is next.
 - Project discovery is deterministic and read-only; semantic repository
   retrieval and autonomous knowledge extraction are not
-  part of 0.5.3. History creates reviewable suggestions, not trusted memory.
+  part of 0.5.4. History creates reviewable suggestions, not trusted memory.
 
 ## Upgrade from 0.4 or earlier
 
@@ -216,9 +234,10 @@ Stop the running server and back up the complete state directory, then:
 
 ```sh
 git pull --ff-only
-bin/odysseus doctor
+./install.sh
+odysseus doctor
 python3 -m unittest discover -s tests -v
-bin/odysseus serve
+odysseus start
 ```
 
 Opening the state store adds schema-7 defaults to older run snapshots. Event
@@ -228,6 +247,12 @@ An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.5.4 — Product Proof and Simpler First Run
+
+Added the source installer, plain-language start/demo/doctor commands, guided
+repository onboarding, an inline quick-task composer, and progressive project
+depth without removing the existing orchestration controls.
 
 ### 0.5.3 — Project Memory and Explainable Skill Routing
 

@@ -7,14 +7,16 @@ import json
 import os
 import shutil
 import signal
+import subprocess
 import sys
 import threading
 import webbrowser
 from pathlib import Path
 from typing import Any
 
-from .planner import EpicPlanner
+from . import __version__
 from .ci import CIWatcher
+from .planner import EpicPlanner
 from .search import search, statistics
 from .scheduler import ReviewActions, Scheduler
 from .server import OdysseusApp
@@ -336,8 +338,42 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     result["state_dir"] = str(store.root)
     result["state_writable"] = os.access(store.root, os.W_OK)
     result["custom_lanes"] = sorted(lanes)
-    _print_json(result)
+    if args.json:
+        _print_json(result)
+    else:
+        print(f"Odysseus {__version__}")
+        print()
+        labels = {
+            "git": "Git",
+            "python3": "Python 3",
+            "codex": "Codex CLI",
+            "claude": "Claude Code",
+            "gh": "GitHub CLI",
+        }
+        for name in tools:
+            marker = "ready" if result[name] else "missing"
+            optional = "" if name in {"git", "python3"} else " (optional)"
+            location = result[name] or "not found"
+            print(f"  {marker:<7} {labels[name]}{optional}: {location}")
+        print()
+        print(f"  state   {result['state_dir']} ({'writable' if result['state_writable'] else 'not writable'})")
+        if result["git"] and result["python3"] and (result["codex"] or result["claude"]):
+            print("\nReady. Run `odysseus start` and add a repository.")
+        elif result["git"] and result["python3"]:
+            print("\nCore is ready. Install and authenticate Codex CLI or Claude Code before running tasks.")
+        else:
+            print("\nInstall the missing required tools before starting Odysseus.")
     return 0 if result["git"] and result["python3"] else 1
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    script = Path(__file__).resolve().parent.parent / "scripts" / "demo.py"
+    if not script.is_file():
+        raise ValueError(f"demo script is missing: {script}")
+    command = [sys.executable, str(script), "--serve", "--port", str(args.port)]
+    if args.open:
+        command.append("--open")
+    return int(subprocess.run(command, check=False).returncode)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -345,6 +381,7 @@ def parser() -> argparse.ArgumentParser:
         prog="odysseus",
         description="Local worktree, queue, workflow, and review control plane for coding agents.",
     )
+    root.add_argument("--version", action="version", version=f"Odysseus {__version__}")
     root.add_argument(
         "--state-dir",
         type=Path,
@@ -353,7 +390,7 @@ def parser() -> argparse.ArgumentParser:
     )
     sub = root.add_subparsers(dest="command", required=True)
 
-    serve = sub.add_parser("serve", aliases=["web"], help="run the scheduler and local web UI")
+    serve = sub.add_parser("serve", aliases=["web", "start"], help="run the scheduler and local web UI")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=int(os.environ.get("ODYSSEUS_PORT", "8741")))
     serve.add_argument("--allow-remote", action="store_true", help="disable loopback Host/Origin checks")
@@ -496,7 +533,13 @@ def parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--output")
     export_parser.set_defaults(func=cmd_export)
 
+    demo = sub.add_parser("demo", help="open a populated no-token product tour")
+    demo.add_argument("--port", type=int, default=8742)
+    demo.add_argument("--open", action=argparse.BooleanOptionalAction, default=True)
+    demo.set_defaults(func=cmd_demo)
+
     doctor = sub.add_parser("doctor", help="show local tool availability")
+    doctor.add_argument("--json", action="store_true")
     doctor.set_defaults(func=cmd_doctor)
     return root
 

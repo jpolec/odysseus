@@ -43,6 +43,9 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
+                self.assertEqual(bootstrap["version"], "0.5.4")
+                self.assertIn("git", bootstrap["capabilities"])
+                self.assertTrue(bootstrap["working_directory"])
 
                 body = json.dumps({"task": "Test API", "project_path": str(project)}).encode()
                 forbidden = urllib.request.Request(
@@ -71,6 +74,7 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="projectExplorer"', html)
                 self.assertIn('id="projectTree"', html)
                 self.assertIn('id="workView"', html)
+                self.assertIn('id="quickStart"', html)
                 self.assertIn('id="projectHome"', html)
                 self.assertIn('id="projectTimeline"', html)
                 self.assertIn('id="projectSkillList"', html)

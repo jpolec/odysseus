@@ -291,6 +291,90 @@ function renderProjectKnowledge() {
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
 }
 
+function renderQuickStart() {
+  const container = $("#quickStart");
+  const project = activeProject();
+  const mode = !state.projects.length ? "first-project" : project ? `task:${project.id}` : "hidden";
+  if (container.dataset.mode === mode) return;
+  container.dataset.mode = mode;
+  if (mode === "hidden") {
+    container.className = "quick-start hidden";
+    container.innerHTML = "";
+    return;
+  }
+  if (mode === "first-project") {
+    const capabilities = state.bootstrap?.capabilities || {};
+    const agentsReady = capabilities.codex || capabilities.claude;
+    container.className = "quick-start first-run-card";
+    container.innerHTML = `
+      <div class="first-run-copy">
+        <span class="step-badge">FIRST RUN · ABOUT 3 MINUTES</span>
+        <h2>Connect one repository.</h2>
+        <p>Odysseus reads the existing README and agent instructions, then keeps every task on its own branch and worktree. Your source checkout is not modified by registration.</p>
+        <form class="quick-project-form" id="quickProjectForm">
+          <label for="quickProjectPath">Repository path</label>
+          <div><input id="quickProjectPath" name="path" required placeholder="${escapeHtml(state.bootstrap?.working_directory || "/absolute/path/to/repository")}"><button class="primary" type="submit">Add repository</button></div>
+        </form>
+        <button class="text-button" id="copyDemoCommand" type="button">Not ready to run an agent? Copy the no-token demo command</button>
+      </div>
+      <ol class="first-run-steps">
+        <li class="done"><span>1</span><div><strong>Odysseus is running</strong><small>Local control plane connected</small></div></li>
+        <li class="${capabilities.git ? "done" : "missing"}"><span>2</span><div><strong>${capabilities.git ? "Git is ready" : "Git is missing"}</strong><small>Required for branches and worktrees</small></div></li>
+        <li class="${agentsReady ? "done" : "missing"}"><span>3</span><div><strong>${agentsReady ? "Agent CLI is ready" : "Install an agent CLI"}</strong><small>${capabilities.codex ? "Codex CLI detected" : capabilities.claude ? "Claude Code detected" : "Codex CLI or Claude Code is required for real tasks"}</small></div></li>
+      </ol>`;
+    $("#quickProjectForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector("button");
+      const path = new FormData(event.currentTarget).get("path");
+      try {
+        button.disabled = true; button.textContent = "Adding…";
+        const registered = await api("/api/projects", {method: "POST", body: JSON.stringify({path})});
+        await refreshProjects();
+        selectProject(registered.id);
+        toast(`${registered.name} is ready. Describe the first change.`);
+      } catch (error) { toast(error.message, true); }
+      finally { button.disabled = false; button.textContent = "Add repository"; }
+    });
+    $("#copyDemoCommand").addEventListener("click", () => copyCommand("odysseus demo"));
+    return;
+  }
+  container.className = "quick-start quick-task-card";
+  container.innerHTML = `
+    <form id="quickTaskForm">
+      <div class="quick-task-heading"><div><span class="step-badge">NEXT CHANGE</span><h2>What should change in ${escapeHtml(project.name)}?</h2></div><span class="safety-note">Source checkout stays untouched</span></div>
+      <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Describe one finished outcome, important constraints, and how to verify it."></textarea>
+      <div class="quick-task-actions"><button class="primary" type="submit">Start task</button><button class="ghost" id="quickPlanTask" type="button">Plan larger work</button><button class="text-button" id="quickAdvancedTask" type="button">Agent, checks & limits…</button></div>
+    </form>`;
+  $("#quickTaskForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const task = String(new FormData(event.currentTarget).get("task") || "").trim();
+    if (!task) return;
+    try {
+      button.disabled = true; button.textContent = "Queueing…";
+      const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task, project_path: project.path, lane: state.bootstrap.default_lane, skill_mode: "auto"})});
+      event.currentTarget.reset();
+      toast(`Task queued: ${run.title}`);
+      await Promise.all([refreshRuns(), refreshProjects()]);
+      await selectRun(run.id);
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; button.textContent = "Start task"; }
+  });
+  $("#quickPlanTask").addEventListener("click", () => {
+    const prompt = $("#quickTaskPrompt").value;
+    prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject"));
+    $("#epicForm").elements.requirement.value = prompt;
+    $("#epicDialog").showModal();
+  });
+  $("#quickAdvancedTask").addEventListener("click", () => {
+    const prompt = $("#quickTaskPrompt").value;
+    prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject"));
+    $("#taskPrompt").value = prompt;
+    refreshTaskSkillChoices().catch((error) => toast(error.message, true));
+    $("#taskDialog").showModal();
+  });
+}
+
 function renderWork() {
   const project = activeProject();
   const runs = project ? runsForProject(project.id) : state.runs;
@@ -299,22 +383,28 @@ function renderWork() {
   const complete = runs.filter((run) => ["accepted", "pr_created", "completed"].includes(run.status)).length;
   const terminals = project ? projectTerminalCount(project) : state.sessions.length;
   $("#workBreadcrumb").textContent = project ? "PROJECT" : "WORKSPACE";
-  $("#workTitle").textContent = project?.name || "All work";
-  $("#workDescription").textContent = project ? "Tasks, plans, and agent activity for this repository." : "Choose a project, see what is moving, and start the next task.";
-  $("#workMeta").innerHTML = project ? `<span>${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : `<span>${state.projects.length} registered projects</span><span>${state.bootstrap?.max_parallel || 0} parallel slots</span><span>Local-first workspace</span>`;
+  $("#workTitle").textContent = project?.name || (state.projects.length ? "All work" : "Welcome to Odysseus");
+  $("#workDescription").textContent = project ? "Start a change, see current tasks, or inspect the repository context agents receive." : state.projects.length ? "Choose a project, see what is moving, and start the next task." : "Connect a repository, then describe the result you want. Odysseus handles the agent workflow and shows you only the decisions.";
+  $("#workMeta").innerHTML = project ? `<span>${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : state.projects.length ? `<span>${state.projects.length} registered projects</span><span>${state.bootstrap?.max_parallel || 0} parallel slots</span><span>Local-first workspace</span>` : "";
+  $("#workMeta").classList.toggle("hidden", !project && !state.projects.length);
   $("#workSummary").innerHTML = [
     [project ? runs.length : state.projects.length, project ? "Tasks" : "Projects", project ? "in this repository" : "registered repositories"],
     [active, "In progress", "running or queued"],
     [needs, "Needs you", needs ? "decisions waiting" : "nothing waiting"],
     [project ? terminals : complete, project ? "Terminals" : "Completed", project ? "agent panes" : "accepted changes"],
   ].map(([value, label, note]) => `<div class="work-stat"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
+  $("#workSummary").classList.toggle("hidden", !state.projects.length);
+  renderQuickStart();
   renderProjectKnowledge();
   $("#workPlanButton").classList.toggle("hidden", !project);
+  $("#workNewTaskButton").classList.toggle("hidden", !state.projects.length);
+  $("#newTaskButton").classList.toggle("hidden", !state.projects.length);
   $("#workListEyebrow").textContent = project ? "TASKS" : "PROJECTS";
   $("#workListTitle").textContent = project ? "Recent work" : "Your workspace";
   const secondary = $("#workSecondaryAction");
   secondary.textContent = project ? "View plans" : "Add project";
   secondary.onclick = () => project ? setView("epics") : $("#projectDialog").showModal();
+  $("#workList").closest(".work-section").classList.toggle("hidden", !state.projects.length);
   if (!project) {
     $("#workList").innerHTML = state.projects.length ? state.projects.map((item) => {
       const itemRuns = runsForProject(item.id); const itemActive = itemRuns.filter((run) => activeStatuses.has(run.status)).length; const itemNeeds = attentionForProject(item.id).length;
@@ -748,7 +838,7 @@ function bindDialogs() {
   $("#newInboxButton").addEventListener("click", () => $("#inboxDialog").showModal());
   $("#inboxForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); await api("/api/inbox", {method: "POST", body: JSON.stringify({title: data.get("title"), task: data.get("task"), project_id: project?.id || "", project_path: project?.path || ""})}); $("#inboxDialog").close(); event.currentTarget.reset(); await refreshInbox(); });
   [$("#addProjectButton"), $("#manageAddProjectButton")].forEach((button) => button?.addEventListener("click", () => $("#projectDialog").showModal()));
-  $("#projectForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); try { await api("/api/projects", {method: "POST", body: JSON.stringify({path: data.get("path"), name: data.get("name"), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean)})}); $("#projectDialog").close(); event.currentTarget.reset(); await refreshProjects(); } catch (error) { toast(error.message, true); } });
+  $("#projectForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); try { const registered = await api("/api/projects", {method: "POST", body: JSON.stringify({path: data.get("path"), name: data.get("name"), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean)})}); $("#projectDialog").close(); event.currentTarget.reset(); await refreshProjects(); selectProject(registered.id); toast(`${registered.name} is ready.`); } catch (error) { toast(error.message, true); } });
 }
 
 async function init() {

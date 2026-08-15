@@ -7,6 +7,7 @@ import json
 import mimetypes
 import re
 import secrets
+import shutil
 import threading
 import time
 from http import HTTPStatus
@@ -99,7 +100,7 @@ class OdysseusHTTPServer(ThreadingHTTPServer):
 class OdysseusHandler(BaseHTTPRequestHandler):
     server: OdysseusHTTPServer
     protocol_version = "HTTP/1.1"
-    server_version = "Odysseus/0.4"
+    server_version = f"Odysseus/{__version__}"
 
     def log_message(self, format: str, *args: Any) -> None:
         if self.server.app.verbose:
@@ -127,6 +128,11 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "default_workflow": config["default_workflow"],
                     "lanes": list(dict.fromkeys(lanes)),
                     "tmux_available": self.server.app.tmux.available(),
+                    "capabilities": {
+                        name: bool(shutil.which(name))
+                        for name in ("git", "codex", "claude", "tmux", "gh")
+                    },
+                    "working_directory": str(Path.cwd()),
                     "repository_url": "https://github.com/jpolec/odysseus",
                     "ci": config.get("ci") or {},
                 }

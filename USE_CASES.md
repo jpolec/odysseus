@@ -117,7 +117,7 @@ provider rate limit. The operator can preserve the worktree, fix the control
 plane, and resume the same session.
 
 Success means the orchestration failure is a durable, actionable attention
-item rather than lost terminal output. `scripts/demo.py --serve` supplies a safe
+item rather than lost terminal output. `odysseus demo` supplies a safe
 seeded tour when real model usage is undesirable.
 
 ## Close the pull-request feedback loop — 0.4

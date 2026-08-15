@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.5.3](https://img.shields.io/badge/version-0.5.3-171a16)
+![Version: 0.5.4](https://img.shields.io/badge/version-0.5.4-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -22,7 +22,7 @@ available without occupying the first-use path.
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
 [Version and capabilities](VERSION.md) · [Security](SECURITY.md) ·
-[Protocol and API](docs/odysseus-protocol.md)
+[Release proof](PROOF.md) · [Protocol and API](docs/odysseus-protocol.md)
 
 ## Why Odysseus
 
@@ -71,21 +71,34 @@ Requirements: Python 3.10+, Git, and Codex CLI and/or Claude Code. tmux and fzf
 are needed for terminal controls; authenticated `gh` is needed for GitHub issue
 intake and draft pull requests.
 
+Install the `odysseus` command and open the local UI:
+
 ```sh
-git clone https://github.com/jpolec/odysseus.git
-cd odysseus
-bin/odysseus doctor
-bin/odysseus serve --open
+curl -fsSL https://raw.githubusercontent.com/jpolec/odysseus/main/install.sh | bash
+odysseus start --open
 ```
 
-Without `--open`, visit <http://127.0.0.1:8741/>. Keep this process running: it
-serves the UI and claims queued tasks. The fastest end-to-end walkthrough is in
-[START.md](START.md).
+Review [`install.sh`](install.sh) before piping it if that is your preference.
+It clones Odysseus under `~/.local/share`, links only the command into
+`~/.local/bin`, refuses to replace an unrelated file, and runs `doctor`. An
+equally simple checkout-based install is:
+
+```sh
+git clone https://github.com/jpolec/odysseus.git
+cd odysseus && ./install.sh
+```
+
+Without `--open`, visit <http://127.0.0.1:8741/>. The first screen checks local
+readiness and asks for one repository path. Select that project, describe one
+finished outcome, and choose **Start task**. Agent choice, checks, limits,
+Skills, planning, Context Receipts, and project history remain available as
+progressive depth instead of blocking the first run. See [START.md](START.md)
+for the complete five-minute path.
 
 To explore a populated control plane without spending model tokens:
 
 ```sh
-scripts/demo.py --serve
+odysseus demo
 ```
 
 Open <http://127.0.0.1:8742/>. The disposable state demonstrates multiple
@@ -98,7 +111,7 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes eight real browser captures—Workspace, Project, Attention,
+The script writes nine real browser captures—First run, Workspace, Project, Attention,
 Task Summary, Integration, CI repair, Context Receipt, and New task—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 project, task surface, or dialog, so filenames match the visible UI.

@@ -62,6 +62,7 @@
             <div class="work-actions"><button class="ghost" id="workPlanButton" type="button">Plan feature</button><button class="primary" id="workNewTaskButton" type="button">＋ New task</button></div>
           </header>
           <div class="work-meta" id="workMeta"></div>
+          <section class="quick-start" id="quickStart" aria-live="polite"></section>
           <div class="work-summary" id="workSummary"></div>
           <section class="project-home hidden" id="projectHome" aria-label="Project knowledge">
             <div class="project-home-grid">
@@ -77,25 +78,30 @@
                 <div class="context-source-list" id="projectContextSources"></div>
               </article>
             </div>
-            <article class="project-knowledge-card project-skills-card">
-              <header><div><p class="eyebrow">PROJECT SKILLS</p><h2>Reusable engineering guidance</h2><p class="card-description">Odysseus can load small, generic playbooks when a task matches. Project-local skills override the bundled catalog.</p></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
-              <div class="project-skill-list" id="projectSkillList"><div class="empty-list">Loading project skills…</div></div>
-            </article>
-            <article class="project-knowledge-card project-memory-card">
-              <header><div><p class="eyebrow">PROJECT MEMORY</p><h2>Repository-specific knowledge</h2><p class="card-description">Store facts unique to this codebase. Triggers and folders attach only relevant memory to a task; every attachment appears in its Context Receipt.</p></div><div class="memory-head-actions"><span class="quiet-badge" id="projectMemoryCount">0 active</span><button class="ghost compact" id="addProjectMemory" type="button">Add memory</button></div></header>
-              <div class="project-memory-list" id="projectMemoryList"><div class="empty-list">Loading project memory…</div></div>
-              <div class="memory-suggestions hidden" id="memorySuggestions"></div>
-            </article>
-            <div class="project-home-grid project-history-grid">
-              <article class="project-knowledge-card">
-                <header><div><p class="eyebrow">GIT</p><h2>Recent commits</h2></div></header>
-                <div class="project-commit-list" id="projectCommitList"></div>
-              </article>
-              <article class="project-knowledge-card">
-                <header><div><p class="eyebrow">PROJECT LOG</p><h2>What happened and how</h2></div></header>
-                <div class="project-timeline" id="projectTimeline"></div>
-              </article>
-            </div>
+            <details class="project-deep-section">
+              <summary><span><strong>Project knowledge and history</strong><small>Skills, memory, recent commits, and the audit timeline</small></span><span>Open details</span></summary>
+              <div class="project-deep-content">
+                <article class="project-knowledge-card project-skills-card">
+                  <header><div><p class="eyebrow">PROJECT SKILLS</p><h2>Reusable engineering guidance</h2><p class="card-description">Odysseus can load small, generic playbooks when a task matches. Project-local skills override the bundled catalog.</p></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
+                  <div class="project-skill-list" id="projectSkillList"><div class="empty-list">Loading project skills…</div></div>
+                </article>
+                <article class="project-knowledge-card project-memory-card">
+                  <header><div><p class="eyebrow">PROJECT MEMORY</p><h2>Repository-specific knowledge</h2><p class="card-description">Store facts unique to this codebase. Triggers and folders attach only relevant memory to a task; every attachment appears in its Context Receipt.</p></div><div class="memory-head-actions"><span class="quiet-badge" id="projectMemoryCount">0 active</span><button class="ghost compact" id="addProjectMemory" type="button">Add memory</button></div></header>
+                  <div class="project-memory-list" id="projectMemoryList"><div class="empty-list">Loading project memory…</div></div>
+                  <div class="memory-suggestions hidden" id="memorySuggestions"></div>
+                </article>
+                <div class="project-home-grid project-history-grid">
+                  <article class="project-knowledge-card">
+                    <header><div><p class="eyebrow">GIT</p><h2>Recent commits</h2></div></header>
+                    <div class="project-commit-list" id="projectCommitList"></div>
+                  </article>
+                  <article class="project-knowledge-card">
+                    <header><div><p class="eyebrow">PROJECT LOG</p><h2>What happened and how</h2></div></header>
+                    <div class="project-timeline" id="projectTimeline"></div>
+                  </article>
+                </div>
+              </div>
+            </details>
           </section>
           <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">PROJECTS</p><h2 id="workListTitle">Your workspace</h2></div><button class="ghost" id="workSecondaryAction" type="button">Add project</button></div><div class="work-list" id="workList"></div></section>
         </section>

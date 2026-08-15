@@ -1,44 +1,43 @@
-# Start Odysseus in ten minutes
+# Start Odysseus in five minutes
 
-This walkthrough starts the web control plane, tries a no-token demo, runs one
-isolated task or planned task graph, and connects the tmux controls. Nothing is installed
-globally.
+This walkthrough installs one command, starts the local control plane, and runs
+one isolated task. Advanced planning and tmux controls remain optional.
 
-## 1. Clone and verify
+## 1. Install and verify
 
 ```sh
-git clone https://github.com/jpolec/odysseus.git
-cd odysseus
-bin/odysseus doctor
+curl -fsSL https://raw.githubusercontent.com/jpolec/odysseus/main/install.sh | bash
+odysseus doctor
 ```
 
 Python 3.10+ and Git are required. Install and authenticate at least one agent
 CLI (`codex` or `claude`). Install tmux and fzf for terminal session management,
 and authenticate `gh` for GitHub issue intake or draft pull requests.
 
-`doctor` prints the resolved path for every optional tool and the state
-directory that Odysseus will use.
+`doctor` prints a short readiness report. Add `--json` for scripts. To avoid a
+piped installer, clone the repository and run `./install.sh`; the installer
+links the checkout command and does not copy or move your repositories.
 
 ## 2. Start the control plane
 
 ```sh
-bin/odysseus serve --open
+odysseus start --open
 ```
 
 If the browser does not open, visit <http://127.0.0.1:8741/>. Keep this process
 running: it serves the UI and runs the persistent scheduler. State is stored in
 `~/.odysseus` unless `ODYSSEUS_HOME` or `--state-dir` overrides it.
 
-The landing page is **All work**. The Explorer shows registered projects and
-their recent tasks. Select a project to make it the current working context;
-**Needs You** remains the global queue of decisions and failures.
+On a fresh state, the landing page shows three readiness checks and one
+repository-path field. Add a Git repository; registration reads metadata but
+does not modify the checkout. The project page then shows one large task field.
 
 ## 3. Optional: tour the populated UI without agents
 
 In another terminal:
 
 ```sh
-scripts/demo.py --serve
+odysseus demo
 ```
 
 Open <http://127.0.0.1:8742/>. The disposable state contains a passkey plan,
@@ -52,16 +51,15 @@ explainable evaluation. Stop with
 
 In the web UI:
 
-1. Select a project in the Explorer.
-2. Select **New task**.
-3. Describe one finished outcome.
-4. Select **Start task**.
+1. Select the project in the Explorer.
+2. Describe one finished outcome in **What should change?**
+3. Select **Start task**.
 
-The large text box is the only creative input. Write the desired result as you
+The large text box is the only required input. Write the desired result as you
 would to an engineer, including constraints and what “done” means. The selected
-project supplies the repository, defaults, and automatically relevant generic
-Skills. Agent, manual Skill choice, checks, retries, priority, and budgets stay
-under **Customize agent, checks, and limits**.
+project supplies the repository, default agent, and automatically relevant
+generic Skills. Select **Agent, checks & limits…** only when defaults are not
+enough; it opens the full task form without losing the text you entered.
 
 The equivalent CLI command is:
 
