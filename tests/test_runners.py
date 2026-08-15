@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from odysseus.runners import AgentRunner, _VendorNormalizer, _attention_from_text, _sanitize
+from odysseus.runners import AgentRunner, CheckRunner, _VendorNormalizer, _attention_from_text, _sanitize
 
 
 class RunnerTests(unittest.TestCase):
@@ -108,6 +110,25 @@ class RunnerTests(unittest.TestCase):
         value = _sanitize({"api_key": "secret", "command": "curl -H 'Authorization: Bearer abcdefghijklmnop'"})
         self.assertEqual(value["api_key"], "[REDACTED]")
         self.assertNotIn("abcdefghijklmnop", value["command"])
+
+    def test_allowlisted_runtime_value_is_redacted_from_events_and_result(self) -> None:
+        credential = "ordinary-value-not-matching-a-token-pattern"
+        events = []
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(
+            os.environ, {"RUNTIME_CREDENTIAL": credential}, clear=False
+        ):
+            result = CheckRunner().run(
+                "printf '%s\\n' \"$RUNTIME_CREDENTIAL\"",
+                Path(temp),
+                emit=lambda event_type, source, data: events.append((event_type, source, data)),
+                cancelled=lambda: False,
+                execution={"profile": "host", "credential_env_names": ["RUNTIME_CREDENTIAL"]},
+            )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn(credential, result.output)
+        self.assertEqual(result.output, "[REDACTED]")
+        self.assertNotIn(credential, str(events))
 
     def test_usage_counters_are_not_mistaken_for_credentials(self) -> None:
         value = _sanitize(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a disposable, deterministic-looking Odysseus 0.5 demo control plane."""
+"""Create a disposable, deterministic Odysseus 0.6 product-tour state."""
 
 from __future__ import annotations
 
@@ -75,6 +75,10 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         check_results=[{"command": "python3 -m unittest tests.test_webhooks", "returncode": 0, "output": "12 tests passed"}],
         confidence=0.97,
         policy_decision="accept",
+        environment={
+            "version": "environment-plan-v1", "profile": "host", "status": "active",
+            "network": "bridge", "ports": {}, "isolation": "none; host user permissions apply",
+        },
         metrics={
             "input_tokens": 18_206,
             "cached_input_tokens": 12_844,
@@ -104,6 +108,12 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         review_summary="Temporal checks pass. Confirm the accepted lag policy before approving.",
         confidence=0.91,
         policy_decision="human_review",
+        environment={
+            "version": "environment-plan-v1", "profile": "docker", "status": "active",
+            "image": "ghcr.io/example/python-research-agent:2026-08", "network": "none",
+            "cpus": 2, "memory": "4g", "ports": {}, "credential_env_names": [],
+            "isolation": "container filesystem, resources, network mode, and scoped environment",
+        },
         metrics={
             "input_tokens": 27_940,
             "cached_input_tokens": 19_102,
@@ -182,6 +192,15 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "session_usage": {},
         },
         review_summary="No critical findings. One cookie-hardening decision remains with the operator.",
+        environment={
+            "version": "environment-plan-v1", "profile": "docker", "status": "active",
+            "image": "ghcr.io/example/codex-node:2026-08", "network": "bridge",
+            "cpus": 2, "memory": "4g",
+            "ports": {"APP_PORT": {"host": 43172, "container": 3000}},
+            "credential_env_names": ["OPENAI_API_KEY"],
+            "preview_url": "http://127.0.0.1:43172/",
+            "isolation": "container filesystem, resources, network mode, and scoped environment",
+        },
     )
     evaluation = EvaluationEngine.evaluate(
         store.get(backend_id),
@@ -203,7 +222,15 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     store.append_event(backend_id, "run.review_ready", "odysseus", {"message": "Implementation and independent review are ready."})
 
     frontend_id = mapping["passkey-ui"]
-    store.update(frontend_id, status="attention", worker_pid=None)
+    store.update(
+        frontend_id,
+        status="attention",
+        worker_pid=None,
+        environment={
+            "version": "environment-plan-v1", "profile": "devcontainer", "status": "active",
+            "network": "bridge", "ports": {}, "isolation": "repository-defined devcontainer",
+        },
+    )
     store.append_event(
         frontend_id,
         "agent.question",
@@ -289,6 +316,15 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         review_status="ci_repair_pushed",
         stage="ci",
         last_heartbeat="2026-08-14T09:23:45Z",
+        environment={
+            "version": "environment-plan-v1", "profile": "docker", "status": "active",
+            "image": "ghcr.io/example/codex-node:2026-08", "network": "bridge",
+            "cpus": 2, "memory": "4g",
+            "ports": {"APP_PORT": {"host": 43184, "container": 3000}},
+            "credential_env_names": ["OPENAI_API_KEY", "GH_TOKEN"],
+            "preview_url": "http://127.0.0.1:43184/",
+            "isolation": "container filesystem, resources, network mode, and scoped environment",
+        },
     )
     store.append_event(ci_id, "integration.started", "git", {"risk": "high", "source_count": 2})
     store.append_event(ci_id, "integration.artifact_applied", "git", {"dependency_run_id": "checkout-api"})

@@ -11,8 +11,9 @@ odysseus doctor
 ```
 
 Python 3.10+ and Git are required. Install and authenticate at least one agent
-CLI (`codex` or `claude`). Install tmux and fzf for terminal session management,
-and authenticate `gh` for GitHub issue intake or draft pull requests.
+CLI (`codex` or `claude`). Docker is optional and enables isolated execution.
+Install tmux and fzf for terminal session management, and authenticate `gh` for
+GitHub issue intake or draft pull requests.
 
 `doctor` prints a short readiness report. Add `--json` for scripts. To avoid a
 piped installer, clone the repository and run `./install.sh`; the installer
@@ -79,6 +80,24 @@ Odysseus creates an `odysseus/<run-id>` branch and isolated Git worktree, runs
 the implementation agent, executes the checks, asks a read-only agent for
 review, evaluates the independent signals, and stops at the human decision
 gate unless an explicit project policy permits auto-accept eligibility.
+
+The default `host` profile is the easiest compatibility path, but a worktree is
+not an operating-system sandbox. For an isolated task, open **Agent, checks &
+limits…**, select **Docker**, and provide an image containing the agent CLI and
+project tools. The CLI equivalent is:
+
+```sh
+bin/odysseus run \
+  --project /absolute/path/to/your/repository \
+  --environment docker \
+  --image ghcr.io/your-org/coding-agent:latest \
+  --network none --cpus 2 --memory 4g \
+  "Make the requested change and run the repository tests"
+```
+
+Use `--allow-env NAME` only for credentials the task genuinely needs. Odysseus
+stores the name, never the value. Use `--untrusted-project` for an unknown repo;
+it requires Docker and pauses for approval before repository-supplied commands.
 
 ## 5. Or plan a larger requirement
 

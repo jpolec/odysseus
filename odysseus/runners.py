@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .environments import wrap_command
+
 
 Emit = Callable[[str, str, Mapping[str, Any]], None]
 Cancelled = Callable[[], bool]
@@ -84,6 +86,31 @@ def _sanitize(value: Any, *, key: str = "") -> Any:
     if isinstance(value, dict):
         return {str(item_key): _sanitize(item_value, key=str(item_key)) for item_key, item_value in list(value.items())[:100]}
     return value
+
+
+def _redact_values(value: Any, sensitive_values: Sequence[str]) -> Any:
+    """Remove exact runtime credentials even when they do not match a token pattern."""
+
+    secrets = [item for item in sensitive_values if len(item) >= 4]
+    if isinstance(value, str):
+        for secret in secrets:
+            value = value.replace(secret, "[REDACTED]")
+        return value
+    if isinstance(value, list):
+        return [_redact_values(item, secrets) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_values(item, secrets) for key, item in value.items()}
+    return value
+
+
+def _execution_secrets(execution: Mapping[str, Any] | None) -> list[str]:
+    if not execution:
+        return []
+    return [
+        value
+        for name in execution.get("credential_env_names") or []
+        if (value := os.environ.get(str(name))) is not None
+    ]
 
 
 def _attention_from_text(text: str) -> tuple[str, dict[str, Any]] | None:
@@ -202,6 +229,7 @@ class AgentRunner:
         phase: str = "agent",
         timeout_seconds: float = 0,
         stall_seconds: float = 0,
+        execution: Mapping[str, Any] | None = None,
     ) -> ProcessResult:
         args = self.command(
             lane,
@@ -210,9 +238,10 @@ class AgentRunner:
             review=review,
             resume_session_id=resume_session_id,
         )
+        host_args, cwd, process_env = wrap_command(execution, args, worktree, phase=phase)
         return _stream_process(
-            args,
-            cwd=worktree,
+            host_args,
+            cwd=cwd,
             source=lane,
             event_type="agent.output",
             emit=emit,
@@ -222,6 +251,8 @@ class AgentRunner:
             resumed=bool(resume_session_id),
             timeout_seconds=timeout_seconds,
             stall_seconds=stall_seconds,
+            process_env=process_env,
+            redact_values=_execution_secrets(execution),
         )
 
 
@@ -233,17 +264,27 @@ class CheckRunner:
         *,
         emit: Emit,
         cancelled: Cancelled,
+        execution: Mapping[str, Any] | None = None,
+        phase: str = "check",
     ) -> ProcessResult:
-        return _stream_process(
+        args, cwd, process_env = wrap_command(
+            execution,
             ["/bin/sh", "-lc", command],
-            cwd=worktree,
+            worktree,
+            phase=phase,
+        )
+        return _stream_process(
+            args,
+            cwd=cwd,
             source="check",
             event_type="check.output",
             emit=emit,
             cancelled=cancelled,
             parse_json=False,
-            phase="check",
+            phase=phase,
             resumed=False,
+            process_env=process_env,
+            redact_values=_execution_secrets(execution),
         )
 
 
@@ -453,6 +494,8 @@ def _stream_process(
     resumed: bool,
     timeout_seconds: float = 0,
     stall_seconds: float = 0,
+    process_env: Mapping[str, str] | None = None,
+    redact_values: Sequence[str] = (),
 ) -> ProcessResult:
     started = time.monotonic()
     try:
@@ -464,6 +507,7 @@ def _stream_process(
             stderr=subprocess.PIPE,
             bufsize=1,
             start_new_session=True,
+            env=dict(process_env) if process_env is not None else None,
         )
     except (OSError, ValueError) as exc:
         message = str(exc)
@@ -549,16 +593,16 @@ def _stream_process(
                     text = extracted
                 else:
                     text = f"[{data['vendor_type']}]"
-        data["text"] = _sanitize(text[:20_000])
+        data["text"] = _redact_values(_sanitize(text[:20_000]), redact_values)
         data["phase"] = phase
         normalized_events = normalizer.events(vendor) if isinstance(vendor, dict) else []
         if not normalized_events:
             emit(event_type, source, data)
         if isinstance(vendor, dict):
             for normalized_type, normalized_data in normalized_events:
-                emit(normalized_type, source, _sanitize(normalized_data))
+                emit(normalized_type, source, _redact_values(_sanitize(normalized_data), redact_values))
         if output_size < 120_000:
-            chunk = text + "\n"
+            chunk = str(_redact_values(_sanitize(text), redact_values)) + "\n"
             output.append(chunk)
             output_size += len(chunk)
 

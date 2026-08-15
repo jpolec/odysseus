@@ -86,6 +86,9 @@ dag.dependency_met      dag.blocked              dag.unblocked
 planner.started         planner.completed        planner.failed
 skill.selected          skill.loaded
 context.receipt.created knowledge.selected
+environment.prepared    environment.starting    environment.started
+environment.setup_started environment.setup_completed
+environment.approved    environment.rejected
 ```
 
 ## HTTP API
@@ -156,6 +159,18 @@ Example create request:
   "priority": 70,
   "skill_mode": "auto",
   "skills": [],
+  "environment": {
+    "profile": "docker",
+    "image": "ghcr.io/example/coding-agent:2026-08",
+    "network": "none",
+    "env": {"APP_MODE": "test"},
+    "allow_env": ["OPENAI_API_KEY"],
+    "ports": {},
+    "cpus": 2,
+    "memory": "4g",
+    "setup": []
+  },
+  "untrusted_project": true,
   "budgets": {
     "timeout_seconds": 1800,
     "stall_seconds": 300,
@@ -239,3 +254,10 @@ Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 adds `knowledge_selected` and the explainable `skill_routing` record. Context
 and skill payloads are queue-time snapshots; consumers must not replace their
 digests with the current contents of a repository file.
+
+Schema 8 adds `environment_request`, the resolved `environment` plan,
+`untrusted_project`, and `project_commands_approved`. Credential values named
+by `allow_env` are deliberately absent from snapshots and event data. An
+untrusted run may enter `attention` with `environment.trust_status=pending`
+before any agent or repository command; answering its permission request with
+`approve` queues the same run once with `project_commands_approved=true`.

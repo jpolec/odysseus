@@ -152,6 +152,86 @@ from standard input:
 bin/odysseus run --project "$PWD" --lane codex - < task.md
 ```
 
+## Choose an execution environment
+
+Every task has one explicit execution profile:
+
+| Profile | Use it for | Boundary |
+| --- | --- | --- |
+| `host` | Existing local setup and fastest compatibility | Git worktree only; commands retain the server user's host access. |
+| `docker` | Isolation, untrusted repositories, reproducible dependencies | Disposable command containers with only the task worktree, an isolated Git directory, and a per-run home mounted. |
+| `devcontainer` | Repositories that already own a reviewed devcontainer | Runs `devcontainer up` and then `devcontainer exec`; the repository configuration defines its security boundary. |
+
+Docker is the only profile accepted by `--untrusted-project`. Odysseus does not
+mount the source repository's `.git`, home directory, SSH directory, or Docker
+socket. It creates isolated Git metadata for the task, drops Linux capabilities,
+sets `no-new-privileges`, makes the container root filesystem read-only, and
+makes the worktree and Git metadata read-only during the reviewer phase.
+
+The image must contain `/bin/sh`, Git, the selected agent CLI, and project
+tooling. Odysseus does not silently build or pull an image. A complete example:
+
+```sh
+bin/odysseus run \
+  --project /srv/repos/api \
+  --environment docker \
+  --image ghcr.io/example/codex-node:2026-08 \
+  --network bridge \
+  --cpus 2 \
+  --memory 4g \
+  --env NODE_ENV=test \
+  --allow-env OPENAI_API_KEY \
+  --allow-env GH_TOKEN \
+  --port APP_PORT=3000 \
+  --setup "npm ci" \
+  "Fix the request race and add an integration test"
+```
+
+`--env NAME=VALUE` is for non-secret values and is stored in task state.
+Credential-shaped names are rejected there. `--allow-env NAME` stores only the
+name and asks Docker to copy the current host value at process start; values do
+not enter JSON snapshots, NDJSON events, or the generated private env file.
+Each `--port NAME=CONTAINER_PORT` gets a free loopback host port. The task's
+Summary shows the mapping and preview link. CPU and memory limits apply to each
+disposable command container. Setup commands should be idempotent and write
+dependencies to the worktree or per-run home, because the container root is
+discarded after each command.
+
+A reviewed project default belongs in `.odysseus.json`:
+
+```json
+{
+  "environment": {
+    "profile": "docker",
+    "image": "ghcr.io/example/codex-node:2026-08",
+    "network": "bridge",
+    "env": {"NODE_ENV": "test"},
+    "ports": {"APP_PORT": 3000},
+    "cpus": 2,
+    "memory": "4g",
+    "setup": ["npm ci"]
+  },
+  "checks": ["npm test"]
+}
+```
+
+A repository may not grant itself host credential variables: project
+`allow_env` entries are ignored. Operator task options override the project
+profile. With `--untrusted-project`, Odysseus displays the resolved image,
+network, setup, checks, and evaluators in **Needs You** and executes none of
+them until **Approve once** is selected. Rejecting the gate cancels the task.
+
+Use the repository devcontainer only after reviewing it:
+
+```sh
+bin/odysseus run --project /srv/repos/api --environment devcontainer \
+  "Update the API and run its contract tests"
+```
+
+The devcontainer CLI must be installed and `.devcontainer/devcontainer.json`
+or `.devcontainer.json` must exist. Credentials for this profile must be
+configured by the reviewed devcontainer itself; `--allow-env` is rejected.
+
 The scheduler runs while `odysseus serve` is active. Change its global parallel
 limit with:
 

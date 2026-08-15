@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .evaluation import EvaluationEngine
+from .environments import EnvironmentManager
 from .events import now_iso
 from .runners import AgentRunner, CheckRunner, ProcessResult
 from .store import RunStore
@@ -32,6 +33,7 @@ class Scheduler:
         self.agent_runner = agent_runner or AgentRunner(config.get("lanes", {}))
         self.check_runner = check_runner or CheckRunner()
         self.worktrees = WorktreeManager(store.worktrees_dir)
+        self.environments = EnvironmentManager(store.root)
         self.poll_seconds = poll_seconds
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -131,6 +133,12 @@ class Scheduler:
         parameters = inspect.signature(self.agent_runner.run).parameters
         supported = {key: value for key, value in kwargs.items() if key in parameters}
         return self.agent_runner.run(*args, **supported)
+
+    def _run_check(self, *args: Any, **kwargs: Any) -> ProcessResult:
+        """Keep simple third-party/test check runners compatible."""
+        parameters = inspect.signature(self.check_runner.run).parameters
+        supported = {key: value for key, value in kwargs.items() if key in parameters}
+        return self.check_runner.run(*args, **supported)
 
     def _worker(self, run_id: str, cancel: threading.Event) -> None:
         try:
@@ -258,6 +266,76 @@ class Scheduler:
         checks = run.get("checks") or options.get("checks") or []
         if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
             raise ValueError("checks must be a JSON array of command strings")
+        environment = self.environments.prepare(run, worktree, options, emit)
+        if environment.get("missing_credential_env_names"):
+            missing = ", ".join(environment["missing_credential_env_names"])
+            raise ValueError(f"requested credential environment variables are missing: {missing}")
+        requested_environment = run.get("environment_request") if isinstance(run.get("environment_request"), dict) else {}
+        project_environment = options.get("environment") if isinstance(options.get("environment"), dict) else {}
+        repository_commands = [
+            *(
+                [str(item) for item in options.get("checks") or []]
+                if not run.get("checks") and isinstance(options.get("checks"), list)
+                else []
+            ),
+            *(
+                [str(item.get("command")) for item in options.get("evaluators") or [] if isinstance(item, dict)]
+                if isinstance(options.get("evaluators"), list)
+                else []
+            ),
+            *(
+                [str(item) for item in project_environment.get("setup") or []]
+                if "setup" not in requested_environment and isinstance(project_environment.get("setup"), list)
+                else []
+            ),
+        ]
+        if run.get("untrusted_project") and (repository_commands or options.get("environment")) and not run.get("project_commands_approved"):
+            environment = {**environment, "trust_status": "pending", "status": "awaiting_approval"}
+            self.store.update(run_id, status="attention", environment=environment, worker_pid=None)
+            approval_lines = [
+                f"profile: {environment.get('profile') or 'unknown'}",
+                *([f"image: {environment['image']}"] if environment.get("image") else []),
+                f"network: {environment.get('network') or 'default'}",
+                *[f"command: {item}" for item in repository_commands[:20] if item],
+            ]
+            emit(
+                "agent.permission_request",
+                "odysseus",
+                {
+                    "title": "Approve repository execution configuration",
+                    "message": "This untrusted repository supplies checks, evaluators, setup commands, or a container profile. Review and approve them before any agent or repository command runs.\n\n" + "\n".join(f"- {item}" for item in approval_lines),
+                    "options": [
+                        {"id": "approve", "label": "Approve once"},
+                        {"id": "reject", "label": "Reject task"},
+                    ],
+                    "priority": "critical",
+                },
+            )
+            return
+        self.environments.activate(environment, worktree, emit)
+        setup_results: list[dict[str, Any]] = []
+        for command in environment.get("setup") or []:
+            emit("environment.setup_started", "odysseus", {"command": command})
+            result = self._run_check(
+                command,
+                worktree,
+                emit=emit,
+                cancelled=lambda: self._is_cancelled(run_id, cancel),
+                execution=environment,
+                phase="setup",
+            )
+            record = {
+                "command": command,
+                "returncode": result.returncode,
+                "output": result.output[-30_000:],
+                "duration_seconds": result.duration_seconds,
+            }
+            setup_results.append(record)
+            emit("environment.setup_completed", "odysseus", record)
+            if result.returncode != 0:
+                raise ValueError(f"environment setup failed: {command}")
+        environment = {**environment, "status": "active", "setup_results": setup_results}
+        run = self.store.update(run_id, environment=environment)
 
         max_retries = int(run.get("max_retries", 2))
         feedback = str(run.get("feedback") or "").strip()
@@ -310,6 +388,7 @@ class Scheduler:
                 phase="agent",
                 timeout_seconds=timeout_seconds,
                 stall_seconds=stall_seconds,
+                execution=environment,
             )
             if budget_stop["reason"]:
                 self._fail_budget(run_id, budget_stop["reason"])
@@ -360,7 +439,7 @@ class Scheduler:
                 "odysseus",
                 {"step": "check", "attempt": attempt, "commands": checks},
             )
-            check_results, failing = self._run_checks(run_id, worktree, checks, cancel, emit, should_stop)
+            check_results, failing = self._run_checks(run_id, worktree, checks, cancel, emit, should_stop, environment)
             self.store.update(run_id, check_results=check_results)
             if budget_stop["reason"]:
                 self._fail_budget(run_id, budget_stop["reason"])
@@ -401,6 +480,7 @@ class Scheduler:
                 cancel,
                 emit,
                 should_stop,
+                environment,
             )
             self.store.update(run_id, verifier_results=verifier_results)
 
@@ -428,6 +508,7 @@ class Scheduler:
                 phase="review",
                 timeout_seconds=timeout_seconds,
                 stall_seconds=stall_seconds,
+                execution=environment,
             )
             if budget_stop["reason"]:
                 self._fail_budget(run_id, budget_stop["reason"])
@@ -536,6 +617,7 @@ class Scheduler:
         cancel: threading.Event,
         emit: Any,
         should_stop: Any,
+        execution: Mapping[str, Any] | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         results: list[dict[str, Any]] = []
         if not checks:
@@ -543,11 +625,13 @@ class Scheduler:
             emit("check.completed", "check", result)
             return [result], None
         for command in checks:
-            result = self.check_runner.run(
+            result = self._run_check(
                 command,
                 worktree,
                 emit=emit,
                 cancelled=should_stop,
+                execution=execution,
+                phase="check",
             )
             record = {
                 "command": command,
@@ -569,6 +653,7 @@ class Scheduler:
         cancel: threading.Event,
         emit: Any,
         should_stop: Any,
+        execution: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         if not isinstance(raw_verifiers, list):
             raise ValueError("evaluators must be a JSON array")
@@ -578,11 +663,13 @@ class Scheduler:
                 raise ValueError("each evaluator requires a command")
             command = str(value["command"])
             emit("step.started", "odysseus", {"step": "evaluator", "id": value.get("id") or index, "command": command})
-            result = self.check_runner.run(
+            result = self._run_check(
                 command,
                 worktree,
                 emit=emit,
                 cancelled=should_stop,
+                execution=execution,
+                phase="evaluator",
             )
             record = {
                 "id": str(value.get("id") or f"evaluator-{index + 1}"),
@@ -784,6 +871,39 @@ class ReviewActions:
         if not run_id:
             return {"attention": item}
         run = self.store.get(run_id)
+        environment = run.get("environment") if isinstance(run.get("environment"), dict) else {}
+        if item.get("type") == "permission_request" and environment.get("trust_status") == "pending":
+            decision = response.strip().lower()
+            self.store.append_event(
+                run_id,
+                "attention.answered",
+                "user",
+                {"attention_id": item_id, "response": response.strip()},
+            )
+            if decision in {"approve", "approved", "allow", "yes"}:
+                updated_environment = {**environment, "trust_status": "approved", "status": "pending"}
+                self.store.update(
+                    run_id,
+                    status="queued",
+                    environment=updated_environment,
+                    project_commands_approved=True,
+                    last_error="",
+                    worker_pid=None,
+                )
+                self.store.append_event(run_id, "environment.approved", "user", {"attention_id": item_id})
+                self.store.append_event(run_id, "run.queued", "odysseus", {"reason": "environment_approved"})
+                return {"attention": item, "run": self.store.get(run_id)}
+            updated_environment = {**environment, "trust_status": "rejected", "status": "rejected"}
+            self.store.update(run_id, environment=updated_environment)
+            self.store.append_event(run_id, "environment.rejected", "user", {"attention_id": item_id})
+            rejected = self.store.transition(
+                run_id,
+                "cancelled",
+                event_type="run.cancelled",
+                last_error="Repository execution configuration was rejected by the operator.",
+                worker_pid=None,
+            )
+            return {"attention": item, "run": rejected}
         if item.get("type") == "review_comment":
             if response.strip().lower() in {"ignore", "reject", "resolve"}:
                 self.store.attention.resolve(item_id, resolution="ignored")

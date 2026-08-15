@@ -138,6 +138,19 @@ body:not([data-view="tasks"]) .task-rail { display: none; }
 .metric { padding: 14px 15px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.9); box-shadow: 0 3px 11px rgba(29,38,24,.035); }
 .metric small, .meta small { display: block; margin-bottom: 6px; color: var(--faint); font: 9px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 .metric strong { font: 600 18px var(--mono); }
+.environment-card { margin: 10px 0 16px; padding: 15px 16px; border: 1px solid var(--line); border-left: 3px solid #a8b0a3; border-radius: 5px; background: #fbfcfa; }
+.environment-card-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.environment-card-head small { display: block; margin-bottom: 4px; color: var(--faint); font: 9px var(--mono); letter-spacing: .08em; }
+.environment-card-head strong { font: 600 16px var(--mono); text-transform: capitalize; }
+.environment-card > p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.environment-state { padding: 4px 8px; border-radius: 999px; color: #596054; background: #ecefe9; font: 600 9px var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.environment-state.isolated { color: #1f643b; background: #e4f4e9; }
+.environment-tags, .environment-ports { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.environment-tags span, .environment-ports span { padding: 4px 7px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); background: white; font: 10px var(--mono); }
+.environment-ports { flex-direction: column; align-items: flex-start; }
+.environment-card > a { display: inline-block; margin-top: 10px; color: var(--accent); font-size: 12px; font-weight: 600; }
+.environment-warning { margin-top: 11px; padding: 9px 10px; border: 1px solid #e4cfad; border-radius: 4px; color: #76520e; background: #fff9ed; font-size: 11px; line-height: 1.45; }
+.environment-options { margin: 2px 0 13px; padding: 12px; border-left: 2px solid var(--accent); background: #f7f9f6; }
 .technical-details { margin-top: 11px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.76); }
 .technical-details summary { display: flex; align-items: baseline; gap: 10px; padding: 11px 14px; color: var(--muted); cursor: pointer; font: 700 9px var(--mono); text-transform: uppercase; }
 .technical-details summary small { color: var(--faint); font-weight: 400; text-transform: none; }

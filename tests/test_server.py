@@ -43,8 +43,10 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.5.4")
+                self.assertEqual(bootstrap["version"], "0.6.0")
                 self.assertIn("git", bootstrap["capabilities"])
+                self.assertIn("docker", bootstrap["capabilities"])
+                self.assertIn("devcontainer", bootstrap["capabilities"])
                 self.assertTrue(bootstrap["working_directory"])
 
                 body = json.dumps({"task": "Test API", "project_path": str(project)}).encode()
@@ -82,6 +84,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="contextReceipt"', html)
                 self.assertIn('id="projectMemoryList"', html)
                 self.assertIn('id="taskSkillRecommendations"', html)
+                self.assertIn('id="environmentProfile"', html)
+                self.assertIn('id="environmentCard"', html)
                 self.assertIn('data-section="summary"', html)
                 self.assertIn('data-section="evidence"', html)
 

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 from .events import Event, now_iso
+from .environments import normalize_environment_request
 from .attention import AttentionQueue
 from .epics import EpicStore, VALID_ROLES
 from .inbox import Inbox
@@ -59,7 +60,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 7
+RUN_SCHEMA_VERSION = 8
 
 
 def _safe_int(value: Any) -> int:
@@ -116,6 +117,15 @@ def _run_defaults() -> dict[str, Any]:
         "context_receipt": {},
         "knowledge_selected": [],
         "skill_routing": {},
+        "environment_request": {},
+        "environment": {
+            "version": "environment-plan-v1",
+            "profile": "host",
+            "status": "pending",
+            "isolation": "none; host user permissions apply",
+        },
+        "untrusted_project": False,
+        "project_commands_approved": False,
     }
 
 
@@ -349,6 +359,7 @@ class RunStore:
         skills_requested = request.get("skills") or []
         if not isinstance(skills_requested, list) or not all(isinstance(item, str) for item in skills_requested):
             raise ValueError("skills must be a list of skill names")
+        environment_request = normalize_environment_request(request.get("environment"))
         selected_skills = self.skills.select(
             project_record,
             task,
@@ -434,6 +445,15 @@ class RunStore:
                 for item in selected_memory
             ],
             "skill_routing": skill_routing,
+            "environment_request": environment_request,
+            "environment": {
+                "version": "environment-plan-v1",
+                "profile": str(environment_request.get("profile") or "project-default"),
+                "status": "pending",
+                "isolation": "not resolved",
+            },
+            "untrusted_project": bool(request.get("untrusted_project", False)),
+            "project_commands_approved": False,
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)

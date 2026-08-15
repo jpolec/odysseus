@@ -90,6 +90,13 @@ EVENT_TYPES = frozenset(
         "skill.loaded",
         "context.receipt.created",
         "knowledge.selected",
+        "environment.prepared",
+        "environment.starting",
+        "environment.started",
+        "environment.setup_started",
+        "environment.setup_completed",
+        "environment.approved",
+        "environment.rejected",
     }
 )
 

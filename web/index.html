@@ -169,6 +169,7 @@
                   <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
                 </ol>
                 <div class="metrics" id="metrics"></div>
+                <section class="environment-card" id="environmentCard"></section>
               </section>
               <section class="task-section-pane" id="task-section-changes">
                 <section class="panel workspace-panel inspector-panel">
@@ -273,6 +274,17 @@
           <span class="field-help">Leave the default unless this task needs a specific CLI.</span>
           <select name="lane" id="laneSelect"></select>
         </label>
+        <label>Execution environment
+          <span class="field-help">Project default uses `.odysseus.json` when present. Docker is the isolated option.</span>
+          <select name="environment_profile" id="environmentProfile"><option value="">Project default — recommended</option><option value="host">Host — compatibility, not isolated</option><option value="docker">Docker — isolated command runtime</option><option value="devcontainer">Devcontainer — reviewed repository configuration</option></select>
+        </label>
+        <div class="environment-options hidden" id="environmentOptions">
+          <label>Docker image <span class="field-help">Required unless the project supplies a reviewed default.</span><input name="environment_image" placeholder="ghcr.io/your-org/coding-agent:latest"></label>
+          <div class="form-row"><label>Network <select name="environment_network"><option value="bridge">Bridge</option><option value="none">None</option></select></label><label>Credential env names <input name="environment_allow_env" placeholder="OPENAI_API_KEY, GH_TOKEN"></label></div>
+          <div class="form-row"><label>CPU limit <input name="environment_cpus" type="number" min="0.1" max="64" step="0.1" placeholder="2"></label><label>Memory limit <input name="environment_memory" placeholder="4g"></label></div>
+          <label>Preview ports <span class="field-help">One `NAME=CONTAINER_PORT` per line. Odysseus allocates host ports automatically.</span><textarea name="environment_ports" rows="2" placeholder="APP_PORT=3000&#10;DEBUG_PORT=9229"></textarea></label>
+        </div>
+        <label class="checkbox-row"><input type="checkbox" name="untrusted_project" id="untrustedProject"> Treat this repository as untrusted; use Docker and approve repository commands before execution</label>
         <label>Engineering skills
           <span class="field-help">Auto selects relevant project guidance. Manual lets you choose; None sends no skill playbooks.</span>
           <select name="skill_mode" id="taskSkillMode"><option value="auto">Auto — recommended</option><option value="manual">Choose manually</option><option value="none">None</option></select>

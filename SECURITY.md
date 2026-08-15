@@ -4,19 +4,45 @@
 
 Odysseus binds to `127.0.0.1`, validates loopback Host and Origin headers, sends
 no CORS permission, and requires a per-process same-origin token on mutations.
-Agent commands still operate with the permissions of the user who started the
-server, so only register repositories and check commands you trust.
+The default `host` execution profile still operates with the permissions of the
+user who started the server, so use it only with repositories and commands you
+trust.
 
-> **Trusted-repository boundary:** `checks` and `evaluators` from a project's
-> `.odysseus.json` execute through `/bin/sh -lc` in the task worktree with the
-> server user's permissions. Opening an untrusted repository and running its
-> configuration is remote code execution by design. Review that file first.
+> **Trusted-repository boundary:** in `host` mode, `setup`, `checks`, and
+> `evaluators` execute through `/bin/sh -lc` in the task worktree with the
+> server user's permissions. Opening an untrusted repository without
+> `--untrusted-project` is remote code execution by design.
 
-A Git worktree isolates code changes, not the process environment. Agents may
-still reach the user's readable files, credentials, local databases, ports, and
-network according to the underlying Codex/Claude mode and operating system.
-Per-task container, credential, resource, and network isolation is planned for
-0.5; it is not a property of 0.4.
+A Git worktree isolates code changes, not the process environment. The optional
+Docker profile adds a controlled runtime boundary for each command:
+
+- only the task worktree, isolated task Git metadata, and per-run home are
+  mounted; the source repository's `.git`, `~/.ssh`, other repositories, and
+  Docker socket are not mounted;
+- the root filesystem is read-only, Linux capabilities are dropped, and
+  `no-new-privileges` is set;
+- network mode, loopback port publication, CPU, and memory are explicit;
+- credential values are passed only for operator-named variables and are not
+  persisted in run snapshots, events, or the generated owner-only env file;
+- the review phase mounts the worktree and isolated Git metadata read-only.
+
+Docker is meaningful containment, not a claim of a formally verified sandbox.
+The selected image and Docker engine remain trusted computing base; kernel or
+Docker vulnerabilities, writable task files, explicitly allowed network, and
+explicitly passed credentials remain in scope. `network=bridge` can reach the
+network allowed by Docker. Use `network=none` when the task needs no network.
+
+`--untrusted-project` requires the Docker profile and stops before any
+repository-supplied environment, setup, check, or evaluator command. The
+resolved configuration is shown in **Needs You** for one explicit approval.
+Repository-provided `allow_env` is ignored. Host and devcontainer profiles are
+rejected because a repository-controlled devcontainer can request host mounts
+or other privileges and is therefore not an untrusted-code boundary.
+
+The Docker image must contain the selected agent CLI and project tools. Setup
+commands run in disposable containers and should persist only into the task
+worktree or per-run home. Automatic service sidecars, disk quotas, image
+signature policy, and stronger outbound allowlists are not yet implemented.
 
 Common credential-shaped fields and token patterns are redacted from normalized
 vendor telemetry before it is persisted. This is defense in depth, not a reason

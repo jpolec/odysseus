@@ -16,7 +16,7 @@ class CLITests(unittest.TestCase):
         args = parser().parse_args(["start", "--port", "9911"])
         self.assertEqual(args.port, 9911)
         self.assertEqual(args.func.__name__, "cmd_serve")
-        self.assertEqual(__version__, "0.5.4")
+        self.assertEqual(__version__, "0.6.0")
 
     def test_doctor_has_readable_and_json_modes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -24,7 +24,7 @@ class CLITests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 result = cmd_doctor(human_args)
-            self.assertIn("Odysseus 0.5.4", output.getvalue())
+            self.assertIn("Odysseus 0.6.0", output.getvalue())
             self.assertIn("Git", output.getvalue())
             self.assertIn(result, {0, 1})
 

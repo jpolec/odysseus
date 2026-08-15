@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import threading
@@ -140,6 +141,56 @@ class SchedulerTests(unittest.TestCase):
                 published = actions.draft_pr(run["id"])
             self.assertEqual(published["status"], "pr_created")
             self.assertEqual(published["pull_request_url"], "https://github.com/example/project/pull/1")
+
+    def test_untrusted_repo_commands_stop_before_agent_until_operator_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            (repo / ".odysseus.json").write_text(json.dumps({"checks": ["touch should-not-run"]}))
+            git(repo, "add", ".odysseus.json")
+            git(repo, "commit", "-m", "add untrusted config")
+            store = RunStore(root / "state")
+            run = store.create(
+                {
+                    "task": "Inspect safely",
+                    "project_path": str(repo),
+                    "environment": {"profile": "docker", "image": "agent:test"},
+                    "untrusted_project": True,
+                }
+            )
+            agents = FakeAgentRunner()
+            checks = FlakyCheckRunner()
+            scheduler = Scheduler(store, agent_runner=agents, check_runner=checks, poll_seconds=0.01)
+            scheduler.environments.prepare = mock.Mock(
+                return_value={
+                    "version": "environment-plan-v1",
+                    "profile": "docker",
+                    "image": "agent:test",
+                    "status": "ready",
+                    "setup": [],
+                }
+            )
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and store.get(run["id"])["status"] != "attention":
+                    time.sleep(0.02)
+                gated = store.get(run["id"])
+            finally:
+                scheduler.stop()
+
+            open_items = store.attention.list(status="open", run_id=run["id"])
+            self.assertEqual(gated["status"], "attention")
+            self.assertEqual(gated["environment"]["trust_status"], "pending")
+            self.assertEqual(agents.implementations, 0)
+            self.assertEqual(agents.reviews, 0)
+            self.assertEqual(checks.calls, 0)
+            self.assertEqual(open_items[0]["type"], "permission_request")
+            self.assertIn("touch should-not-run", open_items[0]["message"])
+
+            approved = ReviewActions(store, scheduler).answer_attention(open_items[0]["id"], "approve")
+            self.assertEqual(approved["run"]["status"], "queued")
+            self.assertTrue(approved["run"]["project_commands_approved"])
 
     def test_scheduler_shutdown_requeues_instead_of_cancelling(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

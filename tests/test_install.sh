@@ -8,7 +8,7 @@ trap 'rm -rf "$TEMP_ROOT"' EXIT INT TERM
 "$REPOSITORY_ROOT/install.sh" --bin-dir "$TEMP_ROOT/bin" --no-doctor >/dev/null
 test -L "$TEMP_ROOT/bin/odysseus"
 test "$(readlink "$TEMP_ROOT/bin/odysseus")" = "$REPOSITORY_ROOT/bin/odysseus"
-"$TEMP_ROOT/bin/odysseus" --version | grep -q 'Odysseus 0.5.4'
+"$TEMP_ROOT/bin/odysseus" --version | grep -q 'Odysseus 0.6.0'
 
 REMOTE_INSTALL="$TEMP_ROOT/remote-install"
 REMOTE_BIN="$TEMP_ROOT/remote-bin"

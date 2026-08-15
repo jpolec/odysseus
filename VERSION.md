@@ -2,14 +2,44 @@
 
 ## Current version
 
-**0.5.4 — 2026-08-15**
+**0.6.0 — 2026-08-15**
 
-Version 0.5 makes project context and reusable engineering guidance visible at
-the project level. Repository evidence remains read-only, while project briefs,
-skill policies, and exact per-run skill snapshots live in private Odysseus
-state.
+Version 0.6 adds an explicit runtime boundary without making the simple local
+path harder. Host mode remains the compatibility default; Docker and reviewed
+devcontainers are opt-in task profiles.
 
-## What is available in 0.5.4
+## What is available in 0.6.0
+
+### 0.6.0 Explicit Execution Environments
+
+- Every run stores and displays a resolved `host`, `docker`, or `devcontainer`
+  execution plan. The web form keeps it under Advanced; the CLI exposes the
+  complete profile without changing the one-command first run.
+- Agent, setup, check, evaluator, and review commands all use the same resolved
+  profile. Host mode is explicitly labeled as not isolated.
+- Docker commands use a read-only root filesystem, dropped capabilities,
+  `no-new-privileges`, explicit network mode, CPU/RAM limits, an automatic
+  loopback port map, and only three scoped mounts: task worktree, per-run home,
+  and isolated task Git metadata.
+- The Docker container can use normal Git inspection without seeing or changing
+  the source repository's `.git`. Reviewer mounts are read-only.
+- Non-secret environment values may be stored in the task plan. Credentials use
+  name-only allowlisting; values are resolved from the server environment at
+  runtime and never enter run snapshots, events, or the private env file.
+- A reviewed repository can supply environment defaults and idempotent setup in
+  `.odysseus.json`; operator task options override them, and repository
+  `allow_env` entries are ignored.
+- `--untrusted-project` requires Docker. When the repository supplies an
+  environment, setup, check, or evaluator, Odysseus stops before the agent and
+  presents the exact configuration as a structured **Needs You** permission
+  request with approve/reject.
+- `doctor` and `/api/bootstrap` report Docker and devcontainer availability.
+  Summary shows isolation, image, network, resources, ports, credentials names,
+  status, and preview URL without revealing secret values.
+- The automated suite includes command-policy, secret-persistence, port/env,
+  untrusted-gate, schema migration, CLI/API, and scheduler coverage. An opt-in
+  real Docker test proves isolated Git, writes, environment injection, and
+  read-only review against `node:20-bookworm`.
 
 ### 0.5.4 Product Proof and Simpler First Run
 
@@ -199,8 +229,8 @@ state.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.5.4` |
-| Run snapshot schema | `7` |
+| Application version | `0.6.0` |
+| Run snapshot schema | `8` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
 | Export format | `odysseus-state-v1` |
@@ -222,8 +252,14 @@ the application, run-schema, event-envelope, and export-format markers.
   learned comment classifier.
 - Token/tool/cost limits depend on telemetry emitted before process
   termination. Providers that omit a metric cannot be limited by that metric.
-- Worktrees isolate repository files, not ports, databases, environment files,
-  credentials, CPU, RAM, or network access. Runtime isolation is next.
+- Host worktrees still isolate only repository changes, not the process. Docker
+  adds scoped files, environment, network mode, CPU, and RAM, but it is not a
+  formally verified sandbox and the selected image/Docker engine remain trusted.
+- Docker execution is command-scoped. Long-lived preview process lifecycle,
+  ephemeral database/queue sidecars, disk/PID quotas, signed image policy, and
+  outbound host allowlists remain future 0.6.x work.
+- Devcontainers are repository-defined and therefore intended only for reviewed
+  repositories; they are rejected by `--untrusted-project`.
 - Project discovery is deterministic and read-only; semantic repository
   retrieval and autonomous knowledge extraction are not
   part of 0.5.4. History creates reviewable suggestions, not trusted memory.
@@ -240,13 +276,20 @@ python3 -m unittest discover -s tests -v
 odysseus start
 ```
 
-Opening the state store adds schema-7 defaults to older run snapshots. Event
+Opening the state store adds schema-8 environment defaults to older run snapshots. Event
 journals remain append-only and are not rewritten. Existing branches,
 worktrees, tmux sessions, project registrations, and 0.3 Epics are preserved.
 An old accepted run without an artifact SHA remains visible; resume/review and
 accept it once under 0.4 before using it as a new downstream dependency.
 
 ## Version history
+
+### 0.6.0 — Explicit Execution Environments
+
+Added host/Docker/devcontainer task profiles, isolated task Git for Docker,
+scoped environment and name-only credentials, automatic preview ports,
+resource/network controls, read-only review mounts, and an approval gate that
+prevents untrusted repository commands or agents from running prematurely.
 
 ### 0.5.4 — Product Proof and Simpler First Run
 

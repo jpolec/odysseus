@@ -17,11 +17,14 @@ not claim that a model produced those exact changes. Real agent runs retain
 their own immutable Context Receipts, event journals, checks, review, costs,
 and operator decisions in the selected state directory.
 
-For 0.5.4 the release gate is:
+For 0.6.0 the release gate is:
 
-- 54 automated tests, including temporary HTTP servers and protected reads;
+- 62 automated tests, including temporary HTTP servers, protected reads,
+  environment-plan validation, and a zero-execution untrusted-command gate;
+- an opt-in real Docker proof showing isolated Git access, environment
+  injection, writable implementation/check mounts, and read-only review mounts;
 - a checkout installer smoke test and a clean clone/piped-installer smoke test;
-- a live no-token demo server reporting version 0.5.4 and three projects;
+- a live no-token demo server reporting version 0.6.0 and three projects;
 - deterministic fresh-state and demo routes for nine screenshot target views.
 
 The public release notes should never claim a screenshot or real agent outcome

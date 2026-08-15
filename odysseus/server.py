@@ -130,7 +130,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "tmux_available": self.server.app.tmux.available(),
                     "capabilities": {
                         name: bool(shutil.which(name))
-                        for name in ("git", "codex", "claude", "tmux", "gh")
+                        for name in ("git", "codex", "claude", "tmux", "gh", "docker", "devcontainer")
                     },
                     "working_directory": str(Path.cwd()),
                     "repository_url": "https://github.com/jpolec/odysseus",

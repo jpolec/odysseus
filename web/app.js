@@ -117,6 +117,29 @@ function runsForProject(projectId) { return state.runs.filter((run) => run.proje
 function attentionForProject(projectId) { return state.attention.filter((item) => item.project_id === projectId); }
 function projectTerminalCount(project) { return state.sessions.filter((session) => session.project_path === project.path).length; }
 
+function environmentFromForm(data) {
+  const profile = String(data.get("environment_profile") || "");
+  const result = profile ? {profile} : {};
+  if (profile !== "docker") return result;
+  const image = String(data.get("environment_image") || "").trim();
+  if (image) result.image = image;
+  result.network = String(data.get("environment_network") || "bridge");
+  const allowEnv = String(data.get("environment_allow_env") || "").split(",").map((value) => value.trim()).filter(Boolean);
+  if (allowEnv.length) result.allow_env = allowEnv;
+  const cpus = Number(data.get("environment_cpus") || 0);
+  if (cpus) result.cpus = cpus;
+  const memory = String(data.get("environment_memory") || "").trim();
+  if (memory) result.memory = memory;
+  const ports = {};
+  String(data.get("environment_ports") || "").split("\n").map((value) => value.trim()).filter(Boolean).forEach((line) => {
+    const [name, port] = line.split("=", 2);
+    if (!name || !port || !Number(port)) throw new Error("Preview ports must use NAME=CONTAINER_PORT, one per line.");
+    ports[name.trim()] = Number(port);
+  });
+  if (Object.keys(ports).length) result.ports = ports;
+  return result;
+}
+
 function renderProjectTree() {
   $("#projectCount").textContent = state.projects.length;
   $("#allWorkCount").textContent = state.runs.length;
@@ -499,12 +522,13 @@ function renderDetail(run, diff) {
     ["Confidence", run.confidence === null || run.confidence === undefined ? "—" : `${Math.round(Number(run.confidence) * 100)}%`],
     ["GitHub CI", run.ci?.status || "not started"],
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
+  renderEnvironment(run);
   const metadata = interactive ? [
     ["Run ID", run.id], ["Agent", run.lane], ["Repository", projectById(run.project_id)?.name || run.project_path],
     ["tmux location", `${discovered?.tmux_session || run.tmux_session || "—"} · ${discovered?.tmux_target || run.tmux_target || "—"}`],
     ["Live pane state", discovered?.status || "not currently visible"], ["Tracking", "durable shortcut"], ["Control", "original terminal"],
   ] : [
-    ["Run ID", run.id], ["Agent", run.lane], ["Workflow", run.workflow], ["Project", projectById(run.project_id)?.name || run.project_path],
+    ["Run ID", run.id], ["Agent", run.lane], ["Environment", run.environment?.profile || "host"], ["Workflow", run.workflow], ["Project", projectById(run.project_id)?.name || run.project_path],
     ["Branch", run.branch || "waiting"], ["Worktree", run.worktree_path || run.project_path],
     ["Agent session", run.agent_sessions?.agent || run.agent_session_id || "—"], ["tmux", run.tmux_target ? `${run.tmux_session} · ${run.tmux_target}` : run.tmux_session || "—"],
     ["Attempt", `${run.attempt || 0} / ${(run.max_retries || 0) + 1}`], ["Role", run.role || "implementer"],
@@ -524,6 +548,30 @@ function renderDetail(run, diff) {
   renderIntegration(run); renderChecks(run.check_results || []); renderContextReceipt(run); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
 }
 
+function renderEnvironment(run) {
+  const node = $("#environmentCard");
+  const environment = run.environment || {};
+  if (run.kind === "tmux") { node.classList.add("hidden"); return; }
+  node.classList.remove("hidden");
+  const profile = environment.profile || "host";
+  const profileLabel = profile === "project-default" ? "Project default" : profile;
+  const isolated = profile === "docker";
+  const ports = Object.entries(environment.ports || {});
+  const details = [
+    environment.image ? `image ${environment.image}` : "",
+    environment.network ? `network ${environment.network}` : "",
+    environment.cpus ? `${environment.cpus} CPU` : "",
+    environment.memory ? `${environment.memory} memory` : "",
+    (environment.credential_env_names || []).length ? `${environment.credential_env_names.length} scoped credential env` : "",
+  ].filter(Boolean);
+  node.innerHTML = `<div class="environment-card-head"><div><small>EXECUTION ENVIRONMENT</small><strong>${escapeHtml(profileLabel)}</strong></div><span class="environment-state ${isolated ? "isolated" : ""}">${escapeHtml(environment.status || "pending")}</span></div>
+    <p>${escapeHtml(environment.isolation || "Environment will be resolved when the task starts.")}</p>
+    ${details.length ? `<div class="environment-tags">${details.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : ""}
+    ${ports.length ? `<div class="environment-ports">${ports.map(([name, value]) => `<span><strong>${escapeHtml(name)}</strong> ${profile === "docker" ? `127.0.0.1:${escapeHtml(value.host)} → ${escapeHtml(value.container)}` : `127.0.0.1:${escapeHtml(value.host)} allocated`}</span>`).join("")}</div>` : ""}
+    ${environment.preview_url ? `<a href="${escapeHtml(environment.preview_url)}" target="_blank" rel="noreferrer">Open preview ↗</a>` : ""}
+    ${profile === "host" ? `<div class="environment-warning">Host mode is compatible, but it can access the same files, credentials, ports, and services as your user.</div>` : ""}`;
+}
+
 function renderNarrative(run) {
   const ciStatus = run.ci?.status;
   const values = {
@@ -540,7 +588,8 @@ function renderNarrative(run) {
     publishing: ["PUBLISHING", "Preparing the draft pull request", "Odysseus is committing and pushing only this task branch before opening a draft PR.", "No action needed", "active", "↗"],
     pr_created: ["GITHUB FEEDBACK", ciStatus === "failed" ? "CI found a regression" : ciStatus === "passed" ? "CI is green" : "Draft PR is being checked", ciStatus === "failed" ? "Failure logs are captured and the bounded repair loop can resume the original agent." : "GitHub checks are tracked here until they pass or need your attention.", ciStatus === "failed" ? "Repair in progress" : ciStatus === "passed" ? "Complete" : "No action needed", ciStatus === "failed" ? "danger" : ciStatus === "passed" ? "success" : "active", ciStatus === "passed" ? "✓" : "↻"],
   };
-  const [label, title, copy, tail, tone, mark] = values[run.status] || ["WORKFLOW", "Odysseus is tracking this task", "Open Activity for the latest normalized events.", "No action needed", "calm", "→"];
+  const environmentApproval = run.status === "attention" && run.environment?.trust_status === "pending";
+  const [label, title, copy, tail, tone, mark] = environmentApproval ? ["TRUST GATE", "Review repository execution commands", "No agent or repository command has run. Approve the container profile, setup, checks, and evaluators in Needs You, or reject the task.", "Needs you", "attention", "!"] : values[run.status] || ["WORKFLOW", "Odysseus is tracking this task", "Open Activity for the latest normalized events.", "No action needed", "calm", "→"];
   $("#narrativeLabel").textContent = label; $("#narrativeTitle").textContent = title; $("#narrativeCopy").textContent = copy; $("#narrativeTail").textContent = tail; $("#narrativeMark").textContent = mark; $("#runNarrative").dataset.tone = tone;
 }
 
@@ -694,6 +743,8 @@ async function respondAttention(itemId, response) {
   try {
     const result = await api(`/api/attention/${encodeURIComponent(itemId)}/respond`, {method: "POST", body: JSON.stringify({response})});
     if (result.takeover?.command) await copyCommand(result.takeover.command);
+    else if (result.run?.project_commands_approved) toast("Environment approved; the task is queued.");
+    else if (result.run?.status === "cancelled") toast("Configuration rejected; the task was cancelled.");
     else toast("Response recorded; the same agent session was queued to continue.");
     await Promise.all([refreshAttention(), refreshRuns(), refreshEpics()]);
   } catch (error) { toast(error.message, true); }
@@ -830,8 +881,10 @@ function bindDialogs() {
   $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); });
   $("#taskPrompt").addEventListener("input", scheduleTaskSkillRecommendations);
   $("#taskSkillMode").addEventListener("change", () => { renderTaskSkillChoices(); renderTaskSkillRecommendations(); scheduleTaskSkillRecommendations(); });
+  $("#environmentProfile").addEventListener("change", (event) => $("#environmentOptions").classList.toggle("hidden", event.currentTarget.value !== "docker"));
+  $("#untrustedProject").addEventListener("change", (event) => { if (!event.currentTarget.checked) return; const select = $("#environmentProfile"); const docker = select.querySelector('option[value="docker"]'); if (docker?.disabled) { event.currentTarget.checked = false; toast("Install Docker before running an untrusted repository.", true); return; } select.value = "docker"; select.dispatchEvent(new Event("change")); });
   $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
-  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); state.taskSkillCatalog = null; state.taskSkillRecommendations = null; renderTaskSkillChoices(); renderTaskSkillRecommendations(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
+  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); let environment; try { environment = environmentFromForm(data); } catch (error) { toast(error.message, true); return; } const payload = {task: data.get("task"), title: data.get("title"), project_path: project?.path || data.get("project_path"), lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), environment, untrusted_project: data.get("untrusted_project") === "on", workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); $("#environmentOptions").classList.add("hidden"); state.taskSkillCatalog = null; state.taskSkillRecommendations = null; renderTaskSkillChoices(); renderTaskSkillRecommendations(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); const payload = {requirement: data.get("requirement"), project_path: project?.path || data.get("project_path"), planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
@@ -844,6 +897,7 @@ function bindDialogs() {
 async function init() {
   try {
     state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join(""); $("#laneSelect").innerHTML = laneOptions; $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions;
+    [["docker", "Docker is not installed"], ["devcontainer", "Dev Container CLI is not installed"]].forEach(([profile, message]) => { const option = $("#environmentProfile").querySelector(`option[value="${profile}"]`); if (option && !state.bootstrap.capabilities?.[profile]) { option.disabled = true; option.textContent += ` — unavailable`; option.title = message; } });
     bindDialogs();
     $$(".nav-button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
     $$(".filter").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderRuns(); }));

@@ -32,6 +32,40 @@ def _store(args: argparse.Namespace) -> RunStore:
     return RunStore(args.state_dir)
 
 
+def _environment_payload(args: argparse.Namespace) -> dict[str, Any]:
+    environment: dict[str, Any] = {}
+    if getattr(args, "environment", ""):
+        environment["profile"] = args.environment
+    for key in ("image", "network", "cpus", "memory"):
+        value = getattr(args, key, None)
+        if value not in (None, "", 0, 0.0):
+            environment[key] = value
+    env: dict[str, str] = {}
+    for item in getattr(args, "environment_variable", []) or []:
+        name, separator, value = item.partition("=")
+        if not separator or not name.strip():
+            raise ValueError("--env requires NAME=VALUE")
+        env[name.strip()] = value
+    if env:
+        environment["env"] = env
+    ports: dict[str, int] = {}
+    for item in getattr(args, "environment_port", []) or []:
+        name, separator, value = item.partition("=")
+        if not separator or not name.strip():
+            raise ValueError("--port requires NAME=CONTAINER_PORT")
+        try:
+            ports[name.strip()] = int(value)
+        except ValueError as exc:
+            raise ValueError("--port requires a numeric container port") from exc
+    if ports:
+        environment["ports"] = ports
+    if getattr(args, "allow_env", None):
+        environment["allow_env"] = args.allow_env
+    if getattr(args, "environment_setup", None):
+        environment["setup"] = args.environment_setup
+    return environment
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     store = _store(args)
     auth_password = ""
@@ -104,6 +138,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             "priority": args.priority,
             "skill_mode": args.skill_mode,
             "skills": args.skill,
+            "environment": _environment_payload(args),
+            "untrusted_project": args.untrusted_project,
             "budgets": {key: value for key, value in budget_values.items() if value is not None},
         }
     )
@@ -333,7 +369,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 def cmd_doctor(args: argparse.Namespace) -> int:
     store = _store(args)
     lanes = store.config().get("lanes", {})
-    tools = ["git", "python3", "codex", "claude", "gh"]
+    tools = ["git", "python3", "codex", "claude", "gh", "docker", "devcontainer"]
     result = {name: shutil.which(name) for name in tools}
     result["state_dir"] = str(store.root)
     result["state_writable"] = os.access(store.root, os.W_OK)
@@ -349,6 +385,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "codex": "Codex CLI",
             "claude": "Claude Code",
             "gh": "GitHub CLI",
+            "docker": "Docker",
+            "devcontainer": "Dev Container CLI",
         }
         for name in tools:
             marker = "ready" if result[name] else "missing"
@@ -419,6 +457,16 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--max-cost", type=float, help="reported USD cost budget (0 disables)")
     run.add_argument("--skill-mode", choices=("auto", "manual", "none"), default="auto", help="automatic, explicit, or disabled task skills")
     run.add_argument("--skill", action="append", default=[], help="skill name for --skill-mode manual; repeatable")
+    run.add_argument("--environment", choices=("host", "docker", "devcontainer"), default="", help="execution profile; empty uses the project default")
+    run.add_argument("--image", default="", help="container image for --environment docker")
+    run.add_argument("--network", choices=("bridge", "none"), default="", help="Docker network mode")
+    run.add_argument("--env", dest="environment_variable", action="append", default=[], metavar="NAME=VALUE", help="non-secret task environment value; repeatable")
+    run.add_argument("--allow-env", action="append", default=[], metavar="NAME", help="pass one named host credential variable without storing its value")
+    run.add_argument("--port", dest="environment_port", action="append", default=[], metavar="NAME=PORT", help="allocate a host port for a container port; repeatable")
+    run.add_argument("--cpus", type=float, help="Docker CPU limit")
+    run.add_argument("--memory", default="", help="Docker memory limit such as 2g")
+    run.add_argument("--setup", dest="environment_setup", action="append", default=[], help="environment setup command; repeatable")
+    run.add_argument("--untrusted-project", action="store_true", help="require container isolation and explicit approval of repository-supplied commands")
     run.add_argument("--json", action="store_true")
     run.set_defaults(func=cmd_run)
 

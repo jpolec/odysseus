@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.5.4](https://img.shields.io/badge/version-0.5.4-171a16)
+![Version: 0.6.0](https://img.shields.io/badge/version-0.6.0-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -9,9 +9,10 @@
 **A local-first control plane for coding agents and the tmux sessions you
 already use.**
 
-Odysseus turns requirements into approval-gated task DAGs, runs isolated agent
-work, evaluates the evidence, and shows only exceptions in a central **Needs
-You** queue. Its light web UI is also a live window into existing tmux sessions:
+Odysseus turns requirements into approval-gated task DAGs, runs agent work in
+separate Git worktrees and optional Docker environments, evaluates the evidence,
+and shows only exceptions in a central **Needs You** queue. Its light web UI is
+also a live window into existing tmux sessions:
 discovery is automatic, while tracking and terminal handoff stay explicit.
 
 The web workbench has one visible hierarchy: **workspace -> project -> task**.
@@ -43,6 +44,9 @@ available without occupying the first-use path.
   confidence, policy, and live activity.
 - **Keep control.** Accept creates a local artifact commit but does not push,
   merge to the source branch, delete a worktree, or publish anything.
+- **Choose the runtime boundary.** Keep host compatibility, use a repository
+  devcontainer, or run agent/check/review commands in disposable Docker
+  containers with scoped mounts, credentials, ports, network, CPU, and memory.
 - **Operate more than one repository.** Projects, tasks, tmux sessions, GitHub
   issues, and follow-ups share one local control plane.
 - **Onboard from evidence.** A project's Overview reads its existing README,
@@ -67,9 +71,10 @@ available without occupying the first-use path.
 
 ## Quick start
 
-Requirements: Python 3.10+, Git, and Codex CLI and/or Claude Code. tmux and fzf
-are needed for terminal controls; authenticated `gh` is needed for GitHub issue
-intake and draft pull requests.
+Requirements: Python 3.10+, Git, and Codex CLI and/or Claude Code. Docker is
+optional and only required for isolated execution. tmux and fzf are needed for
+terminal controls; authenticated `gh` is needed for GitHub issue intake and
+draft pull requests.
 
 Install the `odysseus` command and open the local UI:
 
@@ -91,7 +96,7 @@ cd odysseus && ./install.sh
 Without `--open`, visit <http://127.0.0.1:8741/>. The first screen checks local
 readiness and asks for one repository path. Select that project, describe one
 finished outcome, and choose **Start task**. Agent choice, checks, limits,
-Skills, planning, Context Receipts, and project history remain available as
+Skills, execution environments, planning, Context Receipts, and project history remain available as
 progressive depth instead of blocking the first run. See [START.md](START.md)
 for the complete five-minute path.
 
@@ -138,7 +143,7 @@ durable Odysseus shortcut.
 - **New task** is for one focused outcome. Write the request in natural
   language and choose the project. Odysseus uses the default agent and project
   checks and automatically relevant engineering skills; manual skill selection,
-  agent selection, custom checks, priority, retries, and budgets stay
+  execution environment, agent selection, custom checks, priority, retries, and budgets stay
   under **Customize agent, checks, and limits**.
 - **Plan feature** is for a feature that should become several
   dependent or parallel tasks. Describe the finished feature, not the task
@@ -152,7 +157,7 @@ durable Odysseus shortcut.
 ## The autonomous workflow
 
 ```text
-queue -> isolated worktree -> implementation agent -> project checks
+queue -> isolated worktree -> host/container environment -> implementation agent -> project checks
       -> independent evaluation -> Needs You / policy
       -> approve / feedback / terminal / draft PR
 ```
@@ -187,6 +192,27 @@ bin/odysseus run \
   --check "git diff --check" \
   "Implement the feature and cover it with tests"
 ```
+
+Use Docker when the task should not inherit the server user's filesystem and
+credentials. The image must already contain the selected agent CLI and the
+tools required by the project:
+
+```sh
+bin/odysseus run \
+  --project /absolute/path/to/repository \
+  --environment docker \
+  --image ghcr.io/your-org/coding-agent:latest \
+  --network none \
+  --cpus 2 --memory 4g \
+  --allow-env OPENAI_API_KEY \
+  --untrusted-project \
+  "Audit and fix the parser without changing its public API"
+```
+
+`--allow-env` records only the variable name; its value is resolved at runtime
+and never written to a run snapshot or event. For an untrusted repository,
+Odysseus accepts only the Docker profile and pauses in **Needs You** before any
+repository-supplied setup, check, evaluator, or environment configuration runs.
 
 At the review gate:
 
@@ -294,6 +320,15 @@ Checks can be supplied per task or committed as `.odysseus.json`:
       "weight": 0.3
     }
   ],
+  "environment": {
+    "profile": "docker",
+    "image": "ghcr.io/your-org/coding-agent:latest",
+    "network": "bridge",
+    "cpus": 2,
+    "memory": "4g",
+    "ports": {"APP_PORT": 3000},
+    "setup": ["npm ci"]
+  },
   "policy": {
     "min_confidence": 0.9,
     "require_human_review": true,
@@ -302,8 +337,10 @@ Checks can be supplied per task or committed as `.odysseus.json`:
 }
 ```
 
-Task checks take precedence. Check commands are trusted project configuration
-and run through `/bin/sh -lc` inside the task worktree.
+Task checks take precedence. Check and setup commands run through `/bin/sh -lc`
+inside the resolved execution profile. In ordinary mode, repository
+configuration is trusted. `--untrusted-project` requires operator-controlled
+Docker isolation and one explicit approval before repository commands run.
 
 Global budgets, the CI repair loop, and notifications live in
 `~/.odysseus/config.json`:
@@ -345,6 +382,7 @@ State is stored under `~/.odysseus` by default:
 ├── epics/<epic-id>.json
 ├── runs/<run-id>.json
 ├── events/<run-id>.ndjson
+├── runtime/<run-id>/{environment.env,home,git}/
 └── worktrees/<repository>-<sha>/<run-id>/
 ```
 
@@ -407,6 +445,8 @@ Use `bin/odysseus COMMAND --help` for command-specific arguments.
 
 ```sh
 python3 -m unittest discover -s tests -v
+# Optional real Docker proof when node:20-bookworm is available locally:
+ODYSSEUS_DOCKER_TEST=1 python3 -m unittest tests.test_environments -v
 python3 -m compileall -q odysseus
 node --check web/app.js
 bash -n scripts/*.sh codex_session_manager.tmux

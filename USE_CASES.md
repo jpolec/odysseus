@@ -176,15 +176,23 @@ Success means context is useful without being invisible: a later file change
 cannot rewrite old evidence, generic guidance is not confused with project
 facts, and sparse outcome history never masquerades as a reliable benchmark.
 
-## Isolate runtime state as well as files — planned 0.6
+## Isolate runtime commands as well as files — 0.6
 
-Several agents need PostgreSQL and a web port. Each lane gets a disposable
-container, unique ports, scoped environment, ephemeral database, resource
-limits, and explicit network policy. No agent can read another repository,
-production cloud credentials, or `~/.ssh`.
+Several agents need the same toolchain or web port. Each task can run its agent,
+setup, checks, evaluators, and review in disposable Docker command containers
+with unique loopback ports, scoped environment names, resource limits, and an
+explicit network mode. Odysseus mounts only that task's worktree, isolated Git
+metadata, and per-run home; it does not mount other repositories or `~/.ssh`.
 
-Success means parallel runs cannot collide on services and untrusted project
-configuration cannot execute shell checks without explicit approval.
+For an unknown repository, the operator selects `--untrusted-project` and a
+Docker image. Repository setup, checks, evaluators, and environment choices are
+shown in **Needs You** before any of them—and before the agent—can run. The
+operator approves once or rejects the task.
+
+Success means task commands receive an inspectable runtime boundary and
+untrusted project configuration cannot execute without explicit approval.
+Long-lived preview processes and ephemeral database/queue sidecars remain on
+the 0.6.x roadmap.
 
 ## Learn which agent works on this repository — planned 0.7
 

@@ -94,27 +94,47 @@ Project Memory is deterministic and operator-approved; semantic code retrieval,
 autonomous fact extraction, shared organizational memory, and vector search are
 not claimed.
 
-## Planned — 0.6: isolated execution environments
+## Shipped — 0.6: explicit execution environments
 
-- Optional disposable Docker/Podman/devcontainer environment per task lane.
-- Automatic port allocation and environment variables per worktree.
-- Project setup/teardown hooks for dependencies, configuration, and dev-server
-  lifecycle, plus an optional per-lane browser preview URL.
-- Generated or copied `.env` profiles with explicit secret scope.
-- Ephemeral service dependencies such as PostgreSQL snapshots and test queues.
-- Filesystem sandbox, outbound network policy, credential scope, command
-  policy, and CPU/RAM/disk limits.
-- `--untrusted-project` mode that requires explicit approval of repository
-  supplied shell checks before their first execution.
+- A task chooses `host`, `docker`, or `devcontainer`; the resolved environment
+  and honest isolation description are visible in Summary and NDJSON events.
+- Docker wraps agent, setup, check, evaluator, and review commands in disposable
+  containers with a read-only root filesystem, dropped capabilities,
+  `no-new-privileges`, explicit network mode, and CPU/RAM limits.
+- Only the task worktree, per-run home, and isolated Git metadata are mounted.
+  The main repository `.git`, other repositories, host home, SSH material, and
+  Docker socket are not exposed by Odysseus.
+- Review commands receive read-only task and Git mounts. Docker tasks can still
+  use normal Git inspection without sharing the source repository's metadata.
+- Non-secret environment values, automatic loopback preview ports, and
+  operator-named credential passthrough are supported. Credential values never
+  enter snapshots, events, or the private generated env file.
+- Project setup commands run inside the selected profile and persist artifacts
+  only through the worktree or per-run home.
+- `--untrusted-project` accepts only operator-controlled Docker, ignores
+  repository credential requests, and sends repository environment/setup/check/
+  evaluator configuration to a one-time **Needs You** gate before execution.
+- The release proof includes unit-level command inspection, a scheduler test
+  proving zero agent/check calls before approval, and an opt-in real Docker test
+  for isolated Git, environment injection, writes, and read-only review.
+
+The default remains `host` for a simple first run. It is deliberately labeled
+as compatible but not sandboxed.
+
+## Next — 0.6.x: environment lifecycle and operational hardening
+
+- Long-lived per-task preview processes with explicit start, health, stop, and
+  cleanup controls instead of relying on one disposable command lifetime.
+- Ephemeral PostgreSQL/Redis/queue sidecars, snapshot/seed policies, and unique
+  service namespaces for parallel tasks.
+- Podman support, disk/PID limits, outbound host allowlists, signed/allowlisted
+  images, and an inspectable command policy.
+- Safe runtime/worktree/branch retention and cleanup, verified backup/import,
+  and crash tests across approval and container transitions.
 - Semantic code/dependency graph overlap prediction and a cross-PR merge queue
   with ordered rebase, rerun, and rollback.
 - GitHub webhooks, review-comment classification, and explicit auto-merge
   policies for narrowly trusted changes.
-- State import, backup verification, retention policy, and safe worktree/branch
-  cleanup.
-
-The goal is isolation of both code and runtime state: worktrees alone do not
-prevent two agents from fighting over the same port, database, or credentials.
 
 ## Planned — 0.7: evidence-based agent routing
 
