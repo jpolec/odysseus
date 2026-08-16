@@ -20,6 +20,7 @@ from typing import Any
 from . import __version__
 from .events import EVENT_SCHEMA_VERSION
 from .ci import CIWatcher
+from .lifecycle import ResourceLifecycle
 from .lifecycle import ServerLease
 from .planner import EpicPlanner
 from .proof import production_proof, proof_markdown
@@ -426,6 +427,51 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_bytes(value: Any) -> str:
+    size = float(value or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
+def cmd_resources(args: argparse.Namespace) -> int:
+    store = _store(args)
+    retention_days = args.retention_days if args.retention_days is not None else store.config().get("resource_retention_days", 14)
+    lifecycle = ResourceLifecycle(store)
+    if args.reclaim:
+        result = lifecycle.reclaim(retention_days=retention_days, force=args.force)
+        if args.json:
+            _print_json(result)
+        else:
+            print(
+                f"Reclaimed {_format_bytes(result['reclaimed_bytes'])} from "
+                f"{len(result['reclaimed'])} resources."
+            )
+            if result["errors"]:
+                print("Some resources could not be reclaimed:", file=sys.stderr)
+                for error in result["errors"]:
+                    print(f"  - {error['path']}: {error['error']}", file=sys.stderr)
+                return 1
+        return 0
+    result = lifecycle.inspect(retention_days=retention_days)
+    if args.json:
+        _print_json(result)
+    else:
+        totals = result["totals"]
+        print(f"State: {result['state_root']}")
+        print(f"Retention: {result['retention_days']} days")
+        print(f"Worktrees: {_format_bytes(totals['worktree_bytes'])} ({totals['worktrees']} retained)")
+        print(f"Runtime:   {_format_bytes(totals['runtime_bytes'])} ({totals['runtime_directories']} directories)")
+        print(
+            f"Reclaimable now: {_format_bytes(totals['reclaimable_bytes'])} "
+            f"({totals['reclaimable_worktrees']} worktrees, "
+            f"{totals['reclaimable_runtime_directories']} runtime directories)"
+        )
+    return 0
+
+
 def cmd_state_verify(args: argparse.Namespace) -> int:
     result = verify_state(args.state_dir)
     if result["valid"] and args.migrate:
@@ -795,6 +841,13 @@ def parser() -> argparse.ArgumentParser:
 
     stats_parser = sub.add_parser("stats", help="show engineering outcome and agent economics totals")
     stats_parser.set_defaults(func=cmd_stats)
+
+    resources_parser = sub.add_parser("resources", help="inspect and reclaim retained worktrees and runtime directories")
+    resources_parser.add_argument("--retention-days", type=int, help="age threshold for automatic reclamation")
+    resources_parser.add_argument("--reclaim", action="store_true", help="remove eligible retained resources now")
+    resources_parser.add_argument("--force", action="store_true", help="reclaim terminal resources without waiting for the retention window")
+    resources_parser.add_argument("--json", action="store_true")
+    resources_parser.set_defaults(func=cmd_resources)
 
     state_parser = sub.add_parser("state", help="verify or migrate durable state")
     state_actions = state_parser.add_subparsers(dest="state_command", required=True)

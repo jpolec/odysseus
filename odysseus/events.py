@@ -100,6 +100,7 @@ EVENT_TYPES = frozenset(
         "environment.setup_completed",
         "environment.approved",
         "environment.rejected",
+        "resource.reclaimed",
     }
 )
 

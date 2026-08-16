@@ -53,6 +53,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "poll_seconds": 30,
     },
     "notifications": [],
+    "resource_retention_days": 14,
     "evaluation_policy": {
         "min_confidence": 0.85,
         "require_human_review": True,
@@ -281,6 +282,7 @@ class RunStore:
             merged.update(value)
         merged["max_parallel"] = max(1, _safe_int(merged.get("max_parallel", 2)) or 2)
         merged["max_retries"] = max(0, _safe_int(merged.get("max_retries", 2)))
+        merged["resource_retention_days"] = max(1, _safe_int(merged.get("resource_retention_days", 14)) or 14)
         ci = dict(DEFAULT_CONFIG["ci"])
         if isinstance(merged.get("ci"), dict):
             ci.update(merged["ci"])
@@ -313,6 +315,7 @@ class RunStore:
             "budgets",
             "ci",
             "notifications",
+            "resource_retention_days",
         }
         unknown = set(changes) - allowed
         if unknown:
