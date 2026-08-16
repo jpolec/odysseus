@@ -130,6 +130,10 @@ function relativeTime(iso) {
 }
 
 function compactNumber(value) { return new Intl.NumberFormat("en", {notation: "compact", maximumFractionDigits: 1}).format(Number(value || 0)); }
+function unknownNumber(value, formatter = (item) => String(item)) {
+  return value === null || value === undefined || value === "" ? UI_COPY.unknown : formatter(value);
+}
+function money(value) { return unknownNumber(value, (item) => `$${Number(item).toFixed(4)}`); }
 function formatBytes(value) {
   let size = Number(value || 0);
   for (const unit of ["B", "KB", "MB", "GB"]) {
@@ -2205,16 +2209,45 @@ function renderIssues(issues, projectId) {
 async function refreshInsights() {
   try {
     state.stats = await api("/api/stats");
+    const economics = await api("/api/economics?privacy=full");
+    const totals = economics.totals || {};
     const entries = [
-      ["Successful changes", state.stats.successful_changes, `${Math.round(Number(state.stats.success_rate || 0) * 100)}% of tasks`],
+      ["Accepted changes", totals.accepted_changes ?? state.stats.successful_changes, unknownNumber(totals.acceptance_rate ?? state.stats.success_rate, (value) => `${Math.round(Number(value) * 100)}% acceptance`)],
+      ["Delivered changes", totals.delivered_changes ?? 0, unknownNumber(totals.delivery_rate, (value) => `${Math.round(Number(value) * 100)}% of accepted`)],
       ["Human interventions", state.stats.human_interventions, state.stats.human_interventions_per_successful_change === null ? `${state.stats.open_attention} currently open` : `${state.stats.human_interventions_per_successful_change} / successful change`],
       ["Tokens observed", compactNumber(state.stats.tokens), `${compactNumber(state.stats.tool_calls)} tool calls`],
-      ["Compute cost", `$${Number(state.stats.cost_usd || 0).toFixed(2)}`, state.stats.cost_per_successful_change === null ? "No accepted task yet" : `$${Number(state.stats.cost_per_successful_change).toFixed(2)} / success`],
-      ["CI repair loops", state.stats.ci_failures, "published changes repaired"],
-      ["High merge risk", state.stats.merge_risk_high, "tasks with overlap"],
+      ["Observed cost", money(totals.observed_model_cost_usd), totals.cost_per_accepted_change_usd === null ? "Unknown / accepted" : `${money(totals.cost_per_accepted_change_usd)} / accepted`],
+      ["Expected success cost", money(economics.expected_cost_per_successful_change_usd), `${economics.sample?.sample_size || 0}/${economics.sample?.minimum_runs || 0} sample`],
+      ["Retry rate", unknownNumber(totals.retry_rate, (value) => `${Math.round(Number(value) * 100)}%`), `${state.stats.ci_failures} CI repair loops`],
     ];
     $("#insightStats").innerHTML = entries.map(([label, value, note]) => `<article class="insight-card"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><p>${escapeHtml(note)}</p></article>`).join("");
+    renderEconomics(economics);
   } catch (error) { toast(error.message, true); }
+}
+
+function renderEconomicsTable(selector, rows, columns) {
+  const table = $(selector);
+  if (!table) return;
+  table.innerHTML = rows.length ? `<thead><tr>${columns.map(([key, label]) => `<th>${escapeHtml(label || key)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map(([key]) => {
+    let value = row[key];
+    if (key === "observed_cost_usd") value = money(value);
+    if (key === "eta") value = unknownNumber(value);
+    if (key === "run_id") return `<td><button class="link-button" data-economics-run="${escapeHtml(row.run_id)}" type="button">${escapeHtml(String(value || "").slice(0, 12))}</button></td>`;
+    return `<td title="${escapeHtml(value ?? UI_COPY.unknown)}">${escapeHtml(value ?? UI_COPY.unknown)}</td>`;
+  }).join("")}</tr>`).join("")}</tbody>` : `<tbody><tr><td>No task outcomes observed yet.</td></tr></tbody>`;
+  $$('[data-economics-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.economicsRun)));
+}
+
+function renderEconomics(economics) {
+  const sample = economics.sample || {};
+  const formula = economics.formula || {};
+  $("#economicsFormula").textContent = `Expected cost: ${formula.expected_cost_per_successful_change_usd || "formula unavailable."} Sample ${sample.sample_size || 0}/${sample.minimum_runs || 0}${sample.sufficient ? "" : " below threshold"}. Missing prices and costs stay Unknown.`;
+  renderEconomicsTable("#economicsLeadTable", economics.lead_view || [], [
+    ["task", "Task"], ["state", "State"], ["risk", "Risk"], ["observed_cost_usd", "Observed cost"], ["eta", "ETA"], ["receipt_id", "Receipt"], ["run_id", "Open"],
+  ]);
+  renderEconomicsTable("#economicsOperatorTable", economics.operator_view || [], [
+    ["task", "Task"], ["lane", "Agent"], ["review_lane", "Review"], ["attempt", "Attempt"], ["ci_status", "CI"], ["checks", "Checks"], ["human_interventions", "Human"], ["event_count", "Events"], ["receipt_id", "Receipt"], ["run_id", "Open"],
+  ]);
 }
 
 async function runSearch(query = "") {
@@ -2553,6 +2586,15 @@ async function runBrowserRegression() {
   assert($("#epicsView").textContent.includes("Approve a graph before agents start."), "Plans concise header");
   setView("inbox");
   assert($("#inboxView").textContent.includes("Park work; queue explicitly."), "Follow-ups concise header");
+  setView("insights");
+  await refreshInsights();
+  assert($("#economicsFormula").textContent.includes("Expected cost"), "economics formula visible");
+  assert($("#economicsFormula").textContent.includes("Sample"), "economics sample size visible");
+  assert($("#economicsLeadTable").textContent.includes("Observed cost"), "lead economics table visible");
+  assert($("#economicsLeadTable").textContent.includes("Unknown"), "unknown economics cost visible");
+  assert($("#economicsOperatorTable").textContent.includes("Events"), "operator economics table retains evidence detail");
+  assert(document.querySelector('a[href="/api/economics?format=csv&view=lead"]'), "lead CSV export link");
+  assert(document.querySelector('a[href="/api/economics?format=ndjson&view=operator"]'), "operator NDJSON export link");
   setView("settings");
   assert($("#settingsView").textContent.includes("Capacity, agents, CI, resources, assistants."), "Settings concise header");
   assert($("#settingsView").textContent.includes("API keys are never saved."), "settings security detail preserved");

@@ -367,6 +367,12 @@
         <section class="view-panel collection-view" id="insightsView">
           <div class="page-head"><div><p class="eyebrow">ENGINEERING OUTCOMES</p><h1>Insights</h1><p>Search the complete local record and measure agents by successful changes, not activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
           <div class="insight-grid" id="insightStats"></div>
+          <section class="search-panel economics-panel" aria-label="Outcome economics">
+            <div class="panel-head"><div><p class="eyebrow">OUTCOME ECONOMICS</p><h3>Lead view</h3></div><div class="inline-controls"><a class="ghost button-link" href="/api/economics?format=csv&view=lead">CSV</a><a class="ghost button-link" href="/api/economics?format=ndjson&view=lead">NDJSON</a></div></div>
+            <div id="economicsFormula" class="settings-note">Loading formula and sample size...</div>
+            <div class="economics-table-wrap"><table class="economics-table" id="economicsLeadTable"></table></div>
+            <details class="technical-details economics-operator"><summary><span>Operator view</span><small>runtime, debug, evidence receipts</small></summary><div class="inline-controls economics-export"><a class="ghost button-link" href="/api/economics?format=csv&view=operator">CSV</a><a class="ghost button-link" href="/api/economics?format=ndjson&view=operator">NDJSON</a></div><div class="economics-table-wrap"><table class="economics-table" id="economicsOperatorTable"></table></div></details>
+          </section>
           <section class="search-panel"><div class="panel-head"><div><p class="eyebrow">LOCAL FULL-TEXT SEARCH</p><h3>Tasks, events, plans, repositories, attention</h3></div></div><label class="insight-search"><input id="insightSearch" type="search" placeholder="Search task intent, CI error, tool output…"><button class="primary" id="runSearch" type="button">Search</button></label><div class="stack-list" id="searchResults"><div class="empty-card">Search stays local to the Odysseus state directory.</div></div></section>
         </section>
 

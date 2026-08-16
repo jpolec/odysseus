@@ -196,6 +196,35 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
+    def test_economics_endpoint_exports_csv_and_ndjson(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"title": "Costed change", "task": "Ship costed change", "project_path": str(project), "status": "accepted"})
+            store.append_event(run["id"], "agent.cost", "codex", {"cost_usd": 1.0})
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/economics") as response:
+                    payload = json.load(response)
+                self.assertEqual(payload["format"], "odysseus-outcome-economics-v1")
+                with urllib.request.urlopen(f"{base}/api/economics?format=csv&view=lead") as response:
+                    csv_payload = response.read().decode()
+                    self.assertEqual(response.headers.get_content_type(), "text/csv")
+                self.assertIn("receipt_id", csv_payload)
+                with urllib.request.urlopen(f"{base}/api/economics?format=ndjson&view=operator") as response:
+                    ndjson_payload = response.read().decode()
+                    self.assertEqual(response.headers.get_content_type(), "application/x-ndjson")
+                self.assertIn(run["id"], ndjson_payload)
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_ui_bootstrap_and_token_protected_create(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

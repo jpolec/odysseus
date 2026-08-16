@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from .economics import outcome_economics
+
 if TYPE_CHECKING:
     from .store import RunStore
 
@@ -77,31 +79,29 @@ def search(store: RunStore, query: str, *, limit: int = 100) -> list[dict[str, A
 
 
 def statistics(store: RunStore) -> dict[str, Any]:
+    economics = outcome_economics(store)
+    totals = economics["totals"]
+    tokens = sum(int(bucket.get("total_tokens") or 0) for bucket in totals["tokens"].values())
     runs = [run for run in store.list() if run.get("kind") == "task"]
-    successful = [run for run in runs if run.get("status") in {"accepted", "pr_created"}]
     metrics = [run.get("metrics") if isinstance(run.get("metrics"), dict) else {} for run in runs]
-    tokens = sum(
-        int(item.get("input_tokens") or 0)
-        + int(item.get("output_tokens") or 0)
-        + int(item.get("reasoning_output_tokens") or 0)
-        for item in metrics
-    )
-    cost = round(sum(float(item.get("cost_usd") or 0.0) for item in metrics), 6)
     attention = store.attention.list()
-    interventions = sum(1 for item in attention if item.get("status") in {"answered", "resolved"})
     return {
-        "runs": len(runs),
-        "successful_changes": len(successful),
-        "success_rate": round(len(successful) / len(runs), 4) if runs else 0.0,
+        "runs": totals["tasks"],
+        "successful_changes": totals["accepted_changes"],
+        "success_rate": totals["acceptance_rate"],
         "tokens": tokens,
+        "tokens_by_phase": totals["tokens"],
         "tool_calls": sum(int(item.get("tool_calls") or 0) for item in metrics),
-        "cost_usd": cost,
-        "cost_per_successful_change": round(cost / len(successful), 6) if successful else None,
+        "cost_usd": totals["observed_model_cost_usd"],
+        "cost_per_successful_change": totals["cost_per_accepted_change_usd"],
         "open_attention": sum(1 for item in attention if item.get("status") == "open"),
-        "human_interventions": interventions,
+        "human_interventions": totals["human_interventions"],
         "human_interventions_per_successful_change": (
-            round(interventions / len(successful), 4) if successful else None
+            round(totals["human_interventions"] / totals["accepted_changes"], 4)
+            if totals["accepted_changes"]
+            else None
         ),
         "ci_failures": sum(1 for run in runs if int((run.get("ci") or {}).get("attempt") or 0) > 0),
         "merge_risk_high": sum(1 for run in runs if (run.get("merge_analysis") or {}).get("risk") == "high"),
+        "outcome_economics": economics,
     }

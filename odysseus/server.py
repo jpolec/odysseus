@@ -22,6 +22,7 @@ from urllib.request import Request, urlopen
 
 from . import __version__
 from .ci import CIWatcher
+from .economics import economics_csv, economics_ndjson, outcome_economics
 from .planner import EpicPlanner
 from .runners import AgentRunner, _extract_text, _sanitize
 from .scheduler import ReviewActions, Scheduler
@@ -302,6 +303,19 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/stats":
             self._json(statistics(self.server.app.store))
+            return
+        if parsed.path == "/api/economics":
+            query = parse_qs(parsed.query)
+            privacy = str(query.get("privacy", ["redacted"])[0])
+            view = str(query.get("view", ["lead"])[0])
+            format_name = str(query.get("format", ["json"])[0])
+            economics = outcome_economics(self.server.app.store, privacy=privacy)
+            if format_name == "csv":
+                self._text(economics_csv(economics, view=view), "text/csv; charset=utf-8")
+            elif format_name == "ndjson":
+                self._text(economics_ndjson(economics, view=view), "application/x-ndjson; charset=utf-8")
+            else:
+                self._json(economics)
             return
         if parsed.path == "/api/resources":
             retention = self.server.app.store.config().get("resource_retention_days", 14)
@@ -950,6 +964,18 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         payload = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _text(self, value: str, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+        payload = value.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")

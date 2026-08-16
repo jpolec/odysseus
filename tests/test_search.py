@@ -17,7 +17,7 @@ class SearchTests(unittest.TestCase):
             store = RunStore(root / "state")
             run = store.create({"task": "Implement lunar cache", "project_path": str(project)})
             store.append_event(run["id"], "agent.message", "codex", {"text": "Detected orbit regression"})
-            store.update(run["id"], status="accepted", metrics={**run["metrics"], "input_tokens": 100, "output_tokens": 20, "cost_usd": 1.5})
+            store.update(run["id"], status="accepted", metrics={**run["metrics"], "input_tokens": 100, "output_tokens": 20, "cost_usd": 1.5, "cost_observed": True})
 
             run_results = search(store, "lunar")
             event_results = search(store, "orbit regression")
