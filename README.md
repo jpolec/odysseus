@@ -1,15 +1,20 @@
 # Odysseus
 
-![Version: 0.7.0](https://img.shields.io/badge/version-0.7.0-171a16)
+![Version: 0.8.0](https://img.shields.io/badge/version-0.8.0-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
 ![GitHub Repo stars](https://img.shields.io/github/stars/jpolec/odysseus?style=social)
 
-**Zero runtime dependencies. No database. Auditable NDJSON. Your terminal stays
-first-class.**
+**The delivery system for coding agents.**
 
-Odysseus adds durable queues, approval-gated task DAGs, isolated Git worktrees,
+Zero runtime dependencies. No database. Auditable NDJSON. Your terminal stays
+first-class.
+
+Agents are replaceable workers: Codex, Claude, a custom local lane, or the next
+provider. Odysseus owns planning, isolation, execution, verification, review,
+delivery, memory, and outcome economics. It adds durable queues,
+approval-gated task DAGs, isolated Git worktrees,
 optional Docker boundaries, independent evidence, and a focused **Needs You**
 queue to the coding agents and tmux sessions you already use. Its light web UI
 is also a live window into existing tmux sessions:
@@ -30,6 +35,7 @@ adds repositories by itself.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Project decisions](docs/PROJECT_DECISIONS.md) ·
+[Outcome control-plane plan](docs/OUTCOME_CONTROL_PLANE_PLAN.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
 [Version and capabilities](VERSION.md) · [Security](SECURITY.md) ·
 [Release proof](PROOF.md) · [Production proof](PRODUCTION_PROOF.md) ·
@@ -61,13 +67,23 @@ adds repositories by itself.
   tool calls/results, token and cache usage, checks, independent evaluation,
   confidence, policy, and live activity.
 - **Keep control.** Accept saves a local artifact without touching the source
-  checkout. A separate, confirmed **Apply to repository** action merges it only
+  checkout. A separate, confirmed **Integrate into repository** action merges it only
   when the checkout is clean, on the expected branch, and history is compatible.
 - **Choose the runtime boundary.** Keep host compatibility, use a repository
   devcontainer, or run agent/check/review commands in disposable Docker
   containers with scoped mounts, credentials, ports, network, CPU, and memory.
 - **Operate more than one repository.** Repositories, tasks, tmux sessions, GitHub
-  issues, and follow-ups share one local control plane.
+  issues, and follow-ups share one local delivery system.
+- **Measure delivery, not activity.** The Engineering Portfolio shows windowed
+  delivery, first-pass rate, corrective human interventions, observed cost,
+  agent effectiveness with sample size, failure attribution, and current
+  blockers. Missing cost and unconfigured time-saved estimates stay Unknown.
+- **Learn in shadow mode.** The outcome router records an explainable routing
+  receipt and compares repository-local agent history without changing the
+  operator's selected worker. Sparse samples fall back explicitly.
+- **Propose before executing external work.** GitHub Issue intake re-fetches the
+  authoritative issue through `gh`, redacts evidence, deduplicates observations,
+  and creates an approval-gated Plan instead of silently starting an agent.
 - **Onboard from evidence.** A repository's Overview reads its existing README,
   detects agent instructions and stack markers, shows recent commits, and
   projects every significant task event into one human-readable timeline.
@@ -178,7 +194,7 @@ that instance. If the selected port is occupied by another service, the CLI
 automatically tries the next port and opens the address it
 actually selected (`8742`, `8743`, and so on).
 
-To explore a populated control plane without spending model tokens:
+To explore a populated delivery system without spending model tokens:
 
 ```sh
 odysseus demo
@@ -194,18 +210,22 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes eleven real browser captures—First run, Repositories, Repository,
-Attention, Review, Delivery, Integration, CI repair, Context Receipt, New task,
-and Settings—to `docs/screenshots/` and
+The script writes twelve real browser captures—First run, Engineering Portfolio,
+Repositories, Repository, Attention, Review, Delivery, Integration, CI repair,
+Context Receipt, New task, and Settings—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
+
+### Engineering Portfolio
+
+![Odysseus Engineering Portfolio](docs/screenshots/web-portfolio.png)
 
 ### Review, then deliver
 
 ![Odysseus review checklist](docs/screenshots/web-task-review.png)
 
 The result cannot silently become source code. After acceptance, the next
-screen still says **not applied** and offers explicit local or pull-request
+screen still says **not delivered** and offers explicit local or pull-request
 delivery:
 
 ![Odysseus accepted artifact delivery](docs/screenshots/web-task-delivery.png)
@@ -359,7 +379,7 @@ At the review gate:
 | --- | --- |
 | **View changes** | Opens the complete diff before any delivery decision. |
 | **Accept result** | Records approval and a durable local artifact commit; the source checkout remains unchanged. |
-| **Apply to repository** | After acceptance, safely merges the complete artifact into the expected local branch, preserving unrelated untracked files and aborting tracked-edit or merge conflicts. |
+| **Integrate into repository** | After acceptance, safely merges the complete artifact into the expected local branch, preserving unrelated untracked files and aborting tracked-edit or merge conflicts. |
 | **Request changes instead** | Sends guidance to the saved implementation thread in the same worktree. |
 | **Continue in terminal** | Resumes the exact implementation thread in a managed tmux session and copies its open command. |
 | **Create draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request without changing the source checkout. |

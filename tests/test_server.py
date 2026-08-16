@@ -107,6 +107,95 @@ class ServerTests(unittest.TestCase):
             finally:
                 app.stop()
 
+    def test_portfolio_and_outcome_router_endpoints_use_durable_local_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            store.update_config({"outcome_router": {"min_samples": 1}})
+            run = store.create({"task": "Router fixture", "project_path": str(project), "lane": "claude"})
+            store.update(run["id"], status="accepted", started_at=run["created_at"], finished_at=run["created_at"], delivery={"status": "applied"})
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                with urllib.request.urlopen(f"{base}/api/portfolio?days=7") as response:
+                    portfolio = json.load(response)
+                self.assertEqual(portfolio["format"], "odysseus-engineering-portfolio-v1")
+                self.assertEqual(portfolio["metrics"]["delivered"], 1)
+
+                forbidden = urllib.request.Request(
+                    f"{base}/api/projects/{registered['id']}/router/recommend",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"},
+                )
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(forbidden)
+                self.assertEqual(caught.exception.code, 403)
+                caught.exception.close()
+                request = urllib.request.Request(
+                    f"{base}/api/projects/{registered['id']}/router/recommend",
+                    data=json.dumps({"operator_default": "codex"}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with urllib.request.urlopen(request) as response:
+                    recommendation = json.load(response)
+                self.assertEqual(recommendation["recommended_lane"], "claude")
+                self.assertEqual(recommendation["applied_lane"], "codex")
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
+    def test_github_import_refetches_issue_and_proposes_plan_without_starting_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._git_repo(root)
+            subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", "https://github.com/acme/app.git"], check=True)
+            store = RunStore(root / "state")
+            project = store.projects.upsert(repo)
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            app.github.issue = mock.Mock(
+                return_value={
+                    "number": 7,
+                    "title": "Incident: API timeout",
+                    "body": "Trace includes user@example.com and ghp_abcdefghijklmnop1234.",
+                    "url": "https://github.com/acme/app/issues/7",
+                    "labels": [{"name": "sev1"}],
+                    "assignees": [],
+                    "state": "open",
+                    "updatedAt": "2026-08-16T10:00:00Z",
+                }
+            )
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                request = urllib.request.Request(
+                    f"{base}/api/github/import",
+                    data=json.dumps({"project_id": project["id"], "number": 7, "title": "forged browser title"}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with urllib.request.urlopen(request) as response:
+                    epic = json.load(response)
+                app.github.issue.assert_called_once_with(project["path"], 7)
+                self.assertEqual(epic["title"], "Incident: API timeout")
+                self.assertEqual(epic["status"], "proposed")
+                self.assertEqual(epic["intake"]["severity"], "high")
+                self.assertNotIn("user@example.com", epic["intake"]["evidence"]["body_excerpt"])
+                self.assertEqual(store.list(), [])
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_plan_endpoint_freezes_only_discovered_adr_sources(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -240,7 +329,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.7.0")
+                self.assertEqual(bootstrap["version"], "0.8.0")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -306,6 +395,9 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="projectExplorer"', html)
                 self.assertIn('id="projectTree"', html)
                 self.assertIn('id="workView"', html)
+                self.assertIn('id="portfolioView"', html)
+                self.assertIn('id="portfolioKpis"', html)
+                self.assertIn("The delivery system for coding agents", html)
                 self.assertIn('id="quickStart"', html)
                 self.assertIn('id="journeyStepper"', html)
                 self.assertIn('data-journey-step="1"', html)
@@ -324,8 +416,14 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("Choose a local Git folder", html)
                 self.assertNotIn("Other repository path", html)
                 self.assertIn('id="projectHome"', html)
+                self.assertIn('id="repositoryStatusView"', html)
+                self.assertIn('id="repositoryDeliveryMetrics"', html)
+                self.assertIn('id="repositoryDependencyGraph"', html)
+                self.assertIn('id="repositoryGantt"', html)
                 self.assertIn('id="projectTimeline"', html)
                 self.assertIn('id="projectSkillList"', html)
+                self.assertIn('id="skillsView"', html)
+                self.assertIn('id="skillDialog"', html)
                 self.assertIn('id="taskSkillMode"', html)
                 self.assertIn('id="contextReceipt"', html)
                 self.assertIn('id="projectMemoryList"', html)
@@ -365,13 +463,13 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('["failed", "attention"]', app_js)
                 self.assertIn('["review", "failed", "attention", "accepted", "pr_created"]', app_js)
                 self.assertIn("feedbackDialog", app_js)
-                self.assertIn("Apply to repository", app_js)
-                self.assertIn("Prepare integration", app_js)
+                self.assertIn("Integrate into repository", app_js)
+                self.assertIn("Combine accepted artifacts", app_js)
                 self.assertIn("integration-candidates", app_js)
-                self.assertIn("accepted · not applied", app_js)
+                self.assertIn("accepted · not delivered", app_js)
                 self.assertIn("Open Changes to load the diff.", app_js)
                 self.assertIn("eventsLoadedRunId", app_js)
-                self.assertIn("Ask integration agent", app_js)
+                self.assertIn("Resolve integration", app_js)
                 self.assertIn("Delivered in integration PR", app_js)
                 self.assertIn("Open integration PR", app_js)
                 self.assertIn("Plan selected", app_js)

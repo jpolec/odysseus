@@ -24,10 +24,12 @@ from . import __version__
 from .ci import CIWatcher
 from .economics import economics_csv, economics_ndjson, outcome_economics
 from .planner import EpicPlanner
+from .portfolio import engineering_portfolio
 from .runners import AgentRunner, _extract_text, _sanitize
 from .scheduler import ReviewActions, Scheduler
 from .search import search, statistics
 from .github import GitHubBridge
+from .intake import IntakeCoordinator, github_issue_signal
 from .lifecycle import ResourceLifecycle
 from .resources import resource_path
 from .store import RunStore
@@ -38,7 +40,9 @@ from .worktrees import WorktreeManager
 RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|apply|integration-candidates|integration|variants|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
 PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile|skills|knowledge))?$")
+PROJECT_ROUTER_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/router(?:/(?P<action>recommend|backtest|delete))?$")
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
+PROJECT_SKILL_LOCAL_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/local$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
 EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
@@ -60,7 +64,15 @@ RUN_SUMMARY_FIELDS = (
     "priority",
     "workflow",
     "created_at",
+    "started_at",
+    "finished_at",
+    "artifact_created_at",
     "updated_at",
+    "epic_id",
+    "depends_on",
+    "dependency_keys",
+    "blocks",
+    "block_keys",
     "tmux_session",
     "tmux_target",
 )
@@ -117,6 +129,7 @@ class OdysseusApp:
         self.planner = EpicPlanner(store)
         self.tmux = TmuxBridge(store)
         self.github = GitHubBridge()
+        self.intake = IntakeCoordinator(store)
         self.ci = CIWatcher(store, self.actions, bridge=self.github)
         self.resources = ResourceLifecycle(store)
         self.auth_user = auth_user
@@ -250,6 +263,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                         name: bool(shutil.which(name))
                         for name in ("git", "codex", "claude", "tmux", "gh", "docker", "devcontainer")
                     },
+                    "intake": self.server.app.intake.connector_capabilities(),
                     "assistant": self._assistant_bootstrap(),
                     "working_directory": str(Path.cwd()),
                     "current_repository": self.server.app.store.projects.describe(Path.cwd()),
@@ -304,6 +318,14 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/stats":
             self._json(statistics(self.server.app.store))
             return
+        if parsed.path == "/api/portfolio":
+            query = parse_qs(parsed.query)
+            try:
+                days = int(query.get("days", ["7"])[0])
+            except (TypeError, ValueError):
+                days = 7
+            self._json(engineering_portfolio(self.server.app.store, days=days))
+            return
         if parsed.path == "/api/economics":
             query = parse_qs(parsed.query)
             privacy = str(query.get("privacy", ["redacted"])[0])
@@ -320,6 +342,10 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/resources":
             retention = self.server.app.store.config().get("resource_retention_days", 14)
             self._json(self.server.app.resources.inspect(retention_days=int(retention)))
+            return
+        if parsed.path == "/api/router/export":
+            query = parse_qs(parsed.query)
+            self._json(self.server.app.store.outcome_router.export(str(query.get("project_id", [""])[0])))
             return
         if parsed.path == "/api/projects":
             self._json({"projects": self.server.app.store.projects.list()})
@@ -347,6 +373,19 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json_error(HTTPStatus.NOT_FOUND, "project not found")
             except RuntimeError as exc:
                 self._json_error(HTTPStatus.BAD_GATEWAY, str(exc))
+            return
+        router_match = PROJECT_ROUTER_ROUTE.fullmatch(parsed.path)
+        if router_match:
+            try:
+                project_id = router_match.group("project_id")
+                action = router_match.group("action") or ""
+                if action == "backtest":
+                    self.server.app.store.projects.get(project_id)
+                    self._json(self.server.app.store.outcome_router.backtest(project_id))
+                else:
+                    self._json_error(HTTPStatus.METHOD_NOT_ALLOWED, "router action requires POST")
+            except KeyError:
+                self._json_error(HTTPStatus.NOT_FOUND, "project not found")
             return
         match = RUN_ROUTE.fullmatch(parsed.path)
         if match:
@@ -414,10 +453,33 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "budgets",
                     "ci",
                     "resource_retention_days",
+                    "outcome_router",
+                    "portfolio",
                 ):
                     if key in body:
                         changes[key] = body[key]
                 self._json(self.server.app.store.update_config(changes))
+                return
+            router_match = PROJECT_ROUTER_ROUTE.fullmatch(parsed.path)
+            if router_match:
+                project_id = router_match.group("project_id")
+                self.server.app.store.projects.get(project_id)
+                action = router_match.group("action") or "recommend"
+                if action == "recommend":
+                    self._json(
+                        self.server.app.store.outcome_router.recommend(
+                            project_id,
+                            task=str(body.get("task") or ""),
+                            operator_default=str(body.get("operator_default") or ""),
+                            request=body,
+                        )
+                    )
+                elif action == "delete":
+                    self._json(self.server.app.store.outcome_router.delete(project_id))
+                elif action == "backtest":
+                    self._json(self.server.app.store.outcome_router.backtest(project_id))
+                else:
+                    self._json_error(HTTPStatus.NOT_FOUND, "unknown router action")
                 return
             if parsed.path == "/api/runs":
                 request = {**body, "origin": "web", "evidence_class": "observed"}
@@ -448,6 +510,13 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     self.server.app.store.skills.recommend(
                         recommend_match.group("project_id"), str(body.get("task") or "")
                     )
+                )
+                return
+            local_skill_match = PROJECT_SKILL_LOCAL_ROUTE.fullmatch(parsed.path)
+            if local_skill_match:
+                self._json(
+                    self.server.app.store.skills.create_local(local_skill_match.group("project_id"), body),
+                    HTTPStatus.CREATED,
                 )
                 return
             project_match = PROJECT_ROUTE.fullmatch(parsed.path)
@@ -495,14 +564,20 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/github/import":
                 project = self.server.app.store.projects.get(str(body.get("project_id") or ""))
-                title = str(body.get("title") or "GitHub issue")
-                url = str(body.get("url") or "")
-                issue_body = str(body.get("body") or "")
-                task = f"Implement GitHub issue: {title}\n\n{issue_body}"
-                if url:
-                    task += f"\n\nIssue: {url}"
-                run = self.server.app.store.create({"task": task, "title": title, "project_path": project["path"], "lane": body.get("lane") or self.server.app.store.config()["default_lane"], "origin": "github", "evidence_class": "observed"})
-                self._json(run, HTTPStatus.CREATED)
+                checks = body.get("checks") or []
+                if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
+                    raise ValueError("checks must be a list of commands")
+                issue = self.server.app.github.issue(project["path"], body.get("number"))
+                signal = github_issue_signal(issue, project)
+                epic = self.server.app.intake.propose(
+                    signal,
+                    project_path=str(project["path"]),
+                    lane=str(body.get("lane") or self.server.app.store.config()["default_lane"]),
+                    review_lane=str(body.get("review_lane") or ""),
+                    checks=checks,
+                    gate_policy=str(body.get("gate_policy") or "human_review"),
+                )
+                self._json(epic, HTTPStatus.OK if epic.get("duplicate") else HTTPStatus.CREATED)
                 return
             tmux_match = TMUX_ROUTE.fullmatch(parsed.path)
             if tmux_match:

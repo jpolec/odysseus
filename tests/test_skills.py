@@ -71,6 +71,37 @@ class SkillRegistryTests(unittest.TestCase):
                     }
                 )
 
+    def test_create_local_skill_writes_only_a_project_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "service"
+            project.mkdir()
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+
+            catalog = store.skills.create_local(
+                registered["id"],
+                {
+                    "name": "domain-boundaries",
+                    "description": "Preserve this project's domain boundaries.",
+                    "triggers": ["domain", "aggregate"],
+                    "content": "# Domain boundaries\n\nKeep aggregates independent.",
+                },
+            )
+
+            skill_path = project / ".agents" / "skills" / "domain-boundaries" / "SKILL.md"
+            by_name = {skill["name"]: skill for skill in catalog["skills"]}
+            self.assertTrue(skill_path.exists())
+            self.assertEqual(by_name["domain-boundaries"]["scope"], "project")
+            self.assertEqual(by_name["domain-boundaries"]["mode"], "auto")
+            self.assertIn("triggers: domain, aggregate", skill_path.read_text(encoding="utf-8"))
+
+            with self.assertRaises(ValueError):
+                store.skills.create_local(
+                    registered["id"],
+                    {"name": "../escape", "description": "No", "content": "No"},
+                )
+
     def test_catalog_reports_project_specific_outcome_economics(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

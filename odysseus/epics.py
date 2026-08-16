@@ -79,6 +79,8 @@ class EpicStore:
             "planner_events": [],
             "planner_error": "",
             "plan": request.get("plan") if isinstance(request.get("plan"), dict) else None,
+            "intake": request.get("intake") if isinstance(request.get("intake"), dict) else {},
+            "gate_policy": str(request.get("gate_policy") or "human_review"),
             "source_documents": source_documents,
             "approved": False,
             "task_keys": [],
@@ -113,6 +115,8 @@ class EpicStore:
             value.setdefault("evidence_class", "unclassified")
             value.setdefault("release", "")
             value.setdefault("source_documents", [])
+            value.setdefault("intake", {})
+            value.setdefault("gate_policy", "human_review")
         return value
 
     def list(self) -> list[dict[str, Any]]:
@@ -128,6 +132,8 @@ class EpicStore:
                     value.setdefault("evidence_class", "unclassified")
                     value.setdefault("release", "")
                     value.setdefault("source_documents", [])
+                    value.setdefault("intake", {})
+                    value.setdefault("gate_policy", "human_review")
                 values.append(value)
         return sorted(values, key=lambda item: str(item.get("created_at", "")), reverse=True)
 

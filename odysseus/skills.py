@@ -16,6 +16,7 @@ VALID_MODES = frozenset({"auto", "required", "disabled"})
 VALID_TASK_MODES = frozenset({"auto", "manual", "none"})
 SKILL_LOCATIONS = (".agents/skills", ".github/skills", ".claude/skills")
 BUNDLED_SKILLS = resource_path("skills")
+LOCAL_SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]{1,63}")
 SUCCESS_STATUSES = frozenset({"accepted", "pr_created", "completed"})
 TERMINAL_STATUSES = SUCCESS_STATUSES | frozenset({"failed", "cancelled"})
 INTERVENTION_EVENTS = frozenset(
@@ -40,6 +41,12 @@ def _frontmatter(value: str) -> tuple[dict[str, str], str]:
 
 def _tokens(value: str) -> set[str]:
     return {item for item in re.findall(r"[a-z0-9][a-z0-9+_.-]+", value.lower()) if len(item) > 2}
+
+
+def _frontmatter_value(value: str) -> str:
+    """Keep generated single-line frontmatter inert and readable."""
+
+    return re.sub(r"\s+", " ", value).strip().replace('"', "'")
 
 
 class SkillRegistry:
@@ -127,6 +134,45 @@ class SkillRegistry:
         value = {"policies": current, "updated_at": now_iso()}
         with self.store.locked():
             self.store._atomic_json(self._policy_path(project_id), value)
+        return self.catalog(project_id)
+
+    def create_local(self, project_id: str, request: Mapping[str, Any]) -> dict[str, Any]:
+        """Create a repository-owned skill without accepting an arbitrary path."""
+
+        if self.store.readonly:
+            raise RuntimeError("state is read-only")
+        project = self.store.projects.get(project_id)
+        name = str(request.get("name") or "").strip().lower()
+        description = _frontmatter_value(str(request.get("description") or ""))
+        body = str(request.get("content") or "").strip()
+        raw_triggers = request.get("triggers") or []
+        if isinstance(raw_triggers, str):
+            raw_triggers = [item.strip() for item in raw_triggers.split(",")]
+        if not isinstance(raw_triggers, list) or not all(isinstance(item, str) for item in raw_triggers):
+            raise ValueError("triggers must be a list of strings")
+        triggers = [_frontmatter_value(item.lower()) for item in raw_triggers if item.strip()]
+        if not LOCAL_SKILL_NAME.fullmatch(name):
+            raise ValueError("skill name must be a lowercase slug, 2-64 characters")
+        if not description:
+            raise ValueError("skill description is required")
+        if not body:
+            raise ValueError("skill instructions are required")
+
+        project_root = Path(str(project["path"])).resolve()
+        target_dir = project_root / ".agents" / "skills" / name
+        target = target_dir / "SKILL.md"
+        if target.exists():
+            raise ValueError(f"local skill already exists: {name}")
+        content = (
+            "---\n"
+            f"name: {name}\n"
+            f"description: {description}\n"
+            f"triggers: {', '.join(triggers)}\n"
+            "---\n\n"
+            f"{body}\n"
+        )
+        target_dir.mkdir(parents=True, exist_ok=False)
+        target.write_text(content, encoding="utf-8")
         return self.catalog(project_id)
 
     def catalog(self, project_id: str, *, include_content: bool = False) -> dict[str, Any]:

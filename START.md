@@ -41,7 +41,8 @@ second scheduler. If another application or a different Odysseus state owns
 port 8741, the CLI tries 8742, then 8743, and prints and opens the address it
 actually selected.
 
-On a fresh state, the landing page shows one persistent path: **1 Choose a
+The landing page is **Engineering Portfolio**, a seven-day outcome view across
+repositories. Open **Repositories** for the persistent path: **1 Choose a
 repository -> 2 New task -> 3 Review**. The numbered circles are
 also shortcuts. Add a Git repository; registration reads metadata but does not
 modify the checkout. Readiness checks stay visible as quiet diagnostics rather
@@ -163,7 +164,7 @@ Then choose one action:
 - **View changes** opens the diff; **View checks and review** opens the evidence.
 - **Accept result** records approval and creates a local artifact commit. It
   still does not change your source checkout.
-- **Apply to repository** appears after acceptance. It merges the complete
+- **Integrate into repository** appears after acceptance. It merges the complete
   artifact only into a clean checkout on the expected branch and aborts a
   conflicting merge automatically.
 - **Request changes instead** sends guidance into the saved implementation

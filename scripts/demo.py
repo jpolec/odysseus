@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a disposable, deterministic Odysseus 0.6 product-tour state."""
+"""Create a disposable, deterministic Odysseus 0.8 product-tour state."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     store.knowledge.update_profile(
         primary["id"],
         {
-            "summary": "A local-first engineering control plane for coding agents and tmux sessions.",
+            "summary": "A local-first delivery system for coding agents and tmux sessions.",
             "notes": "The demo keeps terminal control explicit and never spends model tokens.",
         },
     )
@@ -87,6 +87,8 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         atlas_run["id"],
         "accepted",
         event_type="run.accepted",
+        started_at="2026-08-14T08:00:00Z",
+        finished_at="2026-08-14T08:12:00Z",
         check_results=[{"command": "python3 -m unittest tests.test_webhooks", "returncode": 0, "output": "12 tests passed"}],
         confidence=0.97,
         policy_decision="accept",
@@ -120,6 +122,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         quasar_run["id"],
         "review",
         event_type="run.review_ready",
+        started_at="2026-08-14T08:20:00Z",
         check_results=[{"command": "python3 -m unittest tests.test_temporal_boundaries", "returncode": 0, "output": "9 tests passed"}],
         review_status="waiting",
         review_summary="Temporal checks pass. Confirm the accepted lag policy before approving.",
@@ -195,6 +198,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     store.update(
         backend_id,
         status="review",
+        started_at="2026-08-14T08:30:00Z",
         review_status="waiting",
         check_results=[
             {"command": "python3 -m unittest", "returncode": 0, "output": "42 tests passed"},
@@ -243,6 +247,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     store.update(
         frontend_id,
         status="attention",
+        started_at="2026-08-14T08:35:00Z",
         worker_pid=None,
         environment={
             "version": "environment-plan-v1", "profile": "devcontainer", "status": "active",
@@ -284,6 +289,8 @@ def seed(state_dir: Path, project: Path) -> RunStore:
     store.update(
         ci_id,
         status="pr_created",
+        started_at="2026-08-14T08:42:00Z",
+        finished_at="2026-08-14T09:18:00Z",
         branch=f"odysseus/{ci_id}",
         base_ref="main",
         base_sha="1" * 40,
@@ -328,6 +335,7 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "reasoning_output_tokens": 2_106,
             "tool_calls": 83,
             "cost_usd": 4.612,
+            "cost_observed": True,
             "session_usage": {},
         },
         review_summary="Independent review passed. GitHub browser CI exposed one behavioral retry regression.",

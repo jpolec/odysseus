@@ -19,6 +19,7 @@ from .attention import AttentionQueue
 from .epics import EpicStore, VALID_ROLES
 from .inbox import Inbox
 from .notifications import NotificationManager
+from .outcome_router import OutcomeRouter
 from .project_knowledge import ProjectKnowledge
 from .projects import ProjectRegistry
 from .skills import SkillRegistry, VALID_TASK_MODES
@@ -60,6 +61,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_human_review": True,
         "required_evaluators": [],
     },
+    "outcome_router": OutcomeRouter.default_config(),
+    "portfolio": {"baseline_engineer_minutes_per_delivery": 0},
 }
 
 
@@ -171,6 +174,7 @@ def _run_defaults() -> dict[str, Any]:
             "reason": "",
             "decided_at": None,
         },
+        "outcome_routing": {},
     }
 
 
@@ -226,6 +230,7 @@ class RunStore:
         self.attention = AttentionQueue(self)
         self.epics = EpicStore(self)
         self.notifications = NotificationManager(self)
+        self.outcome_router = OutcomeRouter(self)
         if migrate and not readonly:
             self._migrate_runs()
 
@@ -325,6 +330,14 @@ class RunStore:
             for provider, model in (raw_models.items() if isinstance(raw_models, dict) else [])
             if provider in {"openai", "anthropic"} and str(model).strip()
         }
+        router = OutcomeRouter.default_config()
+        if isinstance(merged.get("outcome_router"), dict):
+            router.update(merged["outcome_router"])
+        merged["outcome_router"] = router
+        portfolio = dict(DEFAULT_CONFIG["portfolio"])
+        if isinstance(merged.get("portfolio"), dict):
+            portfolio.update(merged["portfolio"])
+        merged["portfolio"] = portfolio
         return merged
 
     def update_config(self, changes: Mapping[str, Any]) -> dict[str, Any]:
@@ -342,6 +355,8 @@ class RunStore:
             "ci",
             "notifications",
             "resource_retention_days",
+            "outcome_router",
+            "portfolio",
         }
         unknown = set(changes) - allowed
         if unknown:
@@ -475,6 +490,25 @@ class RunStore:
             selected_memory,
             source_documents,
         ) if kind != "tmux" else ([], {})
+        requested_lane = str(request.get("lane") or config["default_lane"])
+        outcome_routing = (
+            self.outcome_router.recommend(
+                str(project_record["id"]),
+                task=task,
+                operator_default=requested_lane,
+                request={
+                    "role": role,
+                    "origin": origin,
+                    "skills_selected": [
+                        {"name": str(skill.get("name") or "")}
+                        for skill in selected_skills
+                        if isinstance(skill, dict)
+                    ],
+                },
+            )
+            if kind != "tmux"
+            else {}
+        )
         run: dict[str, Any] = {
             "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
@@ -483,7 +517,7 @@ class RunStore:
             "task": task,
             "project_path": str(project),
             "project_id": project_record["id"],
-            "lane": str(request.get("lane") or config["default_lane"]),
+            "lane": requested_lane,
             "review_lane": str(request.get("review_lane") or request.get("lane") or config["default_lane"]),
             "workflow": workflow,
             "checks": checks,
@@ -578,6 +612,7 @@ class RunStore:
                 "prompt_sha256": str(request.get("variant_prompt_sha256") or ""),
                 "model": str(request.get("variant_model") or ""),
             },
+            "outcome_routing": outcome_routing,
         }
         with self.locked():
             self._atomic_json(self._path(run_id), run)

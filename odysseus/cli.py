@@ -1,4 +1,4 @@
-"""Command-line interface for the Odysseus local agent control plane."""
+"""Command-line interface for the Odysseus coding-agent delivery system."""
 
 from __future__ import annotations
 
@@ -706,7 +706,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="odysseus",
-        description="Local worktree, queue, workflow, and review control plane for coding agents.",
+        description="Local planning, execution, verification, and delivery for coding agents.",
     )
     root.add_argument("--version", action="version", version=f"Odysseus {__version__}")
     root.add_argument(

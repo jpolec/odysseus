@@ -6,11 +6,37 @@
 
 ## Current version
 
-**0.7.0 — 2026-08-16**
+**0.8.0 — 2026-08-16**
 
-Version 0.7.0 adds auditable Project Decisions: repository ADR discovery,
-multi-select planning, durable source snapshots, and decision-level execution
-and economics history.
+Version 0.8.0 makes delivery outcomes visible across repositories and integrates
+the next organizational-learning primitives without removing terminal-first
+operation.
+
+## What is available in 0.8.0
+
+### 0.8.0 Outcome-driven delivery
+
+- **Engineering Portfolio** is the default lead surface: windowed started and
+  delivered counts, autonomous and first-pass rates, corrective human actions,
+  honest observed-cost coverage, agent effectiveness with sample sizes,
+  failure attribution, and current blockers.
+- The **outcome router** persists shadow recommendations and their evidence. It
+  uses observed local outcomes, enforces minimum samples per requested model,
+  does not inspect prompt-derived features by default, exposes backtests and
+  export, and never overrides the operator-selected lane.
+- GitHub issue intake re-fetches the selected issue through authenticated `gh`,
+  normalizes and redacts its evidence, refreshes duplicate observations, and
+  proposes an approval-gated Plan without starting an agent.
+- Repository status adds a compact delivery surface, dependency graph, and
+  truthful task timeline. Accepted-but-not-delivered work is visually distinct
+  from delivered work.
+- Generic Skills have a first-class cross-repository view and can be created as
+  repository-local procedures without coupling them to private skill archives.
+- Review actions now use the literal **Integrate into repository** and **Resolve
+  integration** language, including a primary action on accepted artifacts.
+- The visual system uses a calmer neutral background, a system-native
+  Geist-style type stack, restrained density, and a light default theme. No
+  third-party font, UI runtime, or remote asset is required.
 
 ## What is available in 0.7.0
 
@@ -29,7 +55,7 @@ and economics history.
 - Traversal, unsupported folders, oversized selections, and more than twenty
   source documents are rejected before the Planner runs.
 - The web UI now uses shorter decision labels: **1 Choose repository -> 2 New
-  task -> 3 Review**, **Ask integration agent**, and one visible primary action
+  task -> 3 Review**, **Resolve integration**, and one visible primary action
   on review and delivery states.
 
 ## Earlier 0.6 releases
@@ -87,7 +113,7 @@ and economics history.
   a previously selected task cannot overwrite the current view.
 - Live SSE starts at the stored event tail instead of replaying the complete
   journal before Activity is opened.
-- Apply conflicts now offer **Ask integration agent**, prefilled with a safe
+- Integration conflicts now offer **Resolve integration**, prefilled with a safe
   integration instruction, alongside draft PR and repository status options.
 
 ### 0.6.8 Task Intake and Settings
@@ -116,7 +142,7 @@ and economics history.
   and says explicitly that the agent is finished while nothing has been
   applied.
 - **Accept result** snapshots the artifact without touching the source checkout.
-  Accepted tasks then offer **Apply to repository**, **Create draft PR**, or the
+  Accepted tasks then offer **Integrate into repository**, **Create draft PR**, or the
   safe default of keeping the artifact only.
 - Local Apply merges the complete artifact branch, including composed DAG
   predecessors. It refuses a dirty checkout, detached HEAD, wrong branch,

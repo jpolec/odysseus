@@ -224,7 +224,8 @@ lanes; unknown or malformed markers never become implicit approval.
 - `parallelizable: false` excludes overlap with active siblings in the Epic.
 - `accepted` records an `artifact_sha` and `artifact_files` surface.
 - `delivery.status` distinguishes `not_applied`, `applied`, `failed`, and
-  `pr_created`; Apply records the target branch and before/after commit SHAs.
+  `pr_created`; the UI calls this explicit action **Integrate into repository**.
+  The stable `/apply` API action records the target branch and before/after SHAs.
 - Integration delivery requires an explicit disposition for every current
   candidate: `integrate_now`, `keep_for_later`, or `supersede`. Stale,
   incompatible-base, already-delivered, and superseded artifacts are excluded
@@ -262,6 +263,11 @@ Schema 11 adds `integration_disposition` for selected, deferred, and
 superseded accepted artifacts. Store open migrates old snapshots by adding
 defaults; it never rewrites event journals.
 
+Schema 12 adds `outcome_routing`, an immutable shadow recommendation captured
+when a task is queued. It records the operator default, recommendation,
+features, minimum sample policy, candidate evidence, counterfactual, drift,
+and governance note. Shadow routing never changes `lane` autonomously.
+
 Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 `skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7
 adds `knowledge_selected` and the explainable `skill_routing` record. Context
@@ -274,3 +280,22 @@ by `allow_env` are deliberately absent from snapshots and event data. An
 untrusted run may enter `attention` with `environment.trust_status=pending`
 before any agent or repository command; answering its permission request with
 `approve` queues the same run once with `project_commands_approved=true`.
+
+## Outcome and intake APIs
+
+- `GET /api/portfolio?days=7` returns windowed engineering delivery metrics,
+  per-agent sample sizes, failure attribution, and current blockers. Unknown
+  cost and unconfigured engineer-time baselines remain `null`.
+- `POST /api/projects/:id/router/recommend` returns a shadow recommendation;
+  `GET|POST .../router/backtest` evaluates only evidence that predates each
+  decision; `GET /api/router/export` exports normalized records.
+- `POST /api/projects/:id/router/delete` excludes that repository from future
+  router recommendation/export. Raw run deletion remains a separate lifecycle
+  decision.
+- `GET /api/github/issues` lists authenticated `gh` results. A subsequent
+  `POST /api/github/import` accepts the project and issue number, re-fetches the
+  issue server-side, redacts its evidence, and proposes an Epic. It never trusts
+  browser-supplied title/body as audit evidence and never starts tasks before
+  Plan approval.
+- Repeated issue intake refreshes the same Epic's latest evidence and appends a
+  bounded observation receipt instead of creating a duplicate Plan.

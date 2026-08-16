@@ -10,12 +10,13 @@ try { savedTheme = window.localStorage.getItem(THEME_KEY) || ""; } catch { saved
 document.documentElement.dataset.theme = savedTheme === "dark" ? "dark" : "light";
 
 const state = {
-  bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
+  bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], portfolio: null, selectedId: null,
   selected: null, selectedDiff: null, selectedDiffRunId: "", selectedDiffLoadingRunId: "",
   events: [], eventsLoadedRunId: "", eventsLoadingRunId: "", eventVisibleLimit: 150,
-  selectionGeneration: 0, filter: "active", projectFilter: "all", view: "work",
+  selectionGeneration: 0, filter: "active", projectFilter: "all", view: "portfolio",
   stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
+  skillsProjectId: "", skillsCatalog: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
   selectedDecisionPaths: [],
 };
@@ -36,7 +37,7 @@ const UI_COPY = {
   deliver: "Choose delivery",
   unknown: "Unknown",
   notObserved: "Not observed",
-  notApplied: "Saved artifact, not applied",
+  notApplied: "Accepted artifact · not delivered",
 };
 
 async function api(path, options = {}) {
@@ -155,8 +156,8 @@ function runActionLine(run) {
   if (run?.status === "pr_created") return ciActionLine(run);
   if (run?.status === "accepted" && delivery.status === "integrated_pr_created") return "Delivered in integration PR.";
   if (run?.status === "accepted" && deliveredDeliveryStatuses.has(delivery.status)) return "No action needed.";
-  if (run?.status === "accepted" && delivery.status === "failed") return "Fix apply prerequisite.";
-  if (run?.status === "accepted") return "Choose delivery.";
+  if (run?.status === "accepted" && delivery.status === "failed") return "Resolve integration conflict.";
+  if (run?.status === "accepted") return "Integrate or keep the artifact.";
   if (run?.status === "decided") return "No action needed.";
   if (run?.status === "attention") return "Answer Needs You.";
   if (run?.status === "failed") return "Resume with feedback.";
@@ -276,7 +277,7 @@ function setView(view) {
   $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $$(".view-panel").forEach((panel) => panel.classList.remove("active"));
   $(`#${view}View`)?.classList.add("active");
-  const surfaceNames = {work: "Repositories", attention: "Needs You", epics: "Plans", tasks: "Task", sessions: "Terminals", inbox: "Follow-ups", projects: "Manage repositories", insights: "Search & insights", github: "GitHub issues", settings: "Settings"};
+  const surfaceNames = {portfolio: "Portfolio", work: "Repositories", attention: "Needs You", skills: "Skills", epics: "Plans", tasks: "Task", sessions: "Terminals", inbox: "Follow-ups", projects: "Manage repositories", insights: "Search & insights", github: "GitHub issues", settings: "Settings"};
   const project = activeProject();
   const scopedProject = ["work", "tasks", "epics", "github"].includes(view) ? project : null;
   $("#titleProject").textContent = scopedProject ? projectName(scopedProject) : "Odysseus";
@@ -289,10 +290,12 @@ function setView(view) {
   if (view === "sessions") refreshSessions();
   if (view === "inbox") refreshInbox();
   if (view === "attention") refreshAttention();
+  if (view === "skills") refreshSkillsPage();
   if (view === "epics") refreshEpics();
   if (view === "settings") refreshSettings();
   if (view === "github" && project && [...$("#githubProject").options].some((option) => option.value === project.id)) $("#githubProject").value = project.id;
   if (view === "insights") refreshInsights();
+  if (view === "portfolio") refreshPortfolio();
   if (view === "work") renderWork();
   updateGitHubLink();
 }
@@ -451,24 +454,60 @@ function renderTaskSkillRecommendations() {
   container.innerHTML = selected.length ? `<small>AUTO WILL ATTACH</small>${selected.map((item) => `<div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml((item.reasons || [])[0] || "repository policy")}</span></div>`).join("")}` : "";
 }
 
-function renderProjectSkills() {
-  const catalog = state.projectSkills;
+function renderSkillCatalog(catalog, listSelector, countSelector) {
   const skills = catalog?.skills || [];
-  $("#projectSkillCount").textContent = `${skills.filter((skill) => skill.mode !== "disabled").length} enabled`;
-  $("#projectSkillList").innerHTML = skills.length ? skills.map((skill) => { const stats = skill.effectiveness || {}; const outcome = stats.runs ? `${stats.runs} run${stats.runs === 1 ? "" : "s"}${stats.success_rate === null ? " · awaiting outcomes" : ` · ${Math.round(Number(stats.success_rate) * 100)}% successful`}` : "No repository history yet"; return `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small><em class="skill-effectiveness">${escapeHtml(outcome)}</em></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div>${stats.runs ? `<p class="skill-stats">Average ${compactNumber(stats.avg_tokens)} tokens · $${Number(stats.avg_cost_usd || 0).toFixed(4)} · ${Number(stats.interventions || 0)} human interventions</p>` : ""}<pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`; }).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
-  $$('[data-skill-policy]').forEach((select) => {
+  const projectId = catalog?.project_id || "";
+  $(countSelector).textContent = `${skills.filter((skill) => skill.mode !== "disabled").length} enabled`;
+  $(listSelector).innerHTML = skills.length ? skills.map((skill) => { const stats = skill.effectiveness || {}; const outcome = stats.runs ? `${stats.runs} run${stats.runs === 1 ? "" : "s"}${stats.success_rate === null ? " · awaiting outcomes" : ` · ${Math.round(Number(stats.success_rate) * 100)}% successful`}` : "No repository history yet"; return `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small><em class="skill-effectiveness">${escapeHtml(outcome)}</em></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" data-skill-project="${escapeHtml(projectId)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div>${stats.runs ? `<p class="skill-stats">Average ${compactNumber(stats.avg_tokens)} tokens · $${Number(stats.avg_cost_usd || 0).toFixed(4)} · ${Number(stats.interventions || 0)} human interventions</p>` : ""}<pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`; }).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
+  $$(`${listSelector} [data-skill-policy]`).forEach((select) => {
     select.addEventListener("click", (event) => event.stopPropagation());
     select.addEventListener("change", async (event) => {
-      const project = activeProject();
-      if (!project) return;
       const name = event.currentTarget.dataset.skillPolicy;
+      const targetProjectId = event.currentTarget.dataset.skillProject;
+      if (!targetProjectId) return;
       try {
-        state.projectSkills = await api(`/api/projects/${encodeURIComponent(project.id)}/skills`, {method: "POST", body: JSON.stringify({policies: {[name]: event.currentTarget.value}})});
+        const nextCatalog = await api(`/api/projects/${encodeURIComponent(targetProjectId)}/skills`, {method: "POST", body: JSON.stringify({policies: {[name]: event.currentTarget.value}})});
+        if (activeProject()?.id === targetProjectId) state.projectSkills = nextCatalog;
+        if (state.skillsProjectId === targetProjectId) state.skillsCatalog = nextCatalog;
         renderProjectSkills();
+        renderSkillsPage();
         toast(`${name} policy updated.`);
       } catch (error) { toast(error.message, true); }
     });
   });
+}
+
+function renderProjectSkills() {
+  renderSkillCatalog(state.projectSkills, "#projectSkillList", "#projectSkillCount");
+}
+
+function renderSkillsPage() {
+  const selected = state.skillsProjectId && projectById(state.skillsProjectId) ? state.skillsProjectId : preferredProjectId();
+  state.skillsProjectId = selected || "";
+  if ([...$("#skillsProjectSelect").options].some((option) => option.value === state.skillsProjectId)) $("#skillsProjectSelect").value = state.skillsProjectId;
+  $("#addSkillButton").disabled = !state.skillsProjectId;
+  if (!state.skillsProjectId) {
+    $("#skillsPageCount").textContent = "0 enabled";
+    $("#skillsPageList").innerHTML = `<div class="empty-card">Add a repository to manage skills.</div>`;
+    return;
+  }
+  if (!state.skillsCatalog || state.skillsCatalog.project_id !== state.skillsProjectId) {
+    $("#skillsPageCount").textContent = "Loading";
+    $("#skillsPageList").innerHTML = `<div class="empty-card">Loading repository skills…</div>`;
+    return;
+  }
+  renderSkillCatalog(state.skillsCatalog, "#skillsPageList", "#skillsPageCount");
+}
+
+async function refreshSkillsPage(projectId = "") {
+  const selected = projectId || $("#skillsProjectSelect")?.value || state.skillsProjectId || preferredProjectId();
+  state.skillsProjectId = selected && projectById(selected) ? selected : "";
+  renderSkillsPage();
+  if (!state.skillsProjectId) return;
+  state.skillsCatalog = await api(`/api/projects/${encodeURIComponent(state.skillsProjectId)}/skills`);
+  if (activeProject()?.id === state.skillsProjectId) state.projectSkills = state.skillsCatalog;
+  renderSkillsPage();
+  if (activeProject()?.id === state.skillsProjectId) renderProjectSkills();
 }
 
 function openKnowledgeDialog(item = null) {
@@ -562,6 +601,127 @@ function openEpicDialog(sourcePaths = []) {
   $("#epicDialog").showModal();
 }
 
+function repositoryStatusLabel(run) {
+  const deliveryStatus = String(run?.delivery?.status || "");
+  if (run?.status === "pr_created" || deliveredDeliveryStatuses.has(deliveryStatus)) return "Delivered";
+  if (["accepted", "completed"].includes(run?.status)) return "Accepted";
+  if (activeStatuses.has(run?.status)) return "Running";
+  if (["blocked", "attention", "failed", "cancelled"].includes(run?.status)) return "Blocked";
+  if (run?.status === "review") return "Review";
+  return "Planned";
+}
+
+function repositoryStatusNodes(project, runs) {
+  const runNodes = runs.map((run) => ({
+    key: run.task_key || run.id,
+    id: run.id,
+    title: runTitle(run, run.id),
+    status: repositoryStatusLabel(run),
+    created_at: run.created_at,
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    artifact_created_at: run.artifact_created_at,
+    updated_at: run.updated_at,
+    raw_dependencies: [...(run.dependency_keys || []), ...(run.depends_on || [])],
+  }));
+  const aliases = new Map(runNodes.flatMap((node) => [[node.key, node.key], [node.id, node.key]].filter(([key]) => key)));
+  runNodes.forEach((node) => {
+    node.depends_on = [...new Set(node.raw_dependencies.map((key) => aliases.get(key) || key))].filter((key) => key && key !== node.key);
+    delete node.raw_dependencies;
+  });
+  const existing = new Set(runNodes.flatMap((node) => [node.key, node.id].filter(Boolean)));
+  const planned = state.epics
+    .filter((epic) => epic.project_id === project.id && !(epic.run_ids || []).length)
+    .flatMap((epic) => (epic.plan?.tasks || []).map((task) => ({
+      key: task.task_key,
+      id: "",
+      title: task.title || task.task || task.task_key,
+      status: "Planned",
+      created_at: epic.created_at,
+      updated_at: epic.updated_at,
+      depends_on: [...new Set(task.depends_on || [])],
+    })))
+    .filter((node) => node.key && !existing.has(node.key));
+  return [...runNodes, ...planned];
+}
+
+function repositoryStatusDepths(nodes) {
+  const byKey = new Map(nodes.flatMap((node) => [[node.key, node], [node.id, node]].filter(([key]) => key)));
+  const visiting = new Set();
+  const memo = new Map();
+  const depthOf = (node) => {
+    if (!node) return 0;
+    if (memo.has(node.key)) return memo.get(node.key);
+    if (visiting.has(node.key)) return 0;
+    visiting.add(node.key);
+    const parents = (node.depends_on || []).map((key) => byKey.get(key)).filter(Boolean);
+    const depth = parents.length ? 1 + Math.max(...parents.map(depthOf)) : 0;
+    visiting.delete(node.key);
+    memo.set(node.key, depth);
+    return depth;
+  };
+  nodes.forEach(depthOf);
+  return memo;
+}
+
+function timestampMs(value) {
+  const valueMs = new Date(value || "").getTime();
+  return Number.isFinite(valueMs) ? valueMs : null;
+}
+
+function renderRepositoryStatus() {
+  const project = activeProject();
+  if (!project) return;
+  const runs = runsForProject(project.id);
+  const nodes = repositoryStatusNodes(project, runs);
+  const counts = nodes.reduce((result, node) => ({...result, [node.status]: (result[node.status] || 0) + 1}), {});
+  const delivered = counts.Delivered || 0;
+  const accepted = counts.Accepted || 0;
+  const finished = delivered + accepted;
+  const latestMs = Math.max(...runs.map((run) => timestampMs(run.updated_at) || 0), 0);
+  $("#repositoryStatusUpdated").textContent = latestMs ? `Updated ${relativeTime(new Date(latestMs).toISOString())} ago` : "No tasks";
+  $("#repositoryDeliveryMetrics").innerHTML = [
+    [delivered, "Delivered", "in the source or PR"],
+    [accepted, "Accepted", "artifact only"],
+    [counts.Running || 0, "Running", "agent or checks"],
+    [(counts.Blocked || 0) + (counts.Review || 0), "Needs you", "review or recovery"],
+    [counts.Planned || 0, "Planned", "not started"],
+    [runs.length ? `${Math.round((finished / runs.length) * 100)}%` : "0%", "Success", "accepted or delivered"],
+  ].map(([value, label, note]) => `<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
+
+  const depths = repositoryStatusDepths(nodes);
+  const maxDepth = Math.max(...nodes.map((node) => depths.get(node.key) || 0), 0);
+  const known = new Set(nodes.flatMap((node) => [node.key, node.id].filter(Boolean)));
+  const edgeCount = nodes.reduce((total, node) => total + (node.depends_on || []).filter((key) => known.has(key)).length, 0);
+  $("#repositoryGraphCount").textContent = `${nodes.length} task${nodes.length === 1 ? "" : "s"} · ${edgeCount} edge${edgeCount === 1 ? "" : "s"}`;
+  $("#repositoryDependencyGraph").style.setProperty("--repo-graph-columns", String(maxDepth + 1));
+  $("#repositoryDependencyGraph").innerHTML = nodes.length ? nodes.map((node) => `
+    <button class="repository-graph-node repo-status-${node.status.toLowerCase()}" style="grid-column:${(depths.get(node.key) || 0) + 1}" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button">
+      <span>${escapeHtml(node.status)}</span><strong>${escapeHtml(node.title)}</strong><small>${escapeHtml((node.depends_on || []).length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>
+    </button>`).join("") : `<div class="empty-list">A task graph appears after you create a plan.</div>`;
+
+  const now = Date.now();
+  const timeline = nodes.map((node) => {
+    const start = timestampMs(node.started_at) || timestampMs(node.created_at) || timestampMs(node.updated_at) || now;
+    const end = node.status === "Running"
+      ? now
+      : timestampMs(node.finished_at) || timestampMs(node.artifact_created_at) || timestampMs(node.updated_at) || start;
+    return {...node, start, end: Math.max(start, end)};
+  });
+  const points = timeline.flatMap((node) => [node.start, node.end]);
+  const min = points.length ? Math.min(...points) : now;
+  const maxObserved = points.length ? Math.max(...points) : min;
+  const max = Math.max(maxObserved, min + 3_600_000);
+  const range = Math.max(1, max - min);
+  $("#repositoryTimelineCount").textContent = `${nodes.length} lane${nodes.length === 1 ? "" : "s"}`;
+  $("#repositoryGantt").innerHTML = timeline.slice(0, 18).map((node) => {
+    const left = Math.max(0, Math.min(96, ((node.start - min) / range) * 100));
+    const width = Math.max(4, Math.min(100 - left, ((node.end - node.start) / range) * 100));
+    return `<button class="gantt-row" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button"><span title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span><i><b class="repo-status-${node.status.toLowerCase()}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%"></b></i><em>${escapeHtml(node.status)}</em></button>`;
+  }).join("") || `<div class="empty-list">The timeline appears after the first task.</div>`;
+  $$('[data-status-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.statusRun)));
+}
+
 function renderProjectKnowledge() {
   const project = activeProject();
   const overview = state.projectOverview;
@@ -575,6 +735,7 @@ function renderProjectKnowledge() {
     $("#projectSkillList").innerHTML = `<div class="empty-list">Loading repository skills…</div>`;
     $("#projectMemoryList").innerHTML = `<div class="empty-list">Loading repository memory…</div>`;
     $("#projectDecisionList").innerHTML = `<div class="empty-list">Discovering architecture decisions…</div>`;
+    renderRepositoryStatus();
     $("#projectCommitList").innerHTML = `<div class="empty-list">Loading Git history…</div>`;
     $("#projectTimeline").innerHTML = `<div class="empty-list">Building repository timeline…</div>`;
     return;
@@ -590,6 +751,7 @@ function renderProjectKnowledge() {
   $("#projectCommitList").innerHTML = (overview.commits || []).length ? overview.commits.map((commit) => `<div class="project-commit"><code>${escapeHtml(commit.short_sha)}</code><div><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.author)} · ${relativeTime(commit.ts)} ago</small></div></div>`).join("") : `<div class="empty-list">No Git commits found.</div>`;
   $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Activity appears after the first task.</div>`;
   renderProjectDecisions();
+  renderRepositoryStatus();
   renderProjectSkills();
   renderProjectMemory();
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
@@ -778,10 +940,20 @@ function renderWork() {
   const needs = project ? attentionForProject(project.id).length : state.attention.length;
   const complete = runs.filter((run) => ["accepted", "pr_created", "completed"].includes(run.status)).length;
   const terminals = project ? projectTerminalCount(project) : state.sessions.length;
+  const delivered = runs.filter((run) => run.status === "pr_created" || deliveredDeliveryStatuses.has(run.delivery?.status)).length;
+  const acceptedOnly = runs.filter((run) => run.status === "accepted" && !deliveredDeliveryStatuses.has(run.delivery?.status)).length;
+  const deliveryBlocked = runs.filter((run) => run.status === "accepted" && run.delivery?.status === "failed").length;
   $("#workView").classList.toggle("repository-selected", !!project);
   $("#workBreadcrumb").textContent = project ? "GIT REPOSITORY" : "ODYSSEUS";
   $("#workTitle").textContent = project ? projectName(project) : (state.projects.length ? "Repositories" : "Welcome to Odysseus");
   $("#workDescription").textContent = project ? `${runs.length} task${runs.length === 1 ? "" : "s"} · ${needs ? `${needs} need you` : UI_COPY.noAction}.` : state.projects.length ? "Choose where the agent should work." : "Add one repository to start.";
+  $("#workStatusStrip").innerHTML = project ? [
+    ["status-running", "Running", active],
+    [needs || deliveryBlocked ? "status-attention" : "status-accepted", "Needs you", needs + deliveryBlocked],
+    ["status-accepted", "Delivered", delivered],
+    [acceptedOnly ? "status-attention" : "status-queued", "Artifacts", acceptedOnly],
+  ].map(([tone, label, value]) => `<span class="repository-status-item ${escapeHtml(tone)}"><b>${escapeHtml(value)}</b>${escapeHtml(label)}</span>`).join("") + `<button class="text-button" data-status-focus="dashboard" type="button">View graph &amp; Gantt</button>` : "";
+  $("#workStatusStrip").classList.toggle("hidden", !project);
   $("#workMeta").innerHTML = project ? `<span>${escapeHtml(projectRepository(project))}</span><span>Folder: ${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : "";
   $("#workMeta").classList.toggle("hidden", !project);
   $("#workSummary").innerHTML = [
@@ -815,9 +987,10 @@ function renderWork() {
     $$('[data-work-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.workProject)));
     $$('[data-forget-project-inline]').forEach((button) => button.addEventListener("click", () => forgetProject(button.dataset.forgetProjectInline)));
   } else {
-    $("#workList").innerHTML = runs.length ? runs.map((run) => `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(runActionLine(run))}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span></button>`).join("") : `<div class="empty-card"><strong>No tasks yet.</strong><br>Describe the first change above.</div>`;
+    $("#workList").innerHTML = runs.length ? runs.map((run) => { const deliveryState = run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "Delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "Integration blocked" : run.status === "accepted" ? "Accepted · not delivered" : statusLabel(run.status); const tone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status); return `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(runActionLine(run))}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${tone}">${escapeHtml(deliveryState)}</span></button>`; }).join("") : `<div class="empty-card"><strong>No tasks yet.</strong><br>Describe the first change above.</div>`;
     $$('[data-work-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.workRun)));
   }
+  $("#workStatusStrip [data-status-focus]")?.addEventListener("click", () => $("#repositoryStatusView")?.scrollIntoView({behavior: "smooth", block: "start"}));
 }
 
 function renderRuns() {
@@ -826,12 +999,13 @@ function renderRuns() {
   $("#taskList").innerHTML = runs.length ? runs.map((run) => {
     const session = run.kind === "tmux" ? discoveredSessionForRun(run) : null;
     const title = session?.title || session?.window_name || run.title;
-    const status = run.kind === "tmux" ? "tracked terminal" : statusLabel(run.status);
+    const status = run.kind === "tmux" ? "tracked terminal" : run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "integration blocked" : run.status === "accepted" ? "accepted · not delivered" : statusLabel(run.status);
+    const statusTone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status);
     const signals = run.kind === "tmux"
       ? `<span>tmux ${escapeHtml(session?.tmux_session || run.tmux_session || "session")} · ${escapeHtml(session?.tmux_target || run.tmux_target || "pane")}</span>`
       : `<span class="risk-${escapeHtml(run.merge_analysis?.risk || "none")}">${escapeHtml(run.merge_analysis?.risk || "none")} merge risk</span>${run.ci?.status && run.ci.status !== "not_started" ? `<span class="ci-${escapeHtml(run.ci.status)}">CI ${escapeHtml(run.ci.status)}</span>` : ""}`;
     return `<button class="task-card ${run.id === state.selectedId ? "selected" : ""}" data-run-id="${escapeHtml(run.id)}" type="button">
-      <div class="task-card-top"><span class="mini-status ${statusClass(run.status)}">${escapeHtml(status)}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
+      <div class="task-card-top"><span class="mini-status ${statusTone}">${escapeHtml(status)}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
       <h3>${escapeHtml(title)}</h3>
       <div class="task-card-meta"><span>${escapeHtml(run.lane)}${run.kind === "tmux" ? "" : ` · P${escapeHtml(run.priority ?? 50)}`}</span><span>${escapeHtml(projectById(run.project_id) ? projectName(projectById(run.project_id)) : run.kind || run.workflow)}</span></div>
       <div class="task-signals">${signals}</div>
@@ -961,7 +1135,7 @@ function renderDetail(run) {
   const visibleStatus = run.status === "review" ? "ready for review"
     : run.status === "accepted" && delivered === "applied" ? "applied"
     : run.status === "accepted" && deliveredDeliveryStatuses.has(delivered) && delivered !== "applied" ? "delivered by integration"
-    : run.status === "accepted" ? "accepted · not applied"
+    : run.status === "accepted" ? "accepted · not delivered"
     : statusLabel(run.status);
   status.textContent = interactive ? "tracked tmux terminal" : visibleStatus; status.className = `status-pill ${statusClass(run.status)}`;
   $("#detailId").textContent = run.id;
@@ -1061,14 +1235,14 @@ function renderNarrative(run) {
     review: ["REVIEW", "Ready for your decision", "Nothing has been applied.", UI_COPY.review, "attention", "!"],
     attention: ["NEEDS YOU", "One decision required", "Answer to continue this task.", UI_COPY.needsYou, "attention", "?"],
     failed: ["FAILED", "Stopped safely", "Resume or take over from the preserved worktree.", UI_COPY.needsYou, "danger", "×"],
-    accepted: ["ACCEPTED", UI_COPY.notApplied, "Apply locally, create a PR, or keep the artifact.", UI_COPY.deliver, "attention", "✓"],
+    accepted: ["ACCEPTED", UI_COPY.notApplied, "Integrate it, create a PR, or keep the artifact.", UI_COPY.deliver, "attention", "✓"],
     publishing: ["PUBLISHING", "Creating draft PR", "Task branch is being pushed.", UI_COPY.noAction, "active", "↗"],
     pr_created: ["PR CREATED", ciStatus === "failed" ? "CI failed" : ciStatus === "passed" ? "CI passed" : "CI pending", ciStatus === "failed" ? "Failure logs are captured." : "GitHub checks are tracked here.", ciStatus === "failed" ? "Repair in progress" : ciStatus === "passed" ? "Complete" : UI_COPY.noAction, ciStatus === "failed" ? "danger" : ciStatus === "passed" ? "success" : "active", ciStatus === "passed" ? "✓" : "↻"],
   };
   const environmentApproval = run.status === "attention" && run.environment?.trust_status === "pending";
   let narrative = environmentApproval ? ["TRUST GATE", "Approve repository commands", "No repository command has run.", UI_COPY.needsYou, "attention", "!"] : values[run.status] || ["WORKFLOW", "Tracking task", "Open Activity for events.", UI_COPY.noAction, "calm", "→"];
   if (run.status === "accepted" && ["applied", "integrated_applied"].includes(run.delivery?.status)) narrative = ["APPLIED", `Applied to ${run.delivery.target_branch || run.base_ref}`, `HEAD ${String(run.delivery.target_after_sha || "").slice(0, 12) || UI_COPY.unknown}. Artifact remains auditable.`, run.delivery?.status === "integrated_applied" ? "Delivered by integration" : "Delivered locally", "success", "✓"];
-  if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["APPLY BLOCKED", "Artifact saved; delivery failed", run.delivery.error || "Resolve repository state, then retry.", UI_COPY.needsYou, "danger", "!"];
+  if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["INTEGRATION BLOCKED", "Artifact saved; source unchanged", run.delivery.error || "Resolve the source/artifact conflict.", UI_COPY.needsYou, "danger", "!"];
   if (run.status === "accepted" && run.delivery?.status === "integration_queued") narrative = ["INTEGRATION QUEUED", "Artifact selected for integration", `Run ${run.delivery.integration_run_id || UI_COPY.unknown} will compose delivery.`, "Integration queued", "attention", "→"];
   const [label, title, copy, tail, tone, mark] = narrative;
   $("#narrativeLabel").textContent = label; $("#narrativeTitle").textContent = title; $("#narrativeCopy").textContent = copy; $("#narrativeTail").textContent = tail; $("#narrativeMark").textContent = mark; $("#runNarrative").dataset.tone = tone;
@@ -1077,6 +1251,12 @@ function renderNarrative(run) {
 function renderActions(run) {
   const actions = [];
   if (run.status === "queued") actions.push(`<button class="action-button" data-action="settings" type="button">Queue settings</button>`);
+  if (run.status === "accepted" && run.artifact_sha && !deliveredDeliveryStatuses.has(run.delivery?.status)) {
+    const conflict = run.delivery?.status === "failed" && /conflict|merge was aborted/i.test(run.delivery?.error || "");
+    actions.push(conflict
+      ? `<button class="action-button accept" data-review-action="resolve-conflict" type="button">Resolve integration</button>`
+      : `<button class="action-button accept" data-action="apply" type="button">Integrate into repository</button>`);
+  }
   if (["accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Follow up</button>`);
   if ((run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) && !canInlineResume(run)) actions.push(`<button class="action-button" data-action="takeover" type="button" title="Copies a command that opens this agent in your terminal">${run.kind === "tmux" ? "Copy tmux command" : "Continue in terminal"}</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
@@ -1084,6 +1264,7 @@ function renderActions(run) {
   if (run.pull_request_url) actions.push(`<button class="action-button" data-action="ci-poll" type="button">Poll CI</button>`);
   $("#runActions").innerHTML = actions.join("");
   $$("#runActions [data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
+  $$("#runActions [data-review-action]").forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
 }
 
 function parseDiffStat(stat) {
@@ -1209,12 +1390,12 @@ function renderReviewDecision(run) {
   let alternateActions = `<button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
   let deliveryHelp = "";
   if (run.status === "accepted" && !delivered) {
-    deliveryCopy = failed ? `Apply is blocked: ${delivery.error || "inspect the repository state and try again."}` : `Accepted, but not applied to ${run.base_ref || "the source branch"}. You may also keep it as an artifact and do nothing.`;
+    deliveryCopy = failed ? `Integration is blocked: ${delivery.error || "inspect the repository state and resolve the conflict."}` : `Accepted, but not delivered to ${run.base_ref || "the source branch"}. You may also keep it as an artifact.`;
     const conflict = /conflict|merge was aborted/i.test(delivery.error || "");
     deliveryActions = conflict
-      ? `<button class="primary" data-review-action="resolve-conflict" type="button">Ask integration agent</button>`
-      : `<button class="primary" data-review-action="apply" type="button">${failed ? "Try apply again" : "Apply to repository"}</button>`;
-    alternateActions = `<button class="ghost" data-review-action="integration" type="button">Prepare integration</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+      ? `<button class="primary" data-review-action="resolve-conflict" type="button">Resolve integration</button>`
+      : `<button class="primary" data-review-action="apply" type="button">${failed ? "Retry delivery" : "Integrate into repository"}</button>`;
+    alternateActions = `<button class="ghost" data-review-action="integration" type="button">Combine accepted artifacts</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
     if (failed) {
       const tracked = /tracked local changes/i.test(delivery.error || "");
       const explanation = tracked
@@ -1881,7 +2062,7 @@ async function runAction(action) {
   if (action === "resume") { $("#feedbackDialog").showModal(); return; }
   if (action === "apply") {
     const run = state.selected;
-    const approved = await confirmChoice({eyebrow: "APPLY LOCALLY", title: `Apply to ${run.base_ref || "the source branch"}?`, lead: "This changes your source checkout.", message: "Odysseus will proceed only if the checkout is clean, on the expected branch, and still descends from the task base. A conflicting merge is aborted automatically.", confirmLabel: "Apply to repository"});
+    const approved = await confirmChoice({eyebrow: "INTEGRATE LOCALLY", title: `Integrate into ${run.base_ref || "the source branch"}?`, lead: "This changes your source checkout.", message: "Odysseus proceeds only if the checkout is clean and compatible. A conflicting merge is aborted automatically and the artifact remains safe.", confirmLabel: "Integrate into repository"});
     if (!approved) return;
   }
   if (action === "draft-pr") {
@@ -1891,7 +2072,7 @@ async function runAction(action) {
   try {
     const result = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/${action}`, {method: "POST", body: "{}"});
     if (action === "takeover") await copyCommand(result.command);
-    else toast(action === "accept" ? "Result accepted. It is saved, but not applied yet." : action === "apply" ? "Change applied to the source repository." : action === "draft-pr" ? "Draft pull request created." : action === "ci-poll" ? "GitHub checks refreshed." : `Action completed: ${action}`);
+    else toast(action === "accept" ? "Result accepted. Integrate it to change the source repository." : action === "apply" ? "Artifact integrated into the source repository." : action === "draft-pr" ? "Draft pull request created." : action === "ci-poll" ? "GitHub checks refreshed." : `Action completed: ${action}`);
     await refreshRuns(); await refreshSelected();
   } catch (error) { toast(error.message, true); }
 }
@@ -1913,7 +2094,7 @@ async function refreshAttention() {
     const preserved = detail.preserved_branches || detail.preserved || [];
     const conflictBody = item.type === "merge_conflict" ? `<div class="attention-conflict-list"><strong>Conflicting files</strong>${conflicts.length ? conflicts.map((file) => `<code>${escapeHtml(file)}</code>`).join("") : `<span>Unknown</span>`}<strong>Preserved branches</strong>${preserved.length ? preserved.map((branch) => `<code>${escapeHtml(branch)}</code>`).join("") : `<span>Source and integration branches are preserved.</span>`}</div>` : "";
     const classes = `stack-card attention-card priority-${escapeHtml(item.priority)}${item.type === "merge_conflict" ? " attention-conflict" : ""}`;
-    const actionLabel = item.type === "merge_conflict" ? "Ask integration agent" : "Answer";
+    const actionLabel = item.type === "merge_conflict" ? "Resolve integration" : "Answer";
     const title = item.type === "merge_conflict" ? "Integration conflict" : item.title;
     return `<article class="${classes}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(statusLabel(item.type))}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(item.type === "merge_conflict" ? "Prerequisite: resolve listed files." : item.message)}</p>${conflictBody}<div class="card-actions">${optionButton || `<button class="primary" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>`}<details class="card-more-actions"><summary>More</summary><div>${extraButtons}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></details></div></article>`;
   }).join("") : `<div class="attention-zero"><span class="all-clear-mark">✓</span><p class="eyebrow">ALL CLEAR</p><strong>Nothing needs you.</strong><p>${escapeHtml(UI_COPY.noAction)}.</p><div class="empty-actions"><button class="primary" data-attention-new type="button">Start a task</button><button class="ghost" data-attention-epic type="button">Plan work</button><button class="ghost" data-open-terminals type="button">Terminals</button></div></div>`;
@@ -2031,7 +2212,8 @@ async function refreshProjects() {
   const preferred = preferredProjectId();
   $("#taskProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
   $("#epicProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
-  if (preferred) { $("#taskProjectSelect").value = preferred; $("#epicProjectSelect").value = preferred; }
+  $("#skillsProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
+  if (preferred) { $("#taskProjectSelect").value = preferred; $("#epicProjectSelect").value = preferred; $("#skillsProjectSelect").value = preferred; }
   syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject"));
   syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject"));
   $("#inboxProjectSelect").innerHTML = `<option value="">No repository</option>${projectOptions}`;
@@ -2202,8 +2384,57 @@ async function loadIssues() {
   catch (error) { $("#issueList").innerHTML = `<div class="empty-card">${escapeHtml(error.message)}</div>`; }
 }
 function renderIssues(issues, projectId) {
-  $("#issueList").innerHTML = issues.length ? issues.map((issue) => `<article class="stack-card"><div class="card-row"><span class="mini-status status-queued">issue #${issue.number}</span><a class="run-id" href="${escapeHtml(issue.url)}" target="_blank" rel="noreferrer">Open ↗</a></div><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.body || "No description.")}</p><div class="card-meta">${(issue.labels || []).map((label) => `<span>${escapeHtml(label.name)}</span>`).join("")}</div><div class="card-actions"><button class="primary" data-import-issue="${issue.number}" type="button">Queue task</button></div></article>`).join("") : `<div class="empty-card">No open issues.</div>`;
-  $$('[data-import-issue]').forEach((button) => button.addEventListener("click", async () => { const issue = issues.find((item) => String(item.number) === button.dataset.importIssue); try { const run = await api("/api/github/import", {method: "POST", body: JSON.stringify({project_id: projectId, title: issue.title, body: issue.body, url: issue.url})}); await refreshRuns(); await selectRun(run.id); } catch (error) { toast(error.message, true); } }));
+  $("#issueList").innerHTML = issues.length ? issues.map((issue) => `<article class="stack-card"><div class="card-row"><span class="mini-status status-queued">issue #${issue.number}</span><a class="run-id" href="${escapeHtml(issue.url)}" target="_blank" rel="noreferrer">Open ↗</a></div><h3>${escapeHtml(issue.title)}</h3><p>${escapeHtml(issue.body || "No description.")}</p><div class="card-meta">${(issue.labels || []).map((label) => `<span>${escapeHtml(label.name)}</span>`).join("")}</div><div class="card-actions"><button class="primary" data-import-issue="${issue.number}" type="button">Propose plan</button></div></article>`).join("") : `<div class="empty-card">No open issues.</div>`;
+  $$('[data-import-issue]').forEach((button) => button.addEventListener("click", async () => { const issue = issues.find((item) => String(item.number) === button.dataset.importIssue); try { button.disabled = true; button.textContent = "Reading issue…"; const epic = await api("/api/github/import", {method: "POST", body: JSON.stringify({project_id: projectId, number: issue.number})}); toast(epic.duplicate ? "Existing plan refreshed from GitHub." : "Plan proposed. Review it before agents start."); await Promise.all([refreshEpics(), refreshRuns()]); setView("epics"); } catch (error) { toast(error.message, true); } finally { button.disabled = false; button.textContent = "Propose plan"; } }));
+}
+
+function portfolioPercent(value) {
+  return value === null || value === undefined ? "—" : `${Math.round(Number(value) * 100)}%`;
+}
+
+function portfolioMoney(value) {
+  return value === null || value === undefined ? "—" : `$${Number(value).toFixed(2)}`;
+}
+
+function portfolioMetric(label, value, note, tone = "") {
+  return `<article class="portfolio-kpi ${escapeHtml(tone)}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><p>${escapeHtml(note)}</p></article>`;
+}
+
+function renderPortfolio(payload) {
+  state.portfolio = payload;
+  const metrics = payload.metrics || {};
+  const agents = payload.agents || [];
+  const failures = payload.failures || [];
+  const blocked = payload.blocked || [];
+  const delivered = Number(metrics.delivered || 0);
+  const terminalSample = Number(metrics.terminal_started || 0);
+  $("#portfolioKpis").innerHTML = [
+    portfolioMetric("Tasks started", compactNumber(metrics.tasks_started || 0), `${payload.window?.days || 7}-day cohort`),
+    portfolioMetric("Delivered", compactNumber(delivered), "integrated or PR delivered", "positive"),
+    portfolioMetric("Autonomous delivery", portfolioPercent(metrics.autonomous_delivery_rate), `N=${delivered}; final approval allowed`),
+    portfolioMetric("First-pass success", portfolioPercent(metrics.first_pass_success_rate), `N=${terminalSample}; no retry or repair`),
+    portfolioMetric("Human interventions", compactNumber(metrics.human_interventions || 0), "corrective operator actions"),
+    portfolioMetric("Median delivery time", metrics.median_minutes_per_delivery === null ? "—" : `${metrics.median_minutes_per_delivery} min`, `N=${delivered}`),
+    portfolioMetric("Median cost / delivery", portfolioMoney(metrics.median_cost_per_delivery_usd), `observed ${metrics.cost_coverage_deliveries || 0}/${delivered}`),
+    portfolioMetric("Engineer-hours saved", metrics.engineer_hours_saved === null ? "—" : `${metrics.engineer_hours_saved} h`, metrics.engineer_hours_method || "not estimated"),
+    portfolioMetric("Active repositories", compactNumber(metrics.active_repositories || 0), "with started work in window"),
+    portfolioMetric("Currently blocked", compactNumber(metrics.currently_blocked || 0), "open across all repositories", Number(metrics.currently_blocked || 0) ? "danger" : "positive"),
+  ].join("");
+  $("#portfolioAgentCount").textContent = `${agents.length} agent${agents.length === 1 ? "" : "s"}`;
+  $("#portfolioAgentTable").innerHTML = agents.length ? `<thead><tr><th>Worker</th><th>Delivered</th><th>Delivery</th><th>First pass</th><th>Median time</th><th>Median cost</th><th>Human</th><th>Evidence</th></tr></thead><tbody>${agents.map((row) => `<tr><td><strong>${escapeHtml(row.agent)}</strong></td><td>${escapeHtml(row.delivered)}</td><td>${escapeHtml(portfolioPercent(row.delivery_rate))}</td><td>${escapeHtml(portfolioPercent(row.first_pass_rate))}</td><td>${escapeHtml(row.median_minutes === null ? "—" : `${row.median_minutes} min`)}</td><td>${escapeHtml(portfolioMoney(row.median_cost_usd))}</td><td>${escapeHtml(row.interventions)}</td><td><span class="sample-badge ${Number(row.started) < 5 ? "low" : ""}">N=${escapeHtml(row.started)}${Number(row.started) < 5 ? " · low" : ""}</span></td></tr>`).join("")}</tbody>` : `<tbody><tr><td>No agent outcomes in this window.</td></tr></tbody>`;
+  const failureTotal = failures.reduce((sum, row) => sum + Number(row.count || 0), 0);
+  const failureMax = Math.max(1, ...failures.map((row) => Number(row.count || 0)));
+  $("#portfolioFailureCount").textContent = `${failureTotal} failure${failureTotal === 1 ? "" : "s"}`;
+  $("#portfolioFailures").innerHTML = failures.length ? failures.map((row) => `<div class="failure-row"><div><strong>${escapeHtml(row.reason)}</strong><span>${escapeHtml(row.count)}</span></div><i><b style="width:${Math.round(Number(row.count || 0) / failureMax * 100)}%"></b></i></div>`).join("") : `<div class="portfolio-empty">No attributed failures in this window.</div>`;
+  $("#portfolioBlockers").innerHTML = blocked.length ? blocked.map((item) => `<button class="portfolio-blocker" data-portfolio-run="${escapeHtml(item.run_id)}" type="button"><span class="mini-status status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.reason)} · ${escapeHtml(projectName(projectById(item.project_id)) || "Repository")}</small><em>Open →</em></button>`).join("") : `<div class="portfolio-empty"><strong>Nothing is blocked.</strong><span>Odysseus will surface the next decision here.</span></div>`;
+  $$('[data-portfolio-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.portfolioRun)));
+  $("#portfolioMethod").textContent = `Window starts ${new Date(payload.window?.starts_at).toLocaleString()}. ${payload.definitions?.autonomous_delivery_rate || ""} Cost: ${payload.definitions?.cost || "missing remains unknown"}.`;
+}
+
+async function refreshPortfolio() {
+  const days = Number($("#portfolioWindow")?.value || 7);
+  try { renderPortfolio(await api(`/api/portfolio?days=${days}`)); }
+  catch (error) { $("#portfolioKpis").innerHTML = `<div class="portfolio-loading error">${escapeHtml(error.message)}</div>`; }
 }
 
 async function refreshInsights() {
@@ -2268,6 +2499,33 @@ function bindDialogs() {
   $("#projectProfileForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); try { submit.disabled = true; await api(`/api/projects/${encodeURIComponent(project.id)}/profile`, {method: "POST", body: JSON.stringify({summary: data.get("summary"), notes: data.get("notes")})}); projectProfileDialog.close(); await refreshProjectOverview(); toast("Repository overview saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
   $("#addProjectMemory").addEventListener("click", () => openKnowledgeDialog());
   $("#knowledgeForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const project = activeProject(); if (!project) return; const submit = event.submitter; const data = new FormData(event.currentTarget); const payload = {id: data.get("id"), source: data.get("source"), title: data.get("title"), content: data.get("content"), triggers: String(data.get("triggers") || "").split(",").map((value) => value.trim()).filter(Boolean), folders: String(data.get("folders") || "").split(",").map((value) => value.trim()).filter(Boolean), enabled: data.get("enabled") === "on"}; try { submit.disabled = true; state.projectKnowledge = await api(`/api/projects/${encodeURIComponent(project.id)}/knowledge`, {method: "POST", body: JSON.stringify(payload)}); $("#knowledgeDialog").close(); renderProjectMemory(); toast("Repository memory saved."); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; } });
+  const skillDialog = $("#skillDialog");
+  $("#addSkillButton").addEventListener("click", () => { $("#skillForm").reset(); skillDialog.showModal(); });
+  $("#skillsProjectSelect").addEventListener("change", (event) => refreshSkillsPage(event.currentTarget.value).catch((error) => toast(error.message, true)));
+  $("#skillForm").addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    const projectId = state.skillsProjectId;
+    if (!projectId) { toast("Choose a repository first.", true); return; }
+    const submit = event.submitter;
+    const data = new FormData(event.currentTarget);
+    const payload = {
+      name: data.get("name"),
+      description: data.get("description"),
+      triggers: String(data.get("triggers") || "").split(",").map((value) => value.trim()).filter(Boolean),
+      content: data.get("content"),
+    };
+    try {
+      submit.disabled = true;
+      state.skillsCatalog = await api(`/api/projects/${encodeURIComponent(projectId)}/skills/local`, {method: "POST", body: JSON.stringify(payload)});
+      if (activeProject()?.id === projectId) state.projectSkills = state.skillsCatalog;
+      skillDialog.close();
+      renderSkillsPage();
+      if (activeProject()?.id === projectId) renderProjectSkills();
+      toast(`${payload.name} skill added.`);
+    } catch (error) { toast(error.message, true); }
+    finally { submit.disabled = false; }
+  });
   const taskDialog = $("#taskDialog");
   [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); taskDialog.showModal(); }));
   $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); });
@@ -2471,13 +2729,13 @@ async function init() {
     $$(".task-section-tab").forEach((button) => button.addEventListener("click", () => activateTaskSection(button.dataset.section)));
     $("#allWorkButton").addEventListener("click", () => selectProject("all")); $("#sidebarAttentionButton").addEventListener("click", () => setView("attention")); $("#backToProject").addEventListener("click", () => selectProject(state.selected?.project_id || state.projectFilter));
     $("#parallelLabel").addEventListener("click", () => setView("settings"));
-    $(".brand").addEventListener("click", (event) => { event.preventDefault(); selectProject("all"); });
-    $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
+    $(".brand").addEventListener("click", (event) => { event.preventDefault(); setView("portfolio"); });
+    $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#refreshPortfolio").addEventListener("click", refreshPortfolio); $("#portfolioWindow").addEventListener("change", refreshPortfolio); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
     document.addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#globalSearch").focus(); } });
     await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns();
     const params = new URLSearchParams(location.search);
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
-    else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github", "settings"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView("work"); } }
+    else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["portfolio", "work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github", "settings"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView(state.runs.length ? "portfolio" : "work"); } }
     const requestedSection = params.get("section"); if (["summary", "changes", "activity", "evidence"].includes(requestedSection)) activateTaskSection(requestedSection);
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
     const requestedDialog = params.get("dialog"); if (requestedDialog === "task") { $("#taskPrompt").value = params.get("prompt") || ""; $("#newTaskButton").click(); scheduleTaskSkillRecommendations(); } else if (requestedDialog === "epic") $("#newEpicButton").click();
@@ -2490,7 +2748,7 @@ async function init() {
       api("/api/inbox", {method: "POST", body: JSON.stringify({title: "FAIL browser regression", task: error.message})}).catch(() => {});
     });
     window.setInterval(() => refreshRuns().catch(() => setConnection(false)), 3000);
-    window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]).catch(() => setConnection(false)), 6000);
+    window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics(), state.view === "portfolio" ? refreshPortfolio() : Promise.resolve()]).catch(() => setConnection(false)), 6000);
   } catch (error) { setConnection(false); toast(error.message, true); }
 }
 
@@ -2535,7 +2793,7 @@ async function runBrowserRegression() {
   assert(acceptedNotApplied, "accepted not-applied artifact available");
   await selectRun(acceptedNotApplied.id);
   assert($("#reviewDecisionCard").textContent.includes("Checks"), "decision evidence visible");
-  assert($("#reviewDecisionCard").textContent.includes("Saved artifact, not applied"), "accepted-not-applied is plain");
+  assert($("#reviewDecisionCard").textContent.includes("Accepted artifact · not delivered"), "accepted-not-delivered is plain");
   assert($("#runNarrative").classList.contains("hidden"), "accepted avoids duplicate narrative status");
   assert($$("#reviewDecisionCard .delivery-decision .primary").length <= 1, "accepted delivery has at most one primary CTA");
   for (const [title, action] of [
@@ -2618,7 +2876,7 @@ async function runBrowserRegression() {
   assert($("#reviewDecisionCard .review-decision-head span").textContent === "Delivered in integration PR.", "integrated PR delivery action is explicit");
   assert($("#reviewDecisionCard").textContent.includes("integration-pr-existing"), "integrated PR delivery provenance visible");
   assert($("#reviewDecisionCard").textContent.includes("Open integration PR"), "integrated PR link visible");
-  assert(!$("#reviewDecisionCard").textContent.includes("Apply to repository"), "integrated PR delivery hides apply action");
+  assert(!$("#reviewDecisionCard").textContent.includes("Integrate into repository"), "integrated PR delivery hides integration action");
   assert(!$("#reviewDecisionCard").textContent.includes("Create draft PR"), "integrated PR delivery hides duplicate PR action");
   selectProject(state.projectFilter);
   assert($("#workView").classList.contains("active"), "navigation back to repository overview");

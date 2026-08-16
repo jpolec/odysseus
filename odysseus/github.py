@@ -72,6 +72,34 @@ class GitHubBridge:
         return value if isinstance(value, list) else []
 
     @classmethod
+    def issue(cls, project_path: Path | str, number: Any) -> dict[str, Any]:
+        """Fetch one issue authoritatively instead of trusting browser payload fields."""
+
+        try:
+            issue_number = int(number)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("GitHub issue number is required") from exc
+        if issue_number < 1:
+            raise ValueError("GitHub issue number must be positive")
+        raw = cls._gh(
+            [
+                "issue",
+                "view",
+                str(issue_number),
+                "--json",
+                "number,title,url,state,labels,assignees,updatedAt,body",
+            ],
+            project_path,
+        )
+        try:
+            value = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("GitHub CLI returned invalid issue JSON") from exc
+        if not isinstance(value, dict) or int(value.get("number") or 0) != issue_number:
+            raise RuntimeError("GitHub CLI returned the wrong issue")
+        return value
+
+    @classmethod
     def checks(cls, pull_request_url: str, project_path: Path | str) -> dict[str, Any]:
         """Return a normalized pull-request check state and best-effort failed logs."""
 

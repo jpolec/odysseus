@@ -6,7 +6,9 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 Detailed shipped history lives in [VERSION.md](VERSION.md); this document is for
-what we are building next.
+what we are building next. The repository-inspected capability matrix and
+implementation DAG live in
+[Outcome-driven control plane](docs/OUTCOME_CONTROL_PLANE_PLAN.md).
 
 ## Now
 
