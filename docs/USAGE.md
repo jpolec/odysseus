@@ -793,6 +793,54 @@ ssh -N -L 8741:127.0.0.1:8741 USER@VPS
 Then open <http://127.0.0.1:8741/> locally. Keep port 8741 closed in the VPS
 firewall.
 
+### Private mobile access with Tailscale
+
+Use this path when you want to operate Odysseus from a phone or tablet without
+opening the service to the public internet. Odysseus still binds to
+`127.0.0.1` on the VPS; Tailscale Serve publishes that local port only inside
+your tailnet.
+
+Prerequisites:
+
+- Tailscale is installed and signed in on the VPS.
+- MagicDNS is enabled for the tailnet, or you know the VPS tailnet DNS name.
+- The Tailscale mobile app is installed and signed in to the same tailnet.
+
+Install Odysseus and configure the private mobile URL:
+
+```sh
+sudo scripts/install-vps.sh --service-user "$USER" --tailscale
+```
+
+If you already know the VPS tailnet name, make the final installer output
+copy-pasteable:
+
+```sh
+sudo scripts/install-vps.sh \
+  --service-user "$USER" \
+  --tailscale-name vps-name.tailnet.ts.net
+```
+
+On the phone or tablet, connect Tailscale and open the printed
+`http://vps-name.tailnet.ts.net:8741/` URL. If the installer cannot detect the
+name, run this on the VPS and use the URL it prints:
+
+```sh
+tailscale serve status
+```
+
+To remove the private mobile route without stopping Odysseus:
+
+```sh
+sudo tailscale serve reset
+```
+
+Keep the VPS firewall closed for port 8741. Tailscale handles device identity
+and network reachability; Odysseus is still a one-operator control plane and is
+not a public multi-tenant service.
+
+### Public hostname
+
 For a public hostname, install nginx, Certbot, and `htpasswd`, then run:
 
 ```sh

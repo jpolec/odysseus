@@ -79,6 +79,17 @@ The VPS installer uses this model by default. `--domain` adds nginx Basic auth
 and obtains a TLS certificate through Certbot. Keep the VPS firewall closed for
 port 8741; only nginx ports 80/443 should be public.
 
+For phone and tablet access, prefer a private tailnet over a public hostname:
+
+```sh
+sudo scripts/install-vps.sh --service-user "$USER" --tailscale
+```
+
+This keeps Odysseus bound to `127.0.0.1` on the VPS and uses Tailscale Serve to
+publish the port inside your tailnet. The phone still needs to be signed in to
+the same Tailscale network. Treat every tailnet device as an operator device for
+this service.
+
 Odysseus also supports defense-in-depth HTTP Basic auth when binding directly:
 
 ```sh

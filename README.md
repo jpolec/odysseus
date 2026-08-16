@@ -538,7 +538,22 @@ ssh -N -L 8741:127.0.0.1:8741 USER@VPS
 ```
 
 Open <http://127.0.0.1:8741/> on your workstation. The service stays private on
-the VPS. To expose a hostname with nginx Basic auth and Let's Encrypt TLS:
+the VPS.
+
+For mobile access without exposing Odysseus to the public internet, put the VPS
+and your phone on the same Tailscale tailnet, then let the installer publish a
+private tailnet URL while Odysseus itself remains on VPS loopback:
+
+```sh
+sudo scripts/install-vps.sh --service-user "$USER" --tailscale
+```
+
+Install the Tailscale app on the phone, sign in to the same tailnet, and open
+the URL printed by the installer. Use `--tailscale-name vps-name.tailnet.ts.net`
+when you already know the VPS tailnet DNS name and want the installer output to
+be copy-pasteable.
+
+To expose a public hostname with nginx Basic auth and Let's Encrypt TLS:
 
 ```sh
 sudo scripts/install-vps.sh \
