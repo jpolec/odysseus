@@ -506,8 +506,15 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 :root {
   color-scheme: light;
   --sidebar-surface: #ffffff;
+  --sidebar-ink: #242424;
+  --sidebar-muted: #616161;
+  --sidebar-faint: #8a8886;
+  --sidebar-line: #e1dfdd;
+  --sidebar-line-bright: #c8c6c4;
   --sidebar-hover: #f3f3f3;
   --sidebar-selected: #e9e9e9;
+  --sidebar-selected-strong: #dceafa;
+  --repository-icon-surface: #e5f1fb;
 }
 
 .titlebar { background: color-mix(in srgb, var(--surface) 96%, transparent); }
@@ -516,14 +523,18 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 .theme-toggle:hover { color: var(--ink); border-color: var(--accent); }
 .theme-toggle svg { width: 17px; height: 17px; fill: currentColor; }
 
-.activity-bar { border-right-color: #e1dfdd; color: #616161; background: var(--sidebar-surface); }
-.activity-bar .nav-button, .activity-bar .github-button { color: #616161; }
-.activity-bar .nav-button:hover, .activity-bar .github-button:hover { color: #242424; background: var(--sidebar-hover); }
-.activity-bar .nav-button.active { color: #242424; background: var(--sidebar-selected); box-shadow: inset 2px 0 var(--accent); }
+.activity-bar { border-color: var(--sidebar-line); color: var(--sidebar-muted); background: var(--sidebar-surface); }
+.activity-bar .nav-button, .activity-bar .github-button { color: var(--sidebar-muted); }
+.activity-bar .nav-button:hover, .activity-bar .github-button:hover { color: var(--sidebar-ink); background: var(--sidebar-hover); }
+.activity-bar .nav-button.active { color: var(--sidebar-ink); background: var(--sidebar-selected); box-shadow: inset 2px 0 var(--accent); }
 .activity-badge { border-color: var(--sidebar-surface); }
-.project-explorer { --ink: #242424; --muted: #616161; --faint: #8a8886; --surface: #ffffff; --surface-2: #f3f3f3; --line: #e1dfdd; --line-bright: #c8c6c4; color: #242424; background: var(--sidebar-surface); }
-.project-explorer .workspace-link:hover, .project-explorer .project-row:hover, .project-explorer .explorer-tools button:hover { background: var(--sidebar-hover); }
-.project-explorer .workspace-link.selected, .project-explorer .project-row.selected, .project-explorer .task-card.selected { color: #242424; background: var(--sidebar-selected); }
+.project-explorer { --ink: var(--sidebar-ink); --muted: var(--sidebar-muted); --faint: var(--sidebar-faint); --surface: var(--sidebar-surface); --surface-2: var(--sidebar-hover); --line: var(--sidebar-line); --line-bright: var(--sidebar-line-bright); color: var(--sidebar-ink); background: var(--sidebar-surface); }
+.project-explorer .workspace-link:hover, .project-explorer .project-row:hover, .project-explorer .project-children button:hover, .project-explorer .explorer-tools button:hover, .project-explorer .task-card:hover, .project-explorer .icon-button.small:hover { background: var(--sidebar-hover); }
+.project-explorer .workspace-link.selected, .project-explorer .project-row.selected, .project-explorer .project-children button.selected { color: var(--sidebar-ink); background: var(--sidebar-selected); }
+.project-explorer .task-card.selected { color: var(--sidebar-ink); background: var(--sidebar-selected-strong); }
+.project-explorer .project-children { border-left-color: var(--sidebar-line-bright); }
+.project-explorer .filter.active { color: var(--sidebar-ink); background: var(--sidebar-line-bright); }
+.project-explorer .repository-icon, .project-glyph { background: var(--repository-icon-surface); }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -545,6 +556,16 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
   --blue: #66b6ff;
   --shadow: 0 12px 32px rgba(0,0,0,.30), 0 1px 3px rgba(0,0,0,.24);
   --shadow-soft: 0 4px 14px rgba(0,0,0,.20);
+  --sidebar-surface: #14181e;
+  --sidebar-ink: #eef3f8;
+  --sidebar-muted: #b8c0cc;
+  --sidebar-faint: #7f8997;
+  --sidebar-line: #2a323d;
+  --sidebar-line-bright: #3a4552;
+  --sidebar-hover: #20262e;
+  --sidebar-selected: #28313b;
+  --sidebar-selected-strong: #17314a;
+  --repository-icon-surface: #10283d;
 }
 
 :root[data-theme="dark"] body,
