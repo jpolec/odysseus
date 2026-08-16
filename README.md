@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.5](https://img.shields.io/badge/version-0.6.5-171a16)
+![Version: 0.6.6](https://img.shields.io/badge/version-0.6.6-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -48,6 +48,10 @@ adds repositories by itself.
   failures, evaluation findings, and review gates share one attention queue.
 - **Continue, do not restart.** Feedback returns to the saved agent thread and
   the same worktree. Continue in terminal opens that thread interactively in tmux.
+- **Recover in place.** A failed task puts **Resume with feedback** immediately
+  below the failure. The optional context assistant can ask local Codex or
+  Claude what to send next, then insert or submit its answer without leaving
+  the browser.
 - **See the work.** The UI exposes normalized messages, reasoning summaries,
   tool calls/results, token and cache usage, checks, independent evaluation,
   confidence, policy, and live activity.
@@ -305,6 +309,19 @@ At the review gate:
 | **Give feedback** | Sends guidance to the saved implementation thread in the same worktree. |
 | **Continue in terminal** | Resumes the exact implementation thread in a managed tmux session and copies its open command. |
 | **Draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request. |
+
+For `Failed`, `Review`, or `Needs You`, the normal recovery path is directly
+below the status message: enter the correction and choose **Resume with
+feedback**. The right-side **Context assistant** can draft that correction with
+the already authenticated local Codex CLI or Claude Code CLI; no separate API
+key is required for local mode. Task, failure, review, and check context are
+explicit toggles, while diff/code sharing is off by default. Direct ChatGPT or
+Claude API modes are optional and require `OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY` in the Odysseus server environment.
+
+You do not need tmux for the normal workflow. Use **Continue in terminal** only
+when you want an interactive shell, manual debugging, or direct control of the
+saved agent thread. Odysseus preserves the same branch and worktree either way.
 
 **Continue in terminal** does not steal or recreate work. It prepares the exact
 saved agent thread in tmux, inside the existing task worktree, then copies the

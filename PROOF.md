@@ -17,7 +17,7 @@ not claim that a model produced those exact changes. Real agent runs retain
 their own immutable Context Receipts, event journals, checks, review, costs,
 and operator decisions in the selected state directory.
 
-For 0.6.5 the release gate is:
+For 0.6.6 the release gate is:
 
 - 91 automated tests, including repository identity, hidden internal worktrees,
   read-only tmux discovery,
@@ -30,10 +30,10 @@ For 0.6.5 the release gate is:
   injection, writable implementation/check mounts, and read-only review mounts;
 - a checkout installer smoke test and an exact-commit clone/piped-installer smoke test;
 - a clean wheel tested through `uvx`, including installed web assets and nine Skills;
-- a real versioned install from 0.6.1, live-process refusal, upgrade to 0.6.5,
+- a real versioned install from 0.6.1, live-process refusal, upgrade to 0.6.6,
   downgrade refusal, checksummed state backup, corrupt-restore refusal, verified
   state restore, first-install backup, command-link preflight, and atomic rollback;
-- packaged and checkout HTTP servers reporting version 0.6.5;
+- packaged and checkout HTTP servers reporting version 0.6.6;
 - deterministic fresh-state and demo routes for nine screenshot target views.
 - a production-proof assertion that every seeded task is classified as demo,
   every other evidence class is empty, and observed autonomous outcomes are zero.

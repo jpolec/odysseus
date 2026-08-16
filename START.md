@@ -154,11 +154,16 @@ Then choose one action:
 
 - **Approve** records approval and creates a local artifact commit. It does not
   push, merge into your source branch, or delete anything.
-- **Give feedback** sends guidance into the saved implementation thread and the
-  same worktree.
+- **Resume with feedback** appears directly below a failed, review-ready, or
+  attention status. It sends guidance into the saved implementation thread and
+  the same worktree.
+- **Context assistant** on the right can ask the locally authenticated Codex or
+  Claude CLI what instruction to send next, then insert or submit the answer.
+  Task context is selectable and diff/code sharing is off by default.
 - **Continue in terminal** resumes that exact thread interactively and copies
-  the safe tmux command. Paste the command into a terminal to enter the agent;
-  the browser never injects keystrokes into tmux.
+  the safe tmux command. This is optional for interactive debugging; the normal
+  workflow can remain entirely in the browser. Paste the command into a
+  terminal to enter the agent; the browser never injects keystrokes into tmux.
 - **Draft PR** commits and pushes the task branch, then asks `gh` to create a
   draft pull request.
 
@@ -201,7 +206,7 @@ open that pane in your terminal.
 
 The important distinction is:
 
-- **Give feedback** continues the saved thread autonomously.
+- **Resume with feedback** continues the saved thread autonomously.
 - **Continue in terminal** continues the saved thread interactively and copies
   the tmux command you paste into your terminal.
 - **Track in Odysseus** adds a durable shortcut for a session that started in

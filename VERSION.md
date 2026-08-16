@@ -2,20 +2,43 @@
 
 ## Unreleased
 
-- Host checks now preserve the Odysseus server's `PATH` instead of starting a
-  login shell that can silently fall back to an older system Python on macOS.
-- Codex continuation places execution options before the `resume` subcommand,
-  matching the current Codex CLI and preserving the task worktree and sandbox.
+- No unreleased changes yet.
 
 ## Current version
 
-**0.6.5 — 2026-08-15**
+**0.6.6 — 2026-08-16**
 
-Version 0.6.5 makes repository identity and navigation match the way Codex
-users already think: application -> Git repository -> task. The web UI uses
-**repository** consistently; “project” remains only an internal API concept.
+Version 0.6.6 makes browser recovery the default path while keeping tmux as an
+optional expert escape hatch. Failed work now explains the next action at the
+point of failure, and a context-controlled assistant can draft or submit the
+next instruction through local Codex, local Claude Code, or an optional direct
+API provider.
 
-## What is available in 0.6.5
+## What is available in 0.6.6
+
+### 0.6.6 Guided Recovery and Context Assistant
+
+- `Failed`, `Review`, and `Needs You` place a recovery editor and **Resume with
+  feedback** directly below the status narrative. **Continue in terminal** is
+  secondary and never required for the normal workflow.
+- A persistent right-side conversation can use the locally authenticated Codex
+  CLI or Claude Code CLI without another API key. Optional direct ChatGPT and
+  Claude modes use server environment keys.
+- Operators explicitly choose Task, Failure, Review, Checks, and Diff/code
+  context. Diff/code is off by default; narrowing context also excludes older
+  answers derived from scopes that are no longer enabled.
+- Local assistant CLIs run from a disposable blank workspace. Run-derived
+  strings are secret-redacted before prompt construction, including task text
+  and check commands. An explicit empty context selection remains empty.
+- Assistant answers can be inserted, submitted to the saved thread, copied, or
+  queued as a separate task. Accepted and published runs retain follow-up flow
+  without showing a failure recovery card.
+- Host checks preserve the Odysseus server's `PATH` instead of starting a login
+  shell that can silently fall back to an older system Python on macOS.
+- Codex continuation places execution options before the `resume` subcommand,
+  matching the current Codex CLI and preserving the task worktree and sandbox.
+
+## Earlier 0.6 releases
 
 ### 0.6.5 Repository Clarity
 
@@ -49,8 +72,6 @@ users already think: application -> Git repository -> task. The web UI uses
   omitted from the web UI instead of appearing as unexplained projects.
 - **Forget** removes a stale repository from Odysseus while explicitly leaving
   the repository directory and its files untouched.
-
-## Earlier 0.6 releases
 
 ### 0.6.4 Clarity
 
@@ -363,7 +384,7 @@ users already think: application -> Git repository -> task. The web UI uses
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.5` |
+| Application version | `0.6.6` |
 | Run snapshot schema | `9` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
