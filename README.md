@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.11](https://img.shields.io/badge/version-0.6.11-171a16)
+![Version: 0.6.12](https://img.shields.io/badge/version-0.6.12-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -317,7 +317,10 @@ bin/odysseus run \
 ```
 
 `--allow-env` records only the variable name; its value is resolved at runtime
-and never written to a run snapshot or event. For an untrusted repository,
+and never written to a run snapshot or event. Host, Docker, and devcontainer
+processes receive a scoped environment; server API keys such as the Context
+Assistant keys are not inherited unless the task explicitly allowlists them.
+For an untrusted repository,
 Odysseus accepts only the Docker profile and pauses in **Needs You** before any
 repository-supplied setup, check, evaluator, or environment configuration runs.
 
@@ -470,8 +473,8 @@ Checks can be supplied per task or committed as `.odysseus.json`:
 ```
 
 Task checks take precedence. Check and setup commands run through `/bin/sh -c`
-inside the resolved execution profile and inherit the server's `PATH`; shell
-login files are deliberately not loaded. In ordinary mode, repository
+inside the resolved execution profile and inherit a scoped server environment
+including `PATH`; shell login files are deliberately not loaded. In ordinary mode, repository
 configuration is trusted. `--untrusted-project` requires operator-controlled
 Docker isolation and one explicit approval before repository commands run.
 

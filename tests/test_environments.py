@@ -35,7 +35,14 @@ class EnvironmentTests(unittest.TestCase):
         self.assertNotIn("secret-value", json.dumps(request))
 
     def test_host_plan_allocates_preview_port_and_private_env_file(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "server-only",
+                "PATH": "/opt/odysseus-test-bin:/usr/bin:/bin",
+            },
+            clear=False,
+        ):
             root = Path(temp)
             worktree = root / "worktree"
             worktree.mkdir()
@@ -64,13 +71,42 @@ class EnvironmentTests(unittest.TestCase):
             self.assertGreater(plan["ports"]["APP_PORT"]["host"], 0)
             self.assertEqual(environment["APP_MODE"], "test")
             self.assertEqual(environment["APP_PORT"], str(plan["ports"]["APP_PORT"]["host"]))
+            self.assertEqual(environment["PATH"], "/opt/odysseus-test-bin:/usr/bin:/bin")
+            self.assertNotIn("OPENAI_API_KEY", environment)
             self.assertEqual(args, ["/usr/bin/env"])
             self.assertEqual(cwd, worktree)
             self.assertEqual(events[0][0], "environment.prepared")
 
+    def test_host_credentials_require_explicit_allow_env(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "agent-allowed",
+                "ANTHROPIC_API_KEY": "server-only",
+            },
+            clear=False,
+        ):
+            root = Path(temp)
+            worktree = root / "worktree"
+            worktree.mkdir()
+            manager = EnvironmentManager(root / "state")
+            plan = manager.prepare(
+                {"id": "run-host-credentials", "environment_request": {"profile": "host", "allow_env": ["OPENAI_API_KEY"]}},
+                worktree,
+                {},
+                lambda *_: None,
+            )
+            _args, _cwd, environment = wrap_command(plan, ["/usr/bin/env"], worktree, phase="agent")
+
+            self.assertEqual(plan["credential_env_names"], ["OPENAI_API_KEY"])
+            self.assertEqual(environment["OPENAI_API_KEY"], "agent-allowed")
+            self.assertNotIn("ANTHROPIC_API_KEY", environment)
+
     def test_docker_wrapper_scopes_mounts_resources_network_ports_and_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp, mock.patch.dict(
-            os.environ, {"OPENAI_API_KEY": "never-persist-this"}, clear=False
+            os.environ,
+            {"OPENAI_API_KEY": "never-persist-this", "ANTHROPIC_API_KEY": "server-only"},
+            clear=False,
         ):
             root = Path(temp)
             worktree = root / "worktree"
@@ -120,6 +156,7 @@ class EnvironmentTests(unittest.TestCase):
             self.assertNotIn("never-persist-this", Path(plan["env_file"]).read_text())
             self.assertEqual(cwd, worktree)
             self.assertEqual(environment["OPENAI_API_KEY"], "never-persist-this")
+            self.assertNotIn("ANTHROPIC_API_KEY", environment)
 
     def test_untrusted_projects_require_operator_controlled_docker(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

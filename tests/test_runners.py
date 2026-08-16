@@ -85,7 +85,7 @@ class RunnerTests(unittest.TestCase):
         runner = CheckRunner()
         with tempfile.TemporaryDirectory() as temp, mock.patch.dict(
             os.environ,
-            {"PATH": "/opt/odysseus-test-bin:/usr/bin:/bin"},
+            {"PATH": "/opt/odysseus-test-bin:/usr/bin:/bin", "OPENAI_API_KEY": "server-only"},
             clear=False,
         ), mock.patch("odysseus.runners._stream_process") as stream:
             runner.run(
@@ -101,6 +101,7 @@ class RunnerTests(unittest.TestCase):
             stream.call_args.kwargs["process_env"]["PATH"],
             "/opt/odysseus-test-bin:/usr/bin:/bin",
         )
+        self.assertNotIn("OPENAI_API_KEY", stream.call_args.kwargs["process_env"])
 
     def test_claude_denied_tool_becomes_permission_request(self) -> None:
         normalizer = _VendorNormalizer("claude", "agent", False)

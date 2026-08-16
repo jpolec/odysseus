@@ -16,6 +16,38 @@ VALID_NETWORKS = frozenset({"bridge", "none"})
 ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
 SENSITIVE_ENV_NAME = re.compile(r"(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|CREDENTIAL|COOKIE)", re.I)
 MEMORY_LIMIT = re.compile(r"^[1-9][0-9]*(?:[bkmgBKMG])?$")
+HOST_INHERITED_ENV_NAMES = frozenset(
+    {
+        "CI",
+        "COLORTERM",
+        "DISPLAY",
+        "EDITOR",
+        "GIT_EDITOR",
+        "GIT_PAGER",
+        "HOME",
+        "LANG",
+        "LESS",
+        "LOGNAME",
+        "NO_COLOR",
+        "PAGER",
+        "PATH",
+        "SHELL",
+        "SSH_TTY",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "TEMP",
+        "TZ",
+        "USER",
+        "VISUAL",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "XDG_STATE_HOME",
+    }
+)
+HOST_INHERITED_ENV_PREFIXES = ("LC_",)
 
 
 def _string_list(value: Any, label: str, *, limit: int = 64) -> list[str]:
@@ -121,6 +153,21 @@ def _read_env_file(path: str) -> dict[str, str]:
         if separator and ENV_NAME.fullmatch(name):
             values[name] = value
     return values
+
+
+def _scoped_process_env(plan: Mapping[str, Any] | None) -> dict[str, str]:
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name in HOST_INHERITED_ENV_NAMES or any(name.startswith(prefix) for prefix in HOST_INHERITED_ENV_PREFIXES)
+    }
+    if plan:
+        environment.update(_read_env_file(str(plan.get("env_file") or "")))
+        for name in plan.get("credential_env_names") or []:
+            value = os.environ.get(str(name))
+            if value is not None:
+                environment[str(name)] = value
+    return environment
 
 
 class EnvironmentManager:
@@ -310,17 +357,14 @@ def wrap_command(
     """Return the host command, cwd, and optional process environment."""
 
     if not plan or plan.get("profile") == "host":
-        environment = dict(os.environ)
-        if plan:
-            environment.update(_read_env_file(str(plan.get("env_file") or "")))
-        return list(args), worktree, environment
+        return list(args), worktree, _scoped_process_env(plan)
     if plan.get("profile") == "devcontainer":
         replaced = [str(value).replace(str(worktree), ".") for value in args]
         command = ["devcontainer", "exec", "--workspace-folder", str(worktree)]
         for name, value in _read_env_file(str(plan.get("env_file") or "")).items():
             command.extend(["--remote-env", f"{name}={value}"])
         command.extend(replaced)
-        return command, worktree, dict(os.environ)
+        return command, worktree, _scoped_process_env(plan)
 
     replaced = [str(value).replace(str(worktree), "/workspace") for value in args]
     readonly = ",readonly" if phase == "review" else ""
@@ -344,4 +388,4 @@ def wrap_command(
         command.extend(["--env", str(name)])
     command.append(str(plan["image"]))
     command.extend(replaced)
-    return command, worktree, dict(os.environ)
+    return command, worktree, _scoped_process_env(plan)

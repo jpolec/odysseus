@@ -6,13 +6,27 @@
 
 ## Current version
 
-**0.6.11 — 2026-08-16**
+**0.6.12 — 2026-08-16**
 
-Version 0.6.11 composes three independently accepted operator improvements into
-the current frontend: null-safe task notices, repository-scoped agent terminals,
-and a light-by-default theme with a packaged icon and optional dark workspace.
+Version 0.6.12 tightens the credential boundary for host-mode, Docker, and
+devcontainer process launches. Agents and repository commands receive a scoped
+process environment; server-only Context Assistant credentials remain available
+to Odysseus itself and reach a run only through explicit `allow_env`.
 
-## What is available in 0.6.11
+## What is available in 0.6.12
+
+### 0.6.12 Credential Boundary
+
+- Host-mode agent, setup, check, review, and evaluator commands no longer
+  inherit the complete Odysseus server environment.
+- Runtime credentials are passed only when their variable names are explicitly
+  present in task `allow_env`; repository-supplied `allow_env` remains ignored.
+- Docker credential passthrough still uses name-only `--env NAME`, but the
+  Docker client process itself is launched with the same scoped environment.
+- Context Assistant keys such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` stay
+  server-only unless an operator deliberately allowlists them for a task.
+
+## Earlier 0.6 releases
 
 ### 0.6.11 Composed Operator Polish
 
@@ -25,8 +39,6 @@ and a light-by-default theme with a packaged icon and optional dark workspace.
   Odysseus icon. Light remains the default, including the navigation surfaces.
 - The release commit retains all three accepted artifacts as Git parents, so
   their provenance and delivery status are both truthful.
-
-## Earlier 0.6 releases
 
 ### 0.6.10 Exact On-Demand Tabs
 
@@ -455,7 +467,7 @@ and a light-by-default theme with a packaged icon and optional dark workspace.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.11` |
+| Application version | `0.6.12` |
 | Run snapshot schema | `10` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
