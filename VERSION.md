@@ -6,14 +6,22 @@
 
 ## Current version
 
-**0.6.9 — 2026-08-16**
+**0.6.10 — 2026-08-16**
 
-Version 0.6.9 keeps accepted and long-running tasks responsive. The task
-summary opens first; diffs, activity journals, and evidence are fetched and
-rendered only when the operator asks for them. It reconciles the accepted
-Odysseus dogfood artifact with the current source as a real merge parent.
+Version 0.6.10 closes the final deep-link edge case in responsive task
+inspection: the requested inner tab becomes active before its section renders,
+so opening Integration never fetches the default Diff first.
 
-## What is available in 0.6.9
+## What is available in 0.6.10
+
+### 0.6.10 Exact On-Demand Tabs
+
+- Direct links and cross-section clicks activate the requested inner tab before
+  any heavy panel renderer runs.
+- Opening Integration does not issue a Diff request; opening each Evidence tab
+  renders only that selected evidence surface.
+
+## Earlier 0.6 releases
 
 ### 0.6.9 Responsive Task Inspection
 
@@ -28,8 +36,6 @@ Odysseus dogfood artifact with the current source as a real merge parent.
   journal before Activity is opened.
 - Apply conflicts now offer **Ask agent to resolve**, prefilled with a safe
   integration instruction, alongside draft PR and repository status options.
-
-## Earlier 0.6 releases
 
 ### 0.6.8 Task Intake and Settings
 
@@ -437,7 +443,7 @@ Odysseus dogfood artifact with the current source as a real merge parent.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.9` |
+| Application version | `0.6.10` |
 | Run snapshot schema | `10` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

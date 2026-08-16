@@ -142,12 +142,11 @@ function setView(view) {
 function activateTab(name) {
   const selectedTab = $(`.tab[data-tab="${name}"]`);
   if (!selectedTab) return;
-  if (["diff", "integration"].includes(name)) activateTaskSection("changes");
-  if (["checks", "context", "review", "evaluation", "ci"].includes(name)) activateTaskSection("evidence");
   const inspector = selectedTab.closest(".inspector-panel");
   [...inspector.querySelectorAll(".tab")].forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   [...inspector.querySelectorAll(".tab-pane")].forEach((pane) => pane.classList.toggle("active", pane.id === `tab-${name}`));
-  renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
+  const section = ["diff", "integration"].includes(name) ? "changes" : "evidence";
+  activateTaskSection(section);
 }
 
 function activateTaskSection(name) {

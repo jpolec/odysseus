@@ -144,7 +144,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.9")
+                self.assertEqual(bootstrap["version"], "0.6.10")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -260,6 +260,7 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("Open Changes to load the diff.", app_js)
                 self.assertIn("eventsLoadedRunId", app_js)
                 self.assertIn("Ask agent to resolve", app_js)
+                self.assertIn('const section = ["diff", "integration"].includes(name) ? "changes" : "evidence";', app_js)
                 self.assertNotIn("const [run, diff] = await Promise.all", app_js)
 
                 assist_request = urllib.request.Request(

@@ -6,6 +6,11 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.10: exact on-demand tabs
+
+- Cross-section and deep-link navigation activates the requested inner tab
+  before rendering, so Integration never preloads Diff.
+
 ## Shipped — 0.6.9: responsive task inspection
 
 - Task lists poll compact summaries; full run evidence is fetched only for the
