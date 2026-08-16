@@ -23,7 +23,20 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
 const activeStatuses = new Set(["queued", "starting", "running", "checking", "reviewing", "cancelling", "publishing"]);
+const ciGreenStatuses = new Set(["passed", "success", "green"]);
+const ciWaitingStatuses = new Set(["pending", "running", "queued", "in_progress", "waiting", "requested", "repairing"]);
+const ciFailedStatuses = new Set(["failed", "failure", "fail", "error", "poll_error", "timed_out", "cancelled", "retry_exhausted"]);
+const deliveredDeliveryStatuses = new Set(["applied", "pr_created", "integrated_applied", "integrated_pr_created"]);
 const HEAVY_TEXT_LIMIT = 16000;
+const UI_COPY = {
+  noAction: "No action needed",
+  needsYou: "Needs you",
+  review: "Review result",
+  deliver: "Choose delivery",
+  unknown: "Unknown",
+  notObserved: "Not observed",
+  notApplied: "Saved artifact, not applied",
+};
 
 async function api(path, options = {}) {
   const headers = {"Content-Type": "application/json", ...(options.headers || {})};
@@ -126,9 +139,41 @@ function formatBytes(value) {
 }
 function statusClass(status) { return `status-${String(status || "unknown").replace(/[^a-z_]/g, "")}`; }
 function statusLabel(status) {
-  const labels = {queued: "waiting to start"};
+  const labels = {queued: "waiting", review: "ready for review"};
   const key = String(status || "unknown");
   return labels[key] || key.replaceAll("_", " ");
+}
+function runActionLine(run) {
+  const delivery = run?.delivery || {};
+  if (run?.kind === "tmux") return "Open the terminal.";
+  if (run?.status === "review") return "Review result.";
+  if (run?.status === "pr_created") return ciActionLine(run);
+  if (run?.status === "accepted" && delivery.status === "integrated_pr_created") return "Delivered in integration PR.";
+  if (run?.status === "accepted" && deliveredDeliveryStatuses.has(delivery.status)) return "No action needed.";
+  if (run?.status === "accepted" && delivery.status === "failed") return "Fix apply prerequisite.";
+  if (run?.status === "accepted") return "Choose delivery.";
+  if (run?.status === "attention") return "Answer Needs You.";
+  if (run?.status === "failed") return "Resume with feedback.";
+  if (run?.status === "blocked") return "Accept predecessor.";
+  if (run?.status === "queued") return "Wait for a slot.";
+  if (activeStatuses.has(run?.status)) return "No action needed.";
+  return UI_COPY.noAction;
+}
+function ciActionLine(run) {
+  const ci = run?.ci || {};
+  const status = String(ci.status || "not_started").toLowerCase();
+  const failingChecks = (ci.checks || []).some((item) => ciFailedStatuses.has(String(item.bucket || item.state || "").toLowerCase()));
+  const exhausted = status === "retry_exhausted" || (status === "failed" && Number(ci.max_attempts || 0) > 0 && Number(ci.attempt || 0) >= Number(ci.max_attempts || 0));
+  if (ciGreenStatuses.has(status)) return "No action needed.";
+  if (status === "not_started") return "Poll CI.";
+  if (run?.ci_retry_active || ciWaitingStatuses.has(status)) return status === "repairing" || run?.ci_retry_active ? "Repair in progress." : "Wait for CI.";
+  if (exhausted) return "Resume CI repair.";
+  if (ciFailedStatuses.has(status) || failingChecks) return "Repair failed CI.";
+  return "Check GitHub CI.";
+}
+function blockedPrerequisite(run) {
+  const deps = run?.dependency_keys || run?.depends_on || [];
+  return deps.length ? `Waiting for ${deps[0]}` : "Waiting for predecessor acceptance";
 }
 function truncateText(value, limit = HEAVY_TEXT_LIMIT) {
   const content = String(value || "");
@@ -479,7 +524,7 @@ function renderProjectKnowledge() {
   $("#projectContextCount").textContent = `${sources.length} source${sources.length === 1 ? "" : "s"}`;
   $("#projectContextSources").innerHTML = sources.length ? sources.map((source) => `<div class="context-source"><span>${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.path)}</strong><small>${escapeHtml(source.summary || "Detected repository context")}</small></div><code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></div>`).join("") : `<div class="empty-list">No README or agent instruction files detected.</div>`;
   $("#projectCommitList").innerHTML = (overview.commits || []).length ? overview.commits.map((commit) => `<div class="project-commit"><code>${escapeHtml(commit.short_sha)}</code><div><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.author)} · ${relativeTime(commit.ts)} ago</small></div></div>`).join("") : `<div class="empty-list">No Git commits found.</div>`;
-  $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Repository activity will appear after its first task.</div>`;
+  $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Activity appears after the first task.</div>`;
   renderProjectSkills();
   renderProjectMemory();
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
@@ -570,13 +615,13 @@ function renderQuickStart() {
     container.innerHTML = `
       <div class="first-run-copy">
         <span class="inline-step"><b>1</b><span>CHOOSE A REPOSITORY</span></span>
-        <h2>Connect one repository.</h2>
-        <p>Odysseus reads the existing README and agent instructions, then keeps every task on its own branch and worktree. Your source checkout is not modified by registration.</p>
+        <h2>Add one repository.</h2>
+        <p>Registration reads context only; your source checkout stays unchanged.</p>
         <form class="quick-project-form" id="quickProjectForm">
           <label for="quickProjectPath">Repository folder</label>
           <div><input id="quickProjectPath" name="path" required value="${escapeHtml(state.bootstrap?.current_repository?.path || "")}" placeholder="${escapeHtml(state.bootstrap?.working_directory || "/absolute/path/to/repository")}"><button class="primary" type="submit">Add repository</button></div>
         </form>
-        <button class="text-button" id="copyDemoCommand" type="button">Not ready to run an agent? Copy the no-token demo command</button>
+        <button class="text-button" id="copyDemoCommand" type="button">Copy demo command</button>
       </div>
       <div class="setup-checks" aria-label="Local setup status">
         <p>READY CHECK</p>
@@ -604,12 +649,11 @@ function renderQuickStart() {
   const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}" ${lane === state.bootstrap.default_lane ? "selected" : ""}>${escapeHtml(lane)}</option>`).join("");
   container.innerHTML = `
     <form id="quickTaskForm">
-      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>NEW TASK</span></span><h2>What should the agent change in ${escapeHtml(projectName(project))}?</h2></div><span class="safety-note">Your main checkout stays untouched</span></div>
+      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>NEW TASK</span></span><h2>Describe the finished change.</h2></div><span class="safety-note">Source checkout untouched</span></div>
       <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Example: Make installation errors short and actionable, and add a regression test."></textarea>
-      <div class="quick-task-toolbar"><label><span>Agent</span><select name="lane" aria-label="Implementation agent">${laneOptions}</select></label><p><strong>${escapeHtml(state.bootstrap.max_parallel)} agents can work at once.</strong> Extra work waits safely. <button class="text-button" id="quickQueueSettings" type="button">Queue settings</button></p></div>
-      <p class="quick-task-promise">Each task gets its own branch and worktree. Odysseus runs checks and returns every result for review.</p>
+      <div class="quick-task-toolbar"><label><span>Agent</span><select name="lane" aria-label="Implementation agent">${laneOptions}</select></label><p><strong>${escapeHtml(state.bootstrap.max_parallel)} slots.</strong> Extra work waits. <button class="text-button" id="quickQueueSettings" type="button">Settings</button></p></div>
       <p class="task-submit-status hidden" id="quickTaskStatus" aria-live="polite"></p>
-      <div class="quick-task-actions"><button class="primary" value="default" type="submit">Start task</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="text-button" id="quickPlanTask" type="button">Plan larger work</button><button class="text-button" id="quickAdvancedTask" type="button">More options…</button></div>
+      <div class="quick-task-actions"><button class="primary" value="default" type="submit">Start task</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="text-button" id="quickPlanTask" type="button">Plan</button><button class="text-button" id="quickAdvancedTask" type="button">More options</button></div>
     </form>`;
   $("#quickTaskForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -672,7 +716,7 @@ function renderWork() {
   $("#workView").classList.toggle("repository-selected", !!project);
   $("#workBreadcrumb").textContent = project ? "GIT REPOSITORY" : "ODYSSEUS";
   $("#workTitle").textContent = project ? projectName(project) : (state.projects.length ? "Repositories" : "Welcome to Odysseus");
-  $("#workDescription").textContent = project ? `Create tasks for ${projectName(project)}. Odysseus can run ${state.bootstrap.max_parallel} agents at once and queues the rest.` : state.projects.length ? "Choose the repository you want an agent to change." : "Add one Git repository, create a task, then review the result.";
+  $("#workDescription").textContent = project ? `${runs.length} task${runs.length === 1 ? "" : "s"} · ${needs ? `${needs} need you` : UI_COPY.noAction}.` : state.projects.length ? "Choose where the agent should work." : "Add one repository to start.";
   $("#workMeta").innerHTML = project ? `<span>${escapeHtml(projectRepository(project))}</span><span>Folder: ${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : "";
   $("#workMeta").classList.toggle("hidden", !project);
   $("#workSummary").innerHTML = [
@@ -692,7 +736,7 @@ function renderWork() {
   $("#newTaskButton").classList.toggle("hidden", !state.projects.length);
   $("#workListEyebrow").textContent = project ? "TASKS" : "REPOSITORIES";
   $("#workListTitle").textContent = project ? "Recent work" : "Your repositories";
-  $("#workListDescription").textContent = project ? "Every submitted task stays visible here." : "Saved on this computer. Remove entries you no longer want to see; files stay untouched.";
+  $("#workListDescription").textContent = project ? "Latest tasks for this repository." : "Saved local checkouts.";
   const secondary = $("#workSecondaryAction");
   secondary.textContent = project ? "View plans" : "Add repository";
   secondary.onclick = () => project ? setView("epics") : $("#projectDialog").showModal();
@@ -700,13 +744,13 @@ function renderWork() {
   if (!project) {
     $("#workList").innerHTML = state.projects.length ? state.projects.map((item) => {
       const itemRuns = runsForProject(item.id); const itemActive = itemRuns.filter((run) => activeStatuses.has(run.status)).length; const itemNeeds = attentionForProject(item.id).length;
-      const checkoutNote = projectHasDuplicateCheckout(item) ? `Local checkout · ${item.folder_name}` : `Local folder · ${item.path}`;
+      const checkoutNote = projectHasDuplicateCheckout(item) ? `Checkout · ${item.folder_name}` : item.path;
       return `<article class="project-overview-card"><button class="project-overview-main" data-work-project="${escapeHtml(item.id)}" type="button"><span class="project-glyph">${escapeHtml(projectName(item).slice(0, 1).toUpperCase())}</span><span class="project-overview-copy"><strong>${escapeHtml(projectName(item))}</strong><span class="repository-reference">${escapeHtml(projectRepository(item))}</span><small>${escapeHtml(checkoutNote)}</small></span></button><div class="project-overview-side"><div class="project-card-signals"><span>${itemRuns.length} tasks</span><span>${itemActive} active</span>${itemNeeds ? `<span class="needs">${itemNeeds} need you</span>` : ""}</div><button class="text-button danger-text" data-forget-project-inline="${escapeHtml(item.id)}" type="button">Remove</button></div></article>`;
     }).join("") : `<div class="empty-card"><strong>No repositories yet.</strong><br>Add one, then describe the first task.</div>`;
     $$('[data-work-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.workProject)));
     $$('[data-forget-project-inline]').forEach((button) => button.addEventListener("click", () => forgetProject(button.dataset.forgetProjectInline)));
   } else {
-    $("#workList").innerHTML = runs.length ? runs.map((run) => `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(run.task || run.workflow)}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span></button>`).join("") : `<div class="empty-card"><strong>No tasks in ${escapeHtml(projectName(project))}.</strong><br>Describe the first change above.</div>`;
+    $("#workList").innerHTML = runs.length ? runs.map((run) => `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(runActionLine(run))}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span></button>`).join("") : `<div class="empty-card"><strong>No tasks yet.</strong><br>Describe the first change above.</div>`;
     $$('[data-work-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.workRun)));
   }
 }
@@ -851,7 +895,7 @@ function renderDetail(run) {
   const delivered = run.delivery?.status;
   const visibleStatus = run.status === "review" ? "ready for review"
     : run.status === "accepted" && delivered === "applied" ? "applied"
-    : run.status === "accepted" && ["integrated_applied", "integrated_pr_created"].includes(delivered) ? "delivered by integration"
+    : run.status === "accepted" && deliveredDeliveryStatuses.has(delivered) && delivered !== "applied" ? "delivered by integration"
     : run.status === "accepted" ? "accepted · not applied"
     : statusLabel(run.status);
   status.textContent = interactive ? "tracked tmux terminal" : visibleStatus; status.className = `status-pill ${statusClass(run.status)}`;
@@ -863,17 +907,19 @@ function renderDetail(run) {
   $("#detailTitle").textContent = discovered?.title || discovered?.window_name || run.title;
   $("#detailTask").textContent = interactive ? `Existing ${run.lane} session in tmux ${discovered?.tmux_session || run.tmux_session || "—"}${(discovered?.tmux_target || run.tmux_target) ? `, pane ${discovered?.tmux_target || run.tmux_target}` : ""}.` : run.task;
   $("#observedSession").classList.toggle("hidden", !interactive);
+  const decisionVisible = !interactive && ["review", "accepted", "pr_created"].includes(run.status);
   $("#assistantPanel").classList.toggle("hidden", interactive);
+  $("#summaryAssistant").classList.toggle("hidden", interactive || !canAssistantFollowUp(run));
   renderAssistantPanel(run);
   renderRecoveryCard(run);
-  $("#runNarrative").classList.toggle("hidden", interactive);
+  $("#runNarrative").classList.toggle("hidden", interactive || decisionVisible);
   $("#metrics").classList.toggle("hidden", interactive);
   $("#detailGrid").classList.toggle("hidden", interactive);
   const metrics = run.metrics || {};
   $("#metrics").innerHTML = [
     ["Tokens", compactNumber(Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0))],
-    ["Cost", metrics.cost_usd ? `$${Number(metrics.cost_usd).toFixed(4)}` : "—"],
-    ["Confidence", run.confidence === null || run.confidence === undefined ? "—" : `${Math.round(Number(run.confidence) * 100)}%`],
+    ["Cost", metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown],
+    ["Confidence", run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}%`],
     ["GitHub CI", run.ci?.status || "not started"],
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
   renderEnvironment(run);
@@ -898,7 +944,7 @@ function renderDetail(run) {
   const changedRun = $("#runDetail").dataset.runId !== run.id;
   if (changedRun) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
   $("#workflowStrip").classList.toggle("hidden", interactive);
-  renderActions(run); renderNarrative(run); renderReviewDecision(run); renderRecoveryCard(run); renderWorkflow(run);
+  renderActions(run); renderReviewDecision(run); renderNarrative(run); renderRecoveryCard(run); renderWorkflow(run);
   loadDecisionDiff(run);
   if (changedRun) {
     $("#diffStat").textContent = "Open Changes to load the diff.";
@@ -941,24 +987,24 @@ function renderEnvironment(run) {
 function renderNarrative(run) {
   const ciStatus = run.ci?.status;
   const values = {
-    queued: ["WAITING TO START", "Waiting for an execution slot", "Odysseus will create an isolated worktree as soon as capacity is available.", "No action needed", "calm", "→"],
-    blocked: ["DEPENDENCY GATE", "Waiting for predecessor work", "This task starts only after every required artifact has been accepted.", "Check Needs You", "warn", "⊘"],
-    starting: ["ISOLATING", "Creating a safe workspace", "The source checkout stays untouched while Odysseus prepares a dedicated branch and worktree.", "No action needed", "active", "01"],
-    running: ["IMPLEMENTING", "The agent is working", "Tool calls, messages, and usage appear in Activity while the implementation changes the isolated worktree.", "No action needed", "active", "02"],
-    checking: ["VERIFYING", "Running deterministic checks", "Configured tests and repository checks are evaluating the implementation independently of the agent.", "No action needed", "active", "03"],
-    reviewing: ["REVIEWING", "Independent evidence review", "A separate reviewer is checking the diff and deterministic results before the human gate.", "No action needed", "active", "04"],
-    review: ["READY FOR REVIEW", "The agent finished. Nothing has been applied.", "Review the change and evidence, then accept it or send precise changes back to the agent.", "Your decision", "attention", "!"],
-    attention: ["QUESTION", "The agent needs one decision", "Answer in Needs You; Odysseus will continue the same agent thread and preserve the current worktree.", "Needs you", "attention", "?"],
-    failed: ["STOPPED SAFELY", "The workflow could not continue", "The branch and worktree are preserved. Inspect the failure, then resume, switch agent, or continue in a terminal.", "Needs you", "danger", "×"],
-    accepted: ["ACCEPTED · NOT APPLIED", "The result is saved as a durable artifact", "Choose Apply to repository, create a pull request, or leave the result safely stored as an artifact.", "Choose delivery", "attention", "✓"],
-    publishing: ["PUBLISHING", "Preparing the draft pull request", "Odysseus is committing and pushing only this task branch before opening a draft PR.", "No action needed", "active", "↗"],
-    pr_created: ["GITHUB FEEDBACK", ciStatus === "failed" ? "CI found a regression" : ciStatus === "passed" ? "CI is green" : "Draft PR is being checked", ciStatus === "failed" ? "Failure logs are captured and the bounded repair loop can resume the original agent." : "GitHub checks are tracked here until they pass or need your attention.", ciStatus === "failed" ? "Repair in progress" : ciStatus === "passed" ? "Complete" : "No action needed", ciStatus === "failed" ? "danger" : ciStatus === "passed" ? "success" : "active", ciStatus === "passed" ? "✓" : "↻"],
+    queued: ["WAITING", "Waiting for a slot", "Starts when capacity opens.", UI_COPY.noAction, "calm", "→"],
+    blocked: ["BLOCKED", blockedPrerequisite(run), "Prerequisite must be accepted first.", "Review prerequisite", "warn", "⊘"],
+    starting: ["STARTING", "Creating worktree", "Source checkout stays unchanged.", UI_COPY.noAction, "active", "01"],
+    running: ["RUNNING", "Agent is working", "Progress appears in Activity.", UI_COPY.noAction, "active", "02"],
+    checking: ["CHECKING", "Running checks", "Results appear in Evidence.", UI_COPY.noAction, "active", "03"],
+    reviewing: ["REVIEWING", "Independent review", "Decision comes next.", UI_COPY.noAction, "active", "04"],
+    review: ["REVIEW", "Ready for your decision", "Nothing has been applied.", UI_COPY.review, "attention", "!"],
+    attention: ["NEEDS YOU", "One decision required", "Answer to continue this task.", UI_COPY.needsYou, "attention", "?"],
+    failed: ["FAILED", "Stopped safely", "Resume or take over from the preserved worktree.", UI_COPY.needsYou, "danger", "×"],
+    accepted: ["ACCEPTED", UI_COPY.notApplied, "Apply locally, create a PR, or keep the artifact.", UI_COPY.deliver, "attention", "✓"],
+    publishing: ["PUBLISHING", "Creating draft PR", "Task branch is being pushed.", UI_COPY.noAction, "active", "↗"],
+    pr_created: ["PR CREATED", ciStatus === "failed" ? "CI failed" : ciStatus === "passed" ? "CI passed" : "CI pending", ciStatus === "failed" ? "Failure logs are captured." : "GitHub checks are tracked here.", ciStatus === "failed" ? "Repair in progress" : ciStatus === "passed" ? "Complete" : UI_COPY.noAction, ciStatus === "failed" ? "danger" : ciStatus === "passed" ? "success" : "active", ciStatus === "passed" ? "✓" : "↻"],
   };
   const environmentApproval = run.status === "attention" && run.environment?.trust_status === "pending";
-  let narrative = environmentApproval ? ["TRUST GATE", "Review repository execution commands", "No agent or repository command has run. Approve the container profile, setup, checks, and evaluators in Needs You, or reject the task.", "Needs you", "attention", "!"] : values[run.status] || ["WORKFLOW", "Odysseus is tracking this task", "Open Activity for the latest normalized events.", "No action needed", "calm", "→"];
-  if (run.status === "accepted" && ["applied", "integrated_applied"].includes(run.delivery?.status)) narrative = ["APPLIED", `The change is now on ${run.delivery.target_branch || run.base_ref}`, `Repository HEAD is ${String(run.delivery.target_after_sha || "").slice(0, 12)}. The accepted artifact remains auditable.`, run.delivery?.status === "integrated_applied" ? "Delivered by integration" : "Delivered locally", "success", "✓"];
-  if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["ACCEPTED · APPLY BLOCKED", "The artifact is safe, but local delivery failed", run.delivery.error || "Resolve the repository state, then try Apply to repository again.", "Needs you", "danger", "!"];
-  if (run.status === "accepted" && run.delivery?.status === "integration_queued") narrative = ["ACCEPTED · INTEGRATION QUEUED", "This artifact is part of an integration delivery", `Integration run ${run.delivery.integration_run_id || ""} will compose the accepted artifacts and produce one deliverable.`, "Integration queued", "attention", "→"];
+  let narrative = environmentApproval ? ["TRUST GATE", "Approve repository commands", "No repository command has run.", UI_COPY.needsYou, "attention", "!"] : values[run.status] || ["WORKFLOW", "Tracking task", "Open Activity for events.", UI_COPY.noAction, "calm", "→"];
+  if (run.status === "accepted" && ["applied", "integrated_applied"].includes(run.delivery?.status)) narrative = ["APPLIED", `Applied to ${run.delivery.target_branch || run.base_ref}`, `HEAD ${String(run.delivery.target_after_sha || "").slice(0, 12) || UI_COPY.unknown}. Artifact remains auditable.`, run.delivery?.status === "integrated_applied" ? "Delivered by integration" : "Delivered locally", "success", "✓"];
+  if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["APPLY BLOCKED", "Artifact saved; delivery failed", run.delivery.error || "Resolve repository state, then retry.", UI_COPY.needsYou, "danger", "!"];
+  if (run.status === "accepted" && run.delivery?.status === "integration_queued") narrative = ["INTEGRATION QUEUED", "Artifact selected for integration", `Run ${run.delivery.integration_run_id || UI_COPY.unknown} will compose delivery.`, "Integration queued", "attention", "→"];
   const [label, title, copy, tail, tone, mark] = narrative;
   $("#narrativeLabel").textContent = label; $("#narrativeTitle").textContent = title; $("#narrativeCopy").textContent = copy; $("#narrativeTail").textContent = tail; $("#narrativeMark").textContent = mark; $("#runNarrative").dataset.tone = tone;
 }
@@ -966,7 +1012,7 @@ function renderNarrative(run) {
 function renderActions(run) {
   const actions = [];
   if (run.status === "queued") actions.push(`<button class="action-button" data-action="settings" type="button">Queue settings</button>`);
-  if (["accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Follow up with agent</button>`);
+  if (["accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Follow up</button>`);
   if ((run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) && !canInlineResume(run)) actions.push(`<button class="action-button" data-action="takeover" type="button" title="Copies a command that opens this agent in your terminal">${run.kind === "tmux" ? "Copy tmux command" : "Continue in terminal"}</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
   if (run.pull_request_url) actions.push(`<a class="action-button accept" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open PR</a>`);
@@ -1025,8 +1071,8 @@ function decisionEvidence(run) {
   const ciObserved = ci.status && ci.status !== "not_started";
   const cost = run.metrics?.cost_observed
     ? `$${Number(run.metrics.cost_usd || 0).toFixed(4)}`
-    : "Not observed";
-  const confidence = run.confidence === null || run.confidence === undefined ? "Unknown" : `${Math.round(Number(run.confidence) * 100)}%`;
+    : UI_COPY.unknown;
+  const confidence = run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}%`;
   const title = (run.status === "review" && (!ciObserved || !["passed", "success"].includes(String(ci.status).toLowerCase())))
     ? "Ready for your decision"
     : run.status === "review" ? "Ready for your decision" : "Delivery decision";
@@ -1039,26 +1085,26 @@ function renderDecisionSummary(run) {
     ? `+${compactNumber(evidence.stat.insertions)} / -${compactNumber(evidence.stat.deletions)}`
     : "Unknown";
   const fileValue = evidence.stat.observed && evidence.stat.files ? evidence.stat.files : (evidence.files.length || "Unknown");
-  const riskValue = evidence.riskPaths.length ? evidence.riskPaths.join(", ") : "Not observed";
-  const ciValue = evidence.ciObserved ? statusLabel(evidence.ci.status) : "Not observed";
+  const riskValue = evidence.riskPaths.length ? evidence.riskPaths.join(", ") : UI_COPY.notObserved;
+  const ciValue = evidence.ciObserved ? statusLabel(evidence.ci.status) : UI_COPY.notObserved;
   return `
     <section class="decision-summary" aria-label="Evidence summary for acceptance">
       <div><small>Checks</small><strong>${escapeHtml(evidence.passed)} / ${escapeHtml(evidence.checks.length)} passed</strong></div>
-      <div><small>Regression failures</small><strong>${escapeHtml(evidence.failed.length + evidence.ciFailures.length)}</strong></div>
+      <div><small>Failures</small><strong>${escapeHtml(evidence.failed.length + evidence.ciFailures.length)}</strong></div>
       <div><small>Diff</small><strong>${escapeHtml(diffValue)}</strong></div>
-      <div><small>Changed files</small><strong>${escapeHtml(fileValue)}</strong></div>
-      <div class="decision-wide"><small>High-risk paths</small><strong title="${escapeHtml(riskValue)}">${escapeHtml(riskValue)}</strong></div>
-      <div><small>Independent review</small><strong>${escapeHtml(evidence.verdict || "Unknown")}</strong></div>
+      <div><small>Files</small><strong>${escapeHtml(fileValue)}</strong></div>
+      <div><small>Review</small><strong>${escapeHtml(evidence.verdict || UI_COPY.unknown)}</strong></div>
       <div><small>GitHub CI</small><strong>${escapeHtml(ciValue)}</strong></div>
       <div><small>Confidence</small><strong>${escapeHtml(evidence.confidence)}</strong></div>
-      <div class="decision-wide"><small>Token usage by phase</small><strong title="${escapeHtml(phaseUsage(run))}">${escapeHtml(phaseUsage(run))}</strong></div>
-      <div><small>Observed cost</small><strong>${escapeHtml(evidence.cost)}</strong></div>
-      <div><small>Unresolved findings</small><strong>${escapeHtml(evidence.unresolved || "Not observed")}</strong></div>
+      <div><small>Cost</small><strong>${escapeHtml(evidence.cost)}</strong></div>
     </section>
-    <details class="decision-detail"><summary>Raw activity and detailed evidence</summary><pre>${escapeHtml([
+    <details class="decision-detail"><summary>More evidence</summary><pre>${escapeHtml([
       `Checks: ${evidence.passed}/${evidence.checks.length}`,
       `Failed checks: ${evidence.failed.map((item) => item.command || "check").join(", ") || "none observed"}`,
       `CI failures: ${evidence.ciFailures.map((item) => item.name || item.workflow || "check").join(", ") || "none observed"}`,
+      `High-risk paths: ${riskValue}`,
+      `Token usage by phase: ${phaseUsage(run)}`,
+      `Unresolved findings: ${evidence.unresolved || UI_COPY.notObserved}`,
       `Changed files: ${evidence.files.join(", ") || "Unknown"}`,
       `Review summary: ${run.review_summary || "Not observed"}`,
     ].join("\n"))}</pre></details>`;
@@ -1085,50 +1131,61 @@ function renderReviewDecision(run) {
   const project = projectById(run.project_id);
   const delivery = run.delivery || {};
   const applied = ["applied", "integrated_applied"].includes(delivery.status);
+  const integratedPr = delivery.status === "integrated_pr_created";
+  const delivered = deliveredDeliveryStatuses.has(delivery.status);
   const failed = delivery.status === "failed";
   const previewUrl = run.environment?.preview_url || "";
   let deliveryCopy = "Accepting saves a durable artifact. It does not change your source checkout.";
-  let deliveryActions = `<button class="primary" data-review-action="accept" type="button">Accept result</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+  let deliveryActions = `<button class="primary" data-review-action="accept" type="button">Accept result</button>`;
+  let alternateActions = `<button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
   let deliveryHelp = "";
-  if (run.status === "accepted" && !applied) {
+  if (run.status === "accepted" && !delivered) {
     deliveryCopy = failed ? `Apply is blocked: ${delivery.error || "inspect the repository state and try again."}` : `Accepted, but not applied to ${run.base_ref || "the source branch"}. You may also keep it as an artifact and do nothing.`;
     const conflict = /conflict|merge was aborted/i.test(delivery.error || "");
     deliveryActions = conflict
-      ? `<button class="primary" data-review-action="resolve-conflict" type="button">Ask integration agent</button><button class="ghost" data-review-action="integration" type="button">Prepare integration</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`
-      : `<button class="primary" data-review-action="apply" type="button">${failed ? "Try apply again" : "Apply to repository"}</button><button class="ghost" data-review-action="integration" type="button">Prepare integration</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+      ? `<button class="primary" data-review-action="resolve-conflict" type="button">Ask integration agent</button>`
+      : `<button class="primary" data-review-action="apply" type="button">${failed ? "Try apply again" : "Apply to repository"}</button>`;
+    alternateActions = `<button class="ghost" data-review-action="integration" type="button">Prepare integration</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
     if (failed) {
       const tracked = /tracked local changes/i.test(delivery.error || "");
       const explanation = tracked
-        ? "Your source folder contains edits that are not part of this task. Inspect, commit, or temporarily stash them; then try again."
+        ? "Prerequisite: clean source checkout."
         : conflict
-          ? "The task and the source branch changed the same code. Nothing was left half-merged; use a draft PR or send the task back for integration."
-          : "Inspect the source repository state, resolve the reason above, and then try again.";
-      deliveryHelp = `<div class="delivery-help"><strong>What should I do?</strong><span>${escapeHtml(explanation)}</span><div class="delivery-help-actions">${conflict ? `<button class="primary" data-review-action="resolve-conflict" type="button">Ask agent to resolve</button>` : ""}<button class="ghost" data-review-action="copy-source-status" type="button">Copy status command</button>${tracked ? `<button class="ghost" data-review-action="copy-source-stash" type="button">Copy safe stash command</button>` : ""}</div></div>`;
+          ? "Prerequisite: resolve source/artifact conflict."
+          : "Prerequisite: compatible source repository state.";
+      deliveryHelp = `<div class="delivery-help"><strong>${escapeHtml(explanation)}</strong><div class="delivery-help-actions"><button class="ghost" data-review-action="copy-source-status" type="button">Copy status command</button>${tracked ? `<button class="ghost" data-review-action="copy-source-stash" type="button">Copy safe stash command</button>` : ""}</div></div>`;
     }
   }
   if (run.status === "accepted" && delivery.status === "integration_queued") {
-    deliveryCopy = `Queued for integration delivery${delivery.integration_run_id ? ` as ${delivery.integration_run_id}` : ""}. The integration run will compose accepted artifacts before local apply.`;
+    deliveryCopy = `Queued for integration${delivery.integration_run_id ? ` as ${delivery.integration_run_id}` : ""}.`;
     deliveryActions = `<span class="delivery-complete">Integration queued</span>`;
+    alternateActions = "";
     deliveryHelp = "";
   }
   if (applied) {
     deliveryCopy = `${delivery.status === "integrated_applied" ? "Integrated and applied" : "Applied"} to ${delivery.target_branch || run.base_ref} at ${String(delivery.target_after_sha || "").slice(0, 12)}.`;
     deliveryActions = `<span class="delivery-complete">✓ ${delivery.status === "integrated_applied" ? "Delivered by integration" : "Applied to repository"}</span>`;
+    alternateActions = "";
+  }
+  if (integratedPr) {
+    deliveryCopy = `Delivered by integration PR${delivery.integration_run_id ? ` from ${delivery.integration_run_id}` : ""}.`;
+    deliveryActions = delivery.url
+      ? `<a class="primary button-link" href="${escapeHtml(delivery.url)}" target="_blank" rel="noreferrer">Open integration PR</a>`
+      : `<span class="delivery-complete">✓ Delivered in integration PR</span>`;
+    alternateActions = "";
   }
   if (run.status === "pr_created") {
     deliveryCopy = "A draft pull request contains this change. GitHub CI is tracked separately.";
     deliveryActions = run.pull_request_url ? `<a class="primary button-link" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open pull request</a>` : `<span class="delivery-complete">✓ Draft PR created</span>`;
+    alternateActions = "";
   }
   const evidence = decisionEvidence(run);
   node.innerHTML = `
-    <header class="review-decision-head"><div><small>${run.status === "review" ? "REVIEW CHECKLIST" : applied ? "DELIVERED LOCALLY" : run.status === "pr_created" ? "DELIVERED FOR REVIEW" : "DELIVERY OPTIONS"}</small><strong>${escapeHtml(run.status === "review" ? evidence.title : applied ? "The change is in your source checkout." : run.status === "pr_created" ? "The change is on GitHub." : "The result is safe, but your source checkout is unchanged.")}</strong></div><span>${escapeHtml(evidence.confidence)} confidence</span></header>
+    <header class="review-decision-head"><div><small>${run.status === "review" ? "DECISION" : delivered ? "DELIVERED" : run.status === "pr_created" ? "PULL REQUEST" : "DELIVERY"}</small><strong>${escapeHtml(run.status === "review" ? "Review result" : integratedPr ? "Delivered in integration PR" : applied ? "Source updated" : run.status === "pr_created" ? "PR opened" : UI_COPY.notApplied)}</strong></div><span>${escapeHtml(runActionLine(run))}</span></header>
     ${renderDecisionSummary(run)}
-    <ol class="delivery-steps">
-      <li><span>1</span><div><strong>Review the change</strong><p>See every changed file before deciding.</p><button class="ghost" data-review-action="view-changes" type="button">View changes</button></div></li>
-      <li><span>2</span><div><strong>Test the feature</strong><p>${previewUrl ? "A task preview is available." : "No visual preview is configured for this task. Use Changes and Evidence."}</p>${previewUrl ? previewLinks(previewUrl) : `<button class="ghost" data-review-action="view-evidence" type="button">View checks and review</button>`}</div></li>
-      <li><span>3</span><div><strong>Deliver the result</strong><p>${escapeHtml(deliveryCopy)}</p>${deliveryHelp}<div class="delivery-actions">${deliveryActions}</div></div></li>
-    </ol>
-    ${run.status === "review" ? `<details class="review-request"><summary>Request changes instead</summary><p>Send precise feedback into the same agent thread and worktree.</p><textarea id="reviewFeedback" rows="4" placeholder="What should the agent change before you accept this result?"></textarea><div><button class="primary" data-review-action="send-back" type="button">Send changes back to agent</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
+    <section class="delivery-decision"><div><strong>${escapeHtml(deliveryCopy)}</strong>${deliveryHelp}</div><div class="delivery-actions">${deliveryActions}</div></section>
+    <details class="review-secondary"><summary>Inspect or choose another action</summary><div class="secondary-action-grid"><button class="ghost" data-review-action="view-changes" type="button">View changes</button>${previewUrl ? previewLinks(previewUrl) : `<button class="ghost" data-review-action="view-evidence" type="button">View evidence</button>`}${alternateActions}</div></details>
+    ${run.status === "review" ? `<details class="review-request"><summary>Request changes</summary><textarea id="reviewFeedback" rows="4" placeholder="What should the agent change before you accept this result?"></textarea><div><button class="primary" data-review-action="send-back" type="button">Send changes</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
     <footer class="delivery-target">Repository: <strong>${escapeHtml(projectName(project))}</strong> · Local branch: <code>${escapeHtml(run.base_ref || "unknown")}</code></footer>`;
   $$('[data-review-action]').forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
 }
@@ -1449,7 +1506,7 @@ function selectedAssistantContextLabels() {
 function assistantShareSummary() {
   const scopes = selectedAssistantScopes().map((item) => item[0].toUpperCase() + item.slice(1));
   const includeDiff = $("#assistantIncludeDiff")?.checked;
-  return `Shared: ${scopes.length ? scopes.join(", ") : "no task context"}. Diff/code is ${includeDiff ? "on and redacted" : "off"}.`;
+  return `Shared: ${scopes.length ? scopes.join(", ") : "no task context"}. Diff/code ${includeDiff ? "on and redacted" : "off"}.`;
 }
 
 function assistantMessageAllowed(message) {
@@ -1472,7 +1529,7 @@ function renderAssistantStatus(message = "") {
   const info = state.bootstrap?.assistant?.[provider] || {};
   const status = $("#assistantStatus");
   const defaultMessage = info.mode === "local_cli"
-    ? (info.configured ? `${assistantProviderLabel(provider)} ready from local authentication. It runs in a blank scratch workspace, not the task repository; selected context is attached explicitly, while the process still has this user's filesystem permissions.` : `${assistantProviderLabel(provider)} is not on PATH.`)
+    ? (info.configured ? `${assistantProviderLabel(provider)} ready. Scratch workspace; selected context only.` : `${assistantProviderLabel(provider)} is not on PATH.`)
     : (info.configured ? `${assistantProviderLabel(provider)} ready via ${info.env}; model ${info.model}.` : `Direct API mode requires ${info.env || (provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the server environment.`);
   if (status) {
     status.textContent = message || defaultMessage;
@@ -1481,8 +1538,8 @@ function renderAssistantStatus(message = "") {
   const access = $("#summaryAssistantAccess");
   if (access) {
     access.textContent = message || (info.mode === "local_cli"
-      ? "Local CLI helpers start in a blank scratch workspace, not the task repository. They receive only selected context by prompt, but run with the Odysseus user's filesystem permissions."
-      : "Direct API helpers receive only the selected prompt context over the configured API provider.");
+      ? "Scratch workspace; selected context only."
+      : "Selected prompt context only.");
     access.classList.toggle("assistant-missing", !info.configured && !message);
   }
 }
@@ -1711,15 +1768,20 @@ async function refreshAttention() {
   renderProjectTree(); renderWork();
   $("#attentionSummary").innerHTML = ["critical", "high", "medium", "low"].map((priority) => `<div><strong>${counts[priority] || 0}</strong><span>${priority}</span></div>`).join("");
   $("#attentionList").innerHTML = state.attention.length ? state.attention.map((item) => {
-    const options = (item.options || []).map((option) => `<button class="${option.id === "takeover" ? "ghost" : "primary"}" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
+    const options = (item.options || []);
+    const primaryOption = options.find((option) => option.id !== "takeover") || options[0];
+    const extraOptions = options.filter((option) => option !== primaryOption);
+    const optionButton = primaryOption ? `<button class="primary" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(primaryOption.id)}" type="button">${escapeHtml(primaryOption.label)}</button>` : "";
+    const extraButtons = extraOptions.map((option) => `<button class="ghost" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
     const detail = item.data || {};
     const conflicts = detail.conflicts || [];
     const preserved = detail.preserved_branches || detail.preserved || [];
     const conflictBody = item.type === "merge_conflict" ? `<div class="attention-conflict-list"><strong>Conflicting files</strong>${conflicts.length ? conflicts.map((file) => `<code>${escapeHtml(file)}</code>`).join("") : `<span>Unknown</span>`}<strong>Preserved branches</strong>${preserved.length ? preserved.map((branch) => `<code>${escapeHtml(branch)}</code>`).join("") : `<span>Source and integration branches are preserved.</span>`}</div>` : "";
     const classes = `stack-card attention-card priority-${escapeHtml(item.priority)}${item.type === "merge_conflict" ? " attention-conflict" : ""}`;
-    const actionLabel = item.type === "merge_conflict" ? "Ask integration agent" : "Answer…";
-    return `<article class="${classes}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(statusLabel(item.type))}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(item.type === "merge_conflict" ? "Needs You: integration conflict" : item.title)}</h3><p>${escapeHtml(item.message)}</p>${conflictBody}<div class="card-actions">${options}<button class="primary" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></article>`;
-  }).join("") : `<div class="attention-zero"><span class="all-clear-mark">✓</span><p class="eyebrow">ALL CLEAR</p><strong>Nothing needs you right now.</strong><p>Agents can keep working. Questions, permission requests, failures, and review gates will appear here automatically.</p><div class="empty-actions"><button class="primary" data-attention-new type="button">Start a task</button><button class="ghost" data-attention-epic type="button">Plan multi-task work</button><button class="ghost" data-open-terminals type="button">View agent terminals</button></div></div>`;
+    const actionLabel = item.type === "merge_conflict" ? "Ask integration agent" : "Answer";
+    const title = item.type === "merge_conflict" ? "Integration conflict" : item.title;
+    return `<article class="${classes}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(statusLabel(item.type))}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(item.type === "merge_conflict" ? "Prerequisite: resolve listed files." : item.message)}</p>${conflictBody}<div class="card-actions">${optionButton || `<button class="primary" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>`}<details class="card-more-actions"><summary>More</summary><div>${extraButtons}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></details></div></article>`;
+  }).join("") : `<div class="attention-zero"><span class="all-clear-mark">✓</span><p class="eyebrow">ALL CLEAR</p><strong>Nothing needs you.</strong><p>${escapeHtml(UI_COPY.noAction)}.</p><div class="empty-actions"><button class="primary" data-attention-new type="button">Start a task</button><button class="ghost" data-attention-epic type="button">Plan work</button><button class="ghost" data-open-terminals type="button">Terminals</button></div></div>`;
   $$('[data-attention-answer]').forEach((button) => button.addEventListener("click", () => respondAttention(button.dataset.attentionAnswer, button.dataset.answer)));
   $$('[data-attention-custom]').forEach((button) => button.addEventListener("click", () => openAttentionResponseDialog(button.dataset.attentionCustom)));
   $$('[data-attention-resolve]').forEach((button) => button.addEventListener("click", async () => { await api(`/api/attention/${encodeURIComponent(button.dataset.attentionResolve)}/resolve`, {method: "POST", body: "{}"}); await refreshAttention(); }));
@@ -1813,8 +1875,9 @@ async function refreshEpics() {
   $("#epicList").innerHTML = visibleEpics.length ? visibleEpics.map((epic) => {
     const graph = renderEpicGraph(epic);
     const epicProject = projectById(epic.project_id);
-    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.plan?.summary || epic.description || "Planning…")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${(epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("")}</div></article>`;
-  }).join("") : `<div class="empty-card">No plans yet. Describe a larger feature; review the proposed tasks before anything starts.</div>`;
+    const runButtons = (epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("");
+    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.status === "proposed" ? "Review graph, then approve." : epic.status === "active" ? "Tasks are running or waiting." : epic.plan?.summary || epic.description || "Planning...")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${runButtons ? `<details class="card-more-actions"><summary>Tasks</summary><div>${runButtons}</div></details>` : ""}</div></article>`;
+  }).join("") : `<div class="empty-card">No plans yet.</div>`;
   $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => {
     const approved = await confirmChoice({eyebrow: "START A TASK PLAN", title: "Approve this plan?", lead: "Every dependency-ready root task will start.", message: "Review the task graph first. Dependent tasks remain blocked until their predecessors produce accepted artifacts.", confirmLabel: "Approve and start"});
     if (!approved) return;
@@ -1989,7 +2052,7 @@ function renderSessions() {
 
 async function refreshInbox() { state.inbox = (await api("/api/inbox")).items; renderInbox(); $("#inboxNavCount").textContent = state.inbox.filter((item) => item.status === "open").length || ""; }
 function renderInbox() {
-  $("#inboxList").innerHTML = state.inbox.length ? state.inbox.map((item) => { const inboxProject = projectById(item.project_id); return `<article class="stack-card"><div class="card-row"><span class="mini-status ${item.status === "open" ? "status-queued" : "status-accepted"}">${escapeHtml(item.status)}</span><span class="run-id">${relativeTime(item.updated_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.task)}</p><div class="card-meta"><span>${escapeHtml(item.source)}</span><span>${escapeHtml(inboxProject ? projectName(inboxProject) : "no repository")}</span><span>${escapeHtml(item.priority)}</span></div><div class="card-actions">${item.status === "open" && item.project_path ? `<button class="primary" data-promote="${escapeHtml(item.id)}" type="button">Queue as agent task</button>` : ""}${item.status === "open" ? `<button class="ghost" data-resolve="${escapeHtml(item.id)}" type="button">Resolve</button>` : ""}</div></article>`; }).join("") : `<div class="empty-card"><strong>No parked follow-ups.</strong><br>Use “Add follow-up” to save work for later. Adding an item does not start an agent; “Queue as agent task” does.</div>`;
+  $("#inboxList").innerHTML = state.inbox.length ? state.inbox.map((item) => { const inboxProject = projectById(item.project_id); return `<article class="stack-card"><div class="card-row"><span class="mini-status ${item.status === "open" ? "status-queued" : "status-accepted"}">${escapeHtml(item.status)}</span><span class="run-id">${relativeTime(item.updated_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.task)}</p><div class="card-meta"><span>${escapeHtml(inboxProject ? projectName(inboxProject) : "no repository")}</span><span>${escapeHtml(item.priority)}</span></div><div class="card-actions">${item.status === "open" && item.project_path ? `<button class="primary" data-promote="${escapeHtml(item.id)}" type="button">Queue task</button>` : ""}${item.status === "open" ? `<button class="ghost" data-resolve="${escapeHtml(item.id)}" type="button">Resolve</button>` : ""}</div></article>`; }).join("") : `<div class="empty-card"><strong>No follow-ups.</strong><br>Adding one does not start an agent.</div>`;
   $$('[data-resolve]').forEach((button) => button.addEventListener("click", async () => { await api(`/api/inbox/${encodeURIComponent(button.dataset.resolve)}/resolve`, {method: "POST", body: "{}"}); await refreshInbox(); }));
   $$('[data-promote]').forEach((button) => button.addEventListener("click", async () => { const run = await api(`/api/inbox/${encodeURIComponent(button.dataset.promote)}/promote`, {method: "POST", body: "{}"}); await Promise.all([refreshInbox(), refreshRuns()]); await selectRun(run.id); }));
 }
@@ -2244,7 +2307,7 @@ async function init() {
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
     const requestedDialog = params.get("dialog"); if (requestedDialog === "task") { $("#taskPrompt").value = params.get("prompt") || ""; $("#newTaskButton").click(); scheduleTaskSkillRecommendations(); } else if (requestedDialog === "epic") $("#newEpicButton").click();
     setConnection(true);
-    if (params.get("browser-regression") === "1") runBrowserRegression().catch((error) => {
+    if (params.get("browser-regression") === "1" && state.bootstrap?.test_capabilities?.browser_regression === true) runBrowserRegression().catch((error) => {
       const node = document.createElement("pre");
       node.id = "browserRegressionResult";
       node.textContent = `FAIL ${error.message}`;
@@ -2259,6 +2322,8 @@ async function init() {
 async function runBrowserRegression() {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+  assert($("#workDescription").textContent.includes("Choose where") || $("#workDescription").textContent.includes("task"), "repository default summary is concise");
+  assert($('[data-journey-step="3"] strong')?.textContent === "Review", "first-run journey uses short review label");
   assert($("#sidebarResizer")?.getAttribute("aria-label") === "Resize repository sidebar", "sidebar resize handle accessible name");
   setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
   assert(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width").trim() === `${DEFAULT_SIDEBAR_WIDTH}px`, "default sidebar width");
@@ -2272,13 +2337,52 @@ async function runBrowserRegression() {
   assert(!narrow || getComputedStyle($("#sidebarResizer")).display === "none", "mobile resize handle hidden");
 
   const accepted = state.runs.filter((run) => run.status === "accepted");
+  const acceptedNotApplied = accepted.find((run) => run.delivery?.status === "not_applied" || !run.delivery?.status);
   assert(accepted.length >= 3, "accepted artifacts available");
-  await selectRun(accepted[0].id);
+  const running = state.runs.find((run) => run.status === "running");
+  assert(running, "running task available");
+  await selectRun(running.id);
+  assert($("#narrativeTitle").textContent === "Agent is working", "running task uses one-line progress");
+  assert($("#narrativeCopy").textContent === "Progress appears in Activity.", "running task avoids essay");
+  assert($("#summaryAssistant").classList.contains("hidden"), "assistant hidden when no decision is needed");
+  const blocked = state.runs.find((run) => run.status === "blocked");
+  assert(blocked, "blocked task available");
+  await selectRun(blocked.id);
+  assert($("#narrativeTitle").textContent.includes("backend") || $("#narrativeTitle").textContent.includes("predecessor"), "blocked prerequisite named");
+  const review = state.runs.find((run) => run.status === "review");
+  assert(review, "review task available");
+  await selectRun(review.id);
+  assert($("#reviewDecisionCard").textContent.includes("Review result"), "review decision leads task detail");
+  assert($("#runNarrative").classList.contains("hidden"), "review avoids duplicate narrative status");
+  assert($("#reviewDecisionCard").textContent.includes("Cost") && $("#reviewDecisionCard").textContent.includes("Unknown"), "unknown cost remains explicit");
+  assert($$("#reviewDecisionCard .delivery-decision .primary").length === 1, "review exposes one visible primary action");
+  assert(!$("#summaryAssistant").classList.contains("hidden"), "assistant available on decision states");
+  assert(acceptedNotApplied, "accepted not-applied artifact available");
+  await selectRun(acceptedNotApplied.id);
   assert($("#reviewDecisionCard").textContent.includes("Checks"), "decision evidence visible");
+  assert($("#reviewDecisionCard").textContent.includes("Saved artifact, not applied"), "accepted-not-applied is plain");
+  assert($("#runNarrative").classList.contains("hidden"), "accepted avoids duplicate narrative status");
+  assert($$("#reviewDecisionCard .delivery-decision .primary").length <= 1, "accepted delivery has at most one primary CTA");
+  for (const [title, action] of [
+    ["CI not started", "Poll CI."],
+    ["CI pending", "Wait for CI."],
+    ["CI running", "Wait for CI."],
+    ["CI failed", "Repair failed CI."],
+    ["CI exhausted", "Resume CI repair."],
+    ["CI passed", "No action needed."],
+  ]) {
+    const prRun = state.runs.find((run) => run.title === title);
+    assert(prRun, `${title} task available`);
+    await selectRun(prRun.id);
+    const renderedAction = $("#reviewDecisionCard .review-decision-head span").textContent;
+    assert(renderedAction === action, `${title} next action: ${renderedAction}`);
+  }
+  await selectRun(acceptedNotApplied.id);
   await openIntegrationDialog(document.createElement("button"));
   const form = $("#integrationForm");
   const cards = $$(".integration-candidate");
   assert(cards.length >= 3, "integration candidates visible");
+  assert($("#integrationDialog").textContent.includes("Choose each artifact"), "integration dialog is concise");
   cards.forEach((card, index) => {
     const id = card.dataset.candidateId;
     const value = index === 0 ? "supersede" : index < 3 ? "integrate_now" : "keep_for_later";
@@ -2296,16 +2400,42 @@ async function runBrowserRegression() {
   const conflict = state.attention.find((item) => item.type === "merge_conflict");
   if (conflict) {
     assert($("#attentionList").textContent.includes("Conflicting files"), "conflict card shows files");
+    assert($("#attentionList").textContent.includes("Prerequisite: resolve listed files."), "conflict card names prerequisite");
     openAttentionResponseDialog(conflict.id);
     assert($("#attentionResponseDialog").open, "native attention dialog opens");
     $("#attentionResponseDialog").close();
   }
+  setView("attention");
+  assert($("#attentionView").textContent.includes("Answer these to continue work."), "Needs You concise header");
+  setView("epics");
+  assert($("#epicsView").textContent.includes("Approve a graph before agents start."), "Plans concise header");
+  setView("inbox");
+  assert($("#inboxView").textContent.includes("Park work; queue explicitly."), "Follow-ups concise header");
+  setView("settings");
+  assert($("#settingsView").textContent.includes("Capacity, agents, CI, resources, assistants."), "Settings concise header");
+  assert($("#settingsView").textContent.includes("API keys are never saved."), "settings security detail preserved");
+  assert($$("#settingsView .primary").length === 1, "Settings exposes one primary action");
+  document.documentElement.dataset.theme = "dark";
+  syncThemeButton();
+  assert($("#themeToggle").getAttribute("aria-label") === "Switch to light theme", "dark theme toggle accessible state");
+  document.documentElement.dataset.theme = "light";
+  syncThemeButton();
+  assert($("#themeToggle").getAttribute("aria-label") === "Switch to dark theme", "light theme toggle accessible state");
 
   const delivered = state.runs.find((run) => run.delivery?.status === "integrated_applied");
   if (delivered) {
     const fullDelivered = await api(`/api/runs/${encodeURIComponent(delivered.id)}`);
     assert(fullDelivered.delivery?.integration_run_id, "source delivery provenance fanout");
   }
+  const deliveredPr = state.runs.find((run) => run.delivery?.status === "integrated_pr_created");
+  assert(deliveredPr, "integrated PR delivery source available");
+  await selectRun(deliveredPr.id);
+  assert($("#reviewDecisionCard .review-decision-head strong").textContent === "Delivered in integration PR", "integrated PR delivery has explicit title");
+  assert($("#reviewDecisionCard .review-decision-head span").textContent === "Delivered in integration PR.", "integrated PR delivery action is explicit");
+  assert($("#reviewDecisionCard").textContent.includes("integration-pr-existing"), "integrated PR delivery provenance visible");
+  assert($("#reviewDecisionCard").textContent.includes("Open integration PR"), "integrated PR link visible");
+  assert(!$("#reviewDecisionCard").textContent.includes("Apply to repository"), "integrated PR delivery hides apply action");
+  assert(!$("#reviewDecisionCard").textContent.includes("Create draft PR"), "integrated PR delivery hides duplicate PR action");
   selectProject(state.projectFilter);
   assert($("#workView").classList.contains("active"), "navigation back to repository overview");
   await api("/api/inbox", {method: "POST", body: JSON.stringify({title: "PASS browser regression", task: "Browser regression completed."})});

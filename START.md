@@ -42,7 +42,7 @@ port 8741, the CLI tries 8742, then 8743, and prints and opens the address it
 actually selected.
 
 On a fresh state, the landing page shows one persistent path: **1 Choose a
-repository -> 2 New task -> 3 Follow & review**. The numbered circles are
+repository -> 2 New task -> 3 Review**. The numbered circles are
 also shortcuts. Add a Git repository; registration reads metadata but does not
 modify the checkout. Readiness checks stay visible as quiet diagnostics rather
 than competing steps. Plain folders are rejected with a short error instead of
@@ -73,7 +73,7 @@ explainable evaluation. Stop with
 In the web UI:
 
 1. Select the Git repository in the Explorer.
-2. Describe one finished outcome in **What should the agent change?**
+2. Describe one finished outcome in **Describe the finished change**
 3. Choose the implementation agent.
 4. Select **Start task**, or **Start & add another** to queue the next request
    immediately.

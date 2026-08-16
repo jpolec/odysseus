@@ -10,12 +10,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .delivery import is_delivered_delivery
 from .events import now_iso
 
 
 DEFAULT_RETENTION_DAYS = 14
 RECLAIMABLE_STATUSES = frozenset({"cancelled", "completed", "pr_created"})
-RECLAIMABLE_DELIVERY_STATUSES = frozenset({"applied", "pr_created"})
 PROTECTED_RUNTIME_NAMES = frozenset({"server.lock", "maintenance.lock"})
 
 
@@ -263,7 +263,7 @@ class ResourceLifecycle:
     def _run_reclaimable(self, run: dict[str, Any], cutoff: float) -> tuple[bool, bool, str]:
         status = str(run.get("status") or "")
         delivery = run.get("delivery") if isinstance(run.get("delivery"), dict) else {}
-        delivered = str(delivery.get("status") or "") in RECLAIMABLE_DELIVERY_STATUSES
+        delivered = is_delivered_delivery(delivery)
         terminal = status in RECLAIMABLE_STATUSES or delivered
         if not terminal:
             return False, False, f"kept for {status or 'unknown'} recovery or delivery"

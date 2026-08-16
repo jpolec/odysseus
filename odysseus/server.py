@@ -90,6 +90,7 @@ class OdysseusApp:
         auth_password: str = "",
         max_http_connections: int = 64,
         max_sse_connections: int = 32,
+        test_capabilities: Mapping[str, bool] | None = None,
     ) -> None:
         self.store = store
         self.host = host
@@ -109,6 +110,7 @@ class OdysseusApp:
         self.auth_password = auth_password
         self.max_http_connections = max(4, int(max_http_connections))
         self.max_sse_connections = max(1, min(int(max_sse_connections), self.max_http_connections - 1))
+        self.test_capabilities = {key: True for key, value in (test_capabilities or {}).items() if value}
         self.shutdown_event = threading.Event()
         self.sse_slots = threading.BoundedSemaphore(self.max_sse_connections)
         self._sse_active = 0
@@ -240,6 +242,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "current_repository": self.server.app.store.projects.describe(Path.cwd()),
                     "repository_url": "https://github.com/jpolec/odysseus",
                     "ci": config.get("ci") or {},
+                    "test_capabilities": self.server.app.test_capabilities,
                 }
             )
             return
