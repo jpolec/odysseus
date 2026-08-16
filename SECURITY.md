@@ -13,8 +13,13 @@ trust.
 > server user's permissions. Opening an untrusted repository without
 > `--untrusted-project` is remote code execution by design.
 
-A Git worktree isolates code changes, not the process environment. The optional
-Docker profile adds a controlled runtime boundary for each command:
+A Git worktree isolates code changes, not filesystem permissions. Host,
+Docker, and devcontainer command launches receive a scoped process environment:
+common non-secret shell variables such as `PATH` are preserved, per-task
+non-secret environment values are added, and server credentials are passed only
+when an operator explicitly names them in task `allow_env`. Context Assistant
+API keys remain server-only by default. The optional Docker profile adds a
+controlled runtime boundary for each command:
 
 - only the task worktree, isolated task Git metadata, and per-run home are
   mounted; the source repository's `.git`, `~/.ssh`, other repositories, and
