@@ -27,6 +27,7 @@ from .runners import AgentRunner, _extract_text, _sanitize
 from .scheduler import ReviewActions, Scheduler
 from .search import search, statistics
 from .github import GitHubBridge
+from .lifecycle import ResourceLifecycle
 from .resources import resource_path
 from .store import RunStore
 from .tmux import TmuxBridge
@@ -103,6 +104,7 @@ class OdysseusApp:
         self.tmux = TmuxBridge(store)
         self.github = GitHubBridge()
         self.ci = CIWatcher(store, self.actions, bridge=self.github)
+        self.resources = ResourceLifecycle(store)
         self.auth_user = auth_user
         self.auth_password = auth_password
         self.max_http_connections = max(4, int(max_http_connections))
@@ -123,6 +125,7 @@ class OdysseusApp:
         try:
             self.scheduler.start()
             self.ci.start()
+            self.resources.reclaim(retention_days=int(self.store.config().get("resource_retention_days", 14)))
         except BaseException:
             self.httpd.server_close()
             self.httpd = None
@@ -285,6 +288,10 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/stats":
             self._json(statistics(self.server.app.store))
             return
+        if parsed.path == "/api/resources":
+            retention = self.server.app.store.config().get("resource_retention_days", 14)
+            self._json(self.server.app.resources.inspect(retention_days=int(retention)))
+            return
         if parsed.path == "/api/projects":
             self._json({"projects": self.server.app.store.projects.list()})
             return
@@ -377,6 +384,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     "assistant_models",
                     "budgets",
                     "ci",
+                    "resource_retention_days",
                 ):
                     if key in body:
                         changes[key] = body[key]
@@ -388,6 +396,15 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/assist":
                 self._json(self._assist(body))
+                return
+            if parsed.path == "/api/resources/reclaim":
+                retention = body.get("retention_days", self.server.app.store.config().get("resource_retention_days", 14))
+                self._json(
+                    self.server.app.resources.reclaim(
+                        retention_days=int(retention),
+                        force=bool(body.get("force")),
+                    )
+                )
                 return
             if parsed.path == "/api/projects":
                 self._json(self.server.app.store.projects.upsert(str(body.get("path") or ""), body, require_git=True), HTTPStatus.CREATED)

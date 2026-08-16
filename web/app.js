@@ -12,7 +12,7 @@ const state = {
   selectionGeneration: 0, filter: "active", projectFilter: "all", view: "work",
   stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
-  assistantConversations: {}, config: null,
+  assistantConversations: {}, config: null, resources: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -63,6 +63,14 @@ function relativeTime(iso) {
 }
 
 function compactNumber(value) { return new Intl.NumberFormat("en", {notation: "compact", maximumFractionDigits: 1}).format(Number(value || 0)); }
+function formatBytes(value) {
+  let size = Number(value || 0);
+  for (const unit of ["B", "KB", "MB", "GB"]) {
+    if (size < 1024 || unit === "GB") return unit === "B" ? `${Math.round(size)} B` : `${size.toFixed(1)} ${unit}`;
+    size /= 1024;
+  }
+  return `${size.toFixed(1)} GB`;
+}
 function statusClass(status) { return `status-${String(status || "unknown").replace(/[^a-z_]/g, "")}`; }
 function statusLabel(status) {
   const labels = {queued: "waiting to start"};
@@ -1555,6 +1563,7 @@ function renderSettings(config = state.config || {}) {
   form.elements.ci_auto_resume.checked = ci.auto_resume !== false;
   form.elements.ci_max_attempts.value = ci.max_attempts ?? 2;
   form.elements.ci_poll_seconds.value = ci.poll_seconds ?? 30;
+  form.elements.resource_retention_days.value = config.resource_retention_days || 14;
   const configuredModels = config.assistant_models || {};
   const assistantForm = $("#assistantSettingsForm");
   assistantForm.elements.openai_model.value = configuredModels.openai || "";
@@ -1567,12 +1576,14 @@ function renderSettings(config = state.config || {}) {
     const modelEnv = info.model_env ? `<span>Model env: ${escapeHtml(info.model_env)}</span>` : "";
     return `<article class="settings-row"><div><strong>${escapeHtml(assistantProviderLabel(provider))}</strong><small>${escapeHtml(mode)}</small></div><em class="${info.configured ? "configured" : "missing"}">${configured}</em>${model}${modelEnv}</article>`;
   }).join("");
+  renderResources();
 }
 
 async function refreshSettings() {
-  const [config, bootstrap] = await Promise.all([api("/api/config"), api("/api/bootstrap")]);
+  const [config, bootstrap, resources] = await Promise.all([api("/api/config"), api("/api/bootstrap"), api("/api/resources")]);
   state.config = config;
   state.bootstrap = bootstrap;
+  state.resources = resources;
   state.bootstrap.max_parallel = state.config.max_parallel;
   state.bootstrap.default_lane = state.config.default_lane;
   state.bootstrap.planner_lane = state.config.planner_lane || state.config.default_lane;
@@ -1587,6 +1598,27 @@ async function refreshSettings() {
   $("#quickStart").dataset.mode = "";
   renderSettings();
   renderWork();
+}
+
+function renderResources() {
+  const container = $("#resourceSettings");
+  if (!container) return;
+  const resources = state.resources;
+  if (!resources) {
+    container.innerHTML = `<div class="empty-list">Loading retained resources...</div>`;
+    return;
+  }
+  const totals = resources.totals || {};
+  const recent = [...(resources.worktrees || []), ...(resources.runtime_directories || [])]
+    .filter((item) => item.reclaimable || item.force_reclaimable)
+    .slice(0, 6);
+  container.innerHTML = `
+    <div class="resource-summary">
+      <div><strong>${escapeHtml(formatBytes(totals.worktree_bytes))}</strong><span>Worktrees</span></div>
+      <div><strong>${escapeHtml(formatBytes(totals.runtime_bytes))}</strong><span>Runtime</span></div>
+      <div><strong>${escapeHtml(formatBytes(totals.reclaimable_bytes))}</strong><span>Reclaimable</span></div>
+    </div>
+    <div class="resource-list">${recent.length ? recent.map((item) => `<article class="settings-row"><div><strong>${escapeHtml(item.title || item.run_id || "orphan runtime")}</strong><small>${escapeHtml(item.status)} · ${escapeHtml(item.reason)}</small></div><em>${escapeHtml(formatBytes(item.bytes))}</em><span>${escapeHtml(item.path)}${item.branch ? ` · branch preserved: ${escapeHtml(item.branch)}` : ""}</span></article>`).join("") : `<div class="empty-list">No resources are eligible for reclamation right now.</div>`}</div>`;
 }
 
 function updateGitHubLink() {
@@ -1803,6 +1835,7 @@ function bindDialogs() {
         max_attempts: Number(data.get("ci_max_attempts")),
         poll_seconds: Number(data.get("ci_poll_seconds")),
       },
+      resource_retention_days: Number(data.get("resource_retention_days")),
     };
     try {
       setFormSubmitting(form, true, submit, "Saving...");
@@ -1812,6 +1845,28 @@ function bindDialogs() {
     } catch (error) { toast(error.message, true); }
     finally { setFormSubmitting(form, false, submit, originalLabel); }
   });
+  $$("[data-reclaim-resources]").forEach((button) => button.addEventListener("click", async () => {
+    const force = button.dataset.reclaimResources === "force";
+    const approved = await confirmChoice({
+      eyebrow: "RECLAIM RESOURCES",
+      title: force ? "Reclaim all eligible terminal resources?" : "Reclaim expired resources now?",
+      lead: "Task branches are preserved.",
+      message: force ? "Odysseus will remove worktree and runtime directories for delivered or cancelled runs even if the retention window has not expired." : "Odysseus will remove only resources already past the configured retention window.",
+      confirmLabel: "Reclaim now",
+    });
+    if (!approved) return;
+    const originalLabel = button.textContent;
+    try {
+      button.disabled = true;
+      button.textContent = "Reclaiming...";
+      const retention = Number($("#settingsForm").elements.resource_retention_days.value || 14);
+      const result = await api("/api/resources/reclaim", {method: "POST", body: JSON.stringify({retention_days: retention, force})});
+      toast(`Reclaimed ${formatBytes(result.reclaimed_bytes)}.`);
+      state.resources = await api("/api/resources");
+      renderResources();
+    } catch (error) { toast(error.message, true); }
+    finally { button.disabled = false; button.textContent = originalLabel; }
+  }));
   $("#assistantSettingsForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

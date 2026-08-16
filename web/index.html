@@ -324,10 +324,19 @@
                 <label class="checkbox-row"><input type="checkbox" name="ci_watch"> Watch draft PR checks</label>
                 <label class="checkbox-row"><input type="checkbox" name="ci_auto_resume"> Auto-resume on failed CI logs</label>
                 <div class="form-row"><label>CI max attempts <input name="ci_max_attempts" type="number" min="0" max="20" value="2"></label><label>CI poll seconds <input name="ci_poll_seconds" type="number" min="5" value="30"></label></div>
+                <label>Resource retention days <input name="resource_retention_days" type="number" min="1" max="365" value="14"></label>
                 <p class="settings-note">Task-specific overrides still live under <strong>More options...</strong> in New task.</p>
                 <div class="dialog-actions"><button class="primary" type="submit">Save settings</button></div>
               </div>
             </form>
+            <section class="settings-panel">
+              <div class="panel-head"><div><p class="eyebrow">RESOURCE LIFECYCLE</p><h3>Worktrees and runtime directories</h3></div></div>
+              <div class="settings-body">
+                <div id="resourceSettings"><div class="empty-list">Loading retained resources...</div></div>
+                <p class="settings-note">Delivered, published, completed, and cancelled runs can be reclaimed. Review, failed, attention, blocked, and accepted-but-not-delivered runs keep their worktree for recovery or delivery. Branches are preserved.</p>
+                <div class="dialog-actions"><button class="ghost" data-reclaim-resources="expired" type="button">Reclaim expired</button><button class="primary" data-reclaim-resources="force" type="button">Reclaim now</button></div>
+              </div>
+            </section>
             <form class="settings-panel" id="assistantSettingsForm">
               <div class="panel-head"><div><p class="eyebrow">ASSISTANT CHAT</p><h3>Models and API keys</h3></div></div>
               <div class="settings-body">

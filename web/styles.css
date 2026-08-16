@@ -509,6 +509,12 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 .settings-row em.configured { color: #107c10; background: #dff6dd; }
 .settings-row em.missing { color: var(--amber); background: #fff4ce; }
 .settings-row > span { grid-column: 1 / -1; font-family: var(--mono); }
+.resource-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.resource-summary div { padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+.resource-summary strong, .resource-summary span { display: block; }
+.resource-summary strong { font: 650 18px var(--mono); }
+.resource-summary span { margin-top: 4px; color: var(--muted); font: 9px var(--mono); text-transform: uppercase; }
+.resource-list .settings-row { padding-right: 0; padding-left: 0; }
 .assistant-model-fields { margin-top: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
 .assistant-model-fields code, .settings-note code { font-family: var(--mono); }
 @media (max-width: 760px) {
