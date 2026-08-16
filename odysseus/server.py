@@ -46,6 +46,32 @@ DIRECT_ASSISTANT_PROVIDER_ENV = {
     "anthropic": ("ANTHROPIC_API_KEY", "ODYSSEUS_ASSISTANT_ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"),
 }
 ASSISTANT_PROVIDERS = ("codex", "claude", "openai", "anthropic")
+RUN_SUMMARY_FIELDS = (
+    "id",
+    "title",
+    "task",
+    "task_key",
+    "status",
+    "kind",
+    "project_id",
+    "lane",
+    "priority",
+    "workflow",
+    "created_at",
+    "updated_at",
+    "tmux_session",
+    "tmux_target",
+)
+
+
+def _run_summary(run: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only fields needed by repository and task navigation lists."""
+
+    summary = {key: run.get(key) for key in RUN_SUMMARY_FIELDS}
+    summary["merge_analysis"] = {"risk": (run.get("merge_analysis") or {}).get("risk", "none")}
+    summary["ci"] = {"status": (run.get("ci") or {}).get("status", "not_started")}
+    summary["delivery"] = {"status": (run.get("delivery") or {}).get("status", "not_started")}
+    return summary
 
 
 class OdysseusApp:
@@ -248,6 +274,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 runs = [run for run in runs if str(run.get("project_id")) == project_id]
             if status:
                 runs = [run for run in runs if str(run.get("status")) == status]
+            if str(query.get("summary", [""])[0]).lower() in {"1", "true", "yes"}:
+                runs = [_run_summary(run) for run in runs]
             self._json({"runs": runs})
             return
         if parsed.path == "/api/search":

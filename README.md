@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.8](https://img.shields.io/badge/version-0.6.8-171a16)
+![Version: 0.6.9](https://img.shields.io/badge/version-0.6.9-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)

@@ -2,8 +2,10 @@
 
 const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
-  selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
-  stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
+  selected: null, selectedDiff: null, selectedDiffRunId: "", selectedDiffLoadingRunId: "",
+  events: [], eventsLoadedRunId: "", eventsLoadingRunId: "", eventVisibleLimit: 150,
+  selectionGeneration: 0, filter: "all", projectFilter: "all", view: "work",
+  stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
   assistantConversations: {}, config: null,
 };
@@ -12,6 +14,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
 const activeStatuses = new Set(["queued", "starting", "running", "checking", "reviewing", "cancelling", "publishing"]);
+const HEAVY_TEXT_LIMIT = 16000;
 
 async function api(path, options = {}) {
   const headers = {"Content-Type": "application/json", ...(options.headers || {})};
@@ -60,6 +63,11 @@ function statusLabel(status) {
   const labels = {queued: "waiting to start"};
   const key = String(status || "unknown");
   return labels[key] || key.replaceAll("_", " ");
+}
+function truncateText(value, limit = HEAVY_TEXT_LIMIT) {
+  const content = String(value || "");
+  if (content.length <= limit) return content;
+  return `${content.slice(0, limit)}\n\n[truncated in browser: ${compactNumber(content.length - limit)} more characters]`;
 }
 function projectById(id) { return state.projects.find((project) => project.id === id); }
 function projectName(project) { return project?.display_name || project?.name || project?.folder_name || "Repository"; }
@@ -139,12 +147,14 @@ function activateTab(name) {
   const inspector = selectedTab.closest(".inspector-panel");
   [...inspector.querySelectorAll(".tab")].forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   [...inspector.querySelectorAll(".tab-pane")].forEach((pane) => pane.classList.toggle("active", pane.id === `tab-${name}`));
+  renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
 }
 
 function activateTaskSection(name) {
   state.taskSection = name;
   $$(".task-section-tab").forEach((item) => item.classList.toggle("active", item.dataset.section === name));
   $$(".task-section-pane").forEach((pane) => pane.classList.toggle("active", pane.id === `task-section-${name}`));
+  renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
 }
 
 function filteredRuns() {
@@ -200,9 +210,12 @@ function renderProjectTree() {
 }
 
 function selectProject(projectId = "all") {
+  state.selectionGeneration += 1;
+  closeStream();
   state.projectFilter = projectId && projectById(projectId) ? projectId : "all";
   state.selectedId = null;
   state.selected = null;
+  resetHeavyTaskState();
   $("#projectFilter").value = state.projectFilter;
   location.hash = state.projectFilter === "all" ? "" : `project/${encodeURIComponent(state.projectFilter)}`;
   renderProjectTree();
@@ -602,7 +615,7 @@ function renderRuns() {
 }
 
 async function refreshRuns() {
-  const data = await api("/api/runs");
+  const data = await api("/api/runs?summary=1");
   state.runs = data.runs;
   renderRuns();
   renderWork();
@@ -613,33 +626,104 @@ async function refreshRuns() {
   }
 }
 
+function resetHeavyTaskState() {
+  state.selectedDiff = null;
+  state.selectedDiffRunId = "";
+  state.selectedDiffLoadingRunId = "";
+  state.events = [];
+  state.eventsLoadedRunId = "";
+  state.eventsLoadingRunId = "";
+  state.eventVisibleLimit = 150;
+}
+
 async function selectRun(runId) {
   const target = state.runs.find((run) => run.id === runId);
   if (target?.project_id) state.projectFilter = target.project_id;
+  const generation = state.selectionGeneration + 1;
+  state.selectionGeneration = generation;
+  closeStream();
   state.selectedId = runId;
+  state.selected = null;
   state.taskSection = "summary";
+  resetHeavyTaskState();
   location.hash = `task/${encodeURIComponent(runId)}`;
   setView("tasks");
   renderRuns();
-  state.events = [];
-  closeStream();
-  await refreshSelected(true);
-  activateTaskSection("summary");
-  openStream(runId);
+  $("#emptyState").classList.add("hidden");
+  $("#runDetail").classList.remove("hidden");
+  $("#runDetail").setAttribute("aria-busy", "true");
+  $("#detailStatus").textContent = "opening task";
+  $("#detailStatus").className = "status-pill status-queued";
+  $("#detailTitle").textContent = target?.title || "Opening task…";
+  $("#detailTask").textContent = "Loading the task summary. Changes, activity, and evidence load only when you open them.";
+  try {
+    await refreshSelected(false, runId, generation);
+    if (state.selectedId !== runId || state.selectionGeneration !== generation) return;
+    activateTaskSection("summary");
+    openStream(runId);
+  } catch (error) {
+    if (state.selectedId === runId && state.selectionGeneration === generation) {
+      $("#runDetail").removeAttribute("aria-busy");
+      toast(error.message, true);
+    }
+  }
 }
 
-async function refreshSelected(loadEvents = false) {
-  if (!state.selectedId) return;
-  const [run, diff] = await Promise.all([api(`/api/runs/${encodeURIComponent(state.selectedId)}`), api(`/api/runs/${encodeURIComponent(state.selectedId)}/diff`)]);
+async function refreshSelected(loadEvents = false, requestedId = state.selectedId, generation = state.selectionGeneration) {
+  if (!requestedId) return;
+  const run = await api(`/api/runs/${encodeURIComponent(requestedId)}`);
+  if (state.selectedId !== requestedId || state.selectionGeneration !== generation) return;
   state.selected = run;
-  if (loadEvents) state.events = (await api(`/api/runs/${encodeURIComponent(state.selectedId)}/events`)).events;
-  renderDetail(run, diff);
+  renderDetail(run);
+  if (loadEvents) await loadEvents(requestedId, generation);
   updateGitHubLink();
 }
 
-function renderDetail(run, diff) {
+function activeInspectorTab(section) {
+  return $(`#task-section-${section} .tab.active`)?.dataset.tab || "";
+}
+
+async function loadEvents(runId = state.selectedId, generation = state.selectionGeneration) {
+  if (!runId || state.eventsLoadedRunId === runId || state.eventsLoadingRunId === runId) return;
+  state.eventsLoadingRunId = runId;
+  renderEvents();
+  try {
+    const loaded = (await api(`/api/runs/${encodeURIComponent(runId)}/events`)).events || [];
+    if (state.selectedId !== runId || state.selectionGeneration !== generation) return;
+    const bySequence = new Map([...loaded, ...state.events].map((event) => [event.seq, event]));
+    state.events = [...bySequence.values()].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
+    state.eventsLoadedRunId = runId;
+  } finally {
+    if (state.eventsLoadingRunId === runId) state.eventsLoadingRunId = "";
+  }
+  if (state.selectedId === runId && state.taskSection === "activity") renderEvents();
+}
+
+async function renderVisibleHeavyPanels() {
+  if (!state.selected) return;
+  if (state.taskSection === "changes") {
+    const tab = activeInspectorTab("changes");
+    if (tab === "diff") await renderDiff();
+    if (tab === "integration") renderIntegration(state.selected);
+  }
+  if (state.taskSection === "activity") {
+    await loadEvents();
+    renderEvents();
+  }
+  if (state.taskSection === "evidence") {
+    const tab = activeInspectorTab("evidence");
+    if (tab === "checks") renderChecks(state.selected.check_results || []);
+    if (tab === "context") renderContextReceipt(state.selected);
+    if (tab === "review") $("#reviewSummary").textContent = truncateText(state.selected.review_summary || state.selected.last_error || "Review has not run yet.");
+    if (tab === "evaluation") renderEvaluation(state.selected.evaluation || {});
+    if (tab === "ci") renderCI(state.selected);
+  }
+}
+
+function renderDetail(run) {
   $("#emptyState").classList.add("hidden");
   $("#runDetail").classList.remove("hidden");
+  $("#runDetail").removeAttribute("aria-busy");
   const interactive = run.kind === "tmux";
   $(".journey-context").classList.toggle("hidden", interactive);
   const discovered = interactive ? discoveredSessionForRun(run) : null;
@@ -690,11 +774,22 @@ function renderDetail(run, diff) {
   $("#metadata").innerHTML = metadata.map(([label, value]) => `<div class="meta"><small>${escapeHtml(label)}</small><strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
   const technical = $("#technicalDetails");
   if (technical.dataset.runId !== run.id) { technical.dataset.runId = run.id; technical.open = interactive; }
-  if ($("#runDetail").dataset.runId !== run.id) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
+  const changedRun = $("#runDetail").dataset.runId !== run.id;
+  if (changedRun) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
   $("#workflowStrip").classList.toggle("hidden", interactive);
-  renderActions(run); renderNarrative(run); renderReviewDecision(run); renderRecoveryCard(run); renderWorkflow(run); renderEvents();
-  $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
-  renderIntegration(run); renderChecks(run.check_results || []); renderContextReceipt(run); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
+  renderActions(run); renderNarrative(run); renderReviewDecision(run); renderRecoveryCard(run); renderWorkflow(run);
+  if (changedRun) {
+    $("#diffStat").textContent = "Open Changes to load the diff.";
+    $("#diffPatch").textContent = "Large diffs are loaded only when this tab is visible.";
+    $("#eventLog").innerHTML = `<div class="event"><time>—</time><span class="event-type">on demand</span><span class="event-message">Open Activity to load the event history.</span></div>`;
+    $("#integrationResults").innerHTML = `<div class="empty-card">Open Integration to inspect predecessor artifacts.</div>`;
+    $("#checkResults").innerHTML = `<div class="empty-card">Open Evidence to inspect checks.</div>`;
+    $("#contextReceipt").innerHTML = `<div class="empty-card">Open Context to inspect attached snapshots.</div>`;
+    $("#reviewSummary").textContent = "Open Review to inspect reviewer output.";
+    $("#evaluationResults").innerHTML = `<div class="empty-card">Open Evaluation to inspect confidence signals.</div>`;
+    $("#ciResults").innerHTML = `<div class="empty-card">Open CI to inspect GitHub checks.</div>`;
+  }
+  renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
 }
 
 function renderEnvironment(run) {
@@ -781,7 +876,7 @@ function renderReviewDecision(run) {
         : conflict
           ? "The task and the source branch changed the same code. Nothing was left half-merged; use a draft PR or send the task back for integration."
           : "Inspect the source repository state, resolve the reason above, and then try again.";
-      deliveryHelp = `<div class="delivery-help"><strong>What should I do?</strong><span>${escapeHtml(explanation)}</span><div class="delivery-help-actions"><button class="ghost" data-review-action="copy-source-status" type="button">Copy status command</button>${tracked ? `<button class="ghost" data-review-action="copy-source-stash" type="button">Copy safe stash command</button>` : ""}</div></div>`;
+      deliveryHelp = `<div class="delivery-help"><strong>What should I do?</strong><span>${escapeHtml(explanation)}</span><div class="delivery-help-actions">${conflict ? `<button class="primary" data-review-action="resolve-conflict" type="button">Ask agent to resolve</button>` : ""}<button class="ghost" data-review-action="copy-source-status" type="button">Copy status command</button>${tracked ? `<button class="ghost" data-review-action="copy-source-stash" type="button">Copy safe stash command</button>` : ""}</div></div>`;
     }
   }
   if (applied) {
@@ -807,6 +902,15 @@ function renderReviewDecision(run) {
 async function reviewAction(action, button) {
   if (action === "view-changes") { activateTaskSection("changes"); return; }
   if (action === "view-evidence") { activateTaskSection("evidence"); activateTab("checks"); return; }
+  if (action === "resolve-conflict") {
+    const project = projectById(state.selected?.project_id);
+    const form = $("#feedbackForm");
+    form.elements.feedback.value = `Integrate this accepted task with the current ${state.selected?.base_ref || "source branch"}. Resolve the apply conflicts without discarding either the accepted behavior or newer source changes, then rerun the relevant checks.`;
+    form.elements.strategy.value = "resume";
+    $("#feedbackDialog").showModal();
+    toast(`The integration request is ready${project ? ` for ${projectName(project)}` : ""}. Review it, then submit.`);
+    return;
+  }
   if (action === "copy-source-status" || action === "copy-source-stash") {
     const project = projectById(state.selected?.project_id);
     if (!project?.path) { toast("The source repository path is unavailable.", true); return; }
@@ -843,25 +947,37 @@ function eventMessage(event) {
   const data = event.data || {};
   if (event.type === "agent.usage") return `in ${compactNumber(data.input_tokens)} · cached ${compactNumber(data.cached_input_tokens)} · out ${compactNumber(data.output_tokens)}`;
   if (event.type.startsWith("agent.tool")) return `${data.tool || data.kind || "tool"}${data.command ? ` · ${data.command}` : ""}${data.exit_code !== undefined ? ` → ${data.exit_code}` : ""}`;
-  if (data.message) return data.message; if (data.text) return data.text;
+  if (data.message) return truncateText(data.message, 2400); if (data.text) return truncateText(data.text, 2400);
   if (data.command) return `${data.command}${data.returncode !== undefined ? ` → ${data.returncode}` : ""}`;
   if (data.step) return `${data.step}${data.attempt ? ` · attempt ${data.attempt}` : ""}`;
   if (data.status) return data.status; if (data.url) return data.url;
-  return Object.keys(data).length ? JSON.stringify(data) : "";
+  return Object.keys(data).length ? truncateText(JSON.stringify(data), 2400) : "";
 }
 
 function renderEvents() {
-  const log = $("#eventLog"); const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
-  log.innerHTML = state.events.slice(-500).map((event) => {
+  const log = $("#eventLog");
+  if (state.eventsLoadingRunId === state.selectedId && state.eventsLoadedRunId !== state.selectedId) {
+    log.innerHTML = `<div class="event"><time>—</time><span class="event-type">loading</span><span class="event-message">Reading this task's activity history…</span></div>`;
+    return;
+  }
+  if (state.eventsLoadedRunId !== state.selectedId) {
+    log.innerHTML = `<div class="event"><time>—</time><span class="event-type">on demand</span><span class="event-message">Open Activity to load the event history.</span></div>`;
+    return;
+  }
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  const hiddenCount = Math.max(0, state.events.length - state.eventVisibleLimit);
+  const eventRows = state.events.slice(-state.eventVisibleLimit).map((event) => {
     const kind = event.type.includes("failed") ? "failed" : event.type.includes("review") ? "review" : event.type.includes("usage") ? "usage" : "";
     const time = new Date(event.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
     return `<div class="event ${kind}"><time>${escapeHtml(time)}</time><span class="event-type" title="${escapeHtml(event.type)}">${escapeHtml(event.type)}</span><span class="event-message">${escapeHtml(eventMessage(event))}</span></div>`;
-  }).join("") || `<div class="event"><time>—</time><span class="event-type">waiting</span><span class="event-message">No events yet.</span></div>`;
+  }).join("");
+  log.innerHTML = `${hiddenCount ? `<button class="ghost activity-load-older" id="loadOlderEvents" type="button">Load ${Math.min(150, hiddenCount)} earlier events · ${hiddenCount} hidden</button>` : ""}${eventRows || `<div class="event"><time>—</time><span class="event-type">waiting</span><span class="event-message">No events yet.</span></div>`}`;
+  $("#loadOlderEvents")?.addEventListener("click", () => { state.eventVisibleLimit += 150; renderEvents(); });
   if (atBottom) log.scrollTop = log.scrollHeight;
 }
 
 function renderChecks(checks) {
-  $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${escapeHtml(check.output || "No output.")}</pre></div>`; }).join("") : `<div class="check-output">Checks have not run yet.</div>`;
+  $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${escapeHtml(truncateText(check.output || "No output."))}</pre></div>`; }).join("") : `<div class="check-output">Checks have not run yet.</div>`;
 }
 
 function renderContextReceipt(run) {
@@ -875,7 +991,7 @@ function renderContextReceipt(run) {
     const snapshot = source.kind === "skill"
       ? (run.skill_context || []).find((item) => item.name === source.title)
       : (run.context_bundle || []).find((item) => item.path === source.path && item.kind === source.kind);
-    const content = source.kind === "skill" ? String(snapshot?.content || "").slice(0, 16000) : String(snapshot?.content || "");
+    const content = truncateText(snapshot?.content || "");
     return `<details class="receipt-source"><summary><span class="receipt-kind">${escapeHtml(source.kind)}</span><span><strong>${escapeHtml(source.title)}</strong><small>${escapeHtml(source.reason)}</small></span><code>${escapeHtml(String(source.sha256 || "").slice(0, 10))}</code></summary><div><span>${escapeHtml(source.path)}</span><span>${compactNumber(source.bytes)} bytes</span></div><pre>${escapeHtml(content || "Snapshot content is unavailable.")}</pre></details>`;
   }).join("");
   $("#contextReceipt").innerHTML = `<section class="receipt-head"><div><small>CONTEXT RECEIPT</small><strong>${escapeHtml(receipt.version)}</strong><p>These immutable snapshots are exactly what Odysseus attached when the task was queued.</p></div><code title="Complete bundle digest">${escapeHtml(receipt.bundle_sha256 || "")}</code></section><div class="receipt-source-list">${sourceRows || `<div class="empty-card">No repository or skill context was attached.</div>`}</div>`;
@@ -901,27 +1017,68 @@ function renderIntegration(run) {
     ${(analysis.files || []).length ? `<details class="file-surface"><summary>${analysis.files.length} files in the integrated surface</summary><pre>${escapeHtml(analysis.files.join("\n"))}</pre></details>` : ""}`;
 }
 
+async function renderDiff() {
+  if (!state.selectedId) return;
+  const runId = state.selectedId;
+  const generation = state.selectionGeneration;
+  if (!state.selectedDiff || state.selectedDiffRunId !== runId) {
+    $("#diffStat").textContent = "Loading diff…";
+    $("#diffPatch").textContent = "Reading the isolated task worktree…";
+    if (state.selectedDiffLoadingRunId === runId) return;
+    state.selectedDiffLoadingRunId = runId;
+    try {
+      const diff = await api(`/api/runs/${encodeURIComponent(runId)}/diff`);
+      if (state.selectedId !== runId || state.selectionGeneration !== generation) return;
+      state.selectedDiff = diff;
+      state.selectedDiffRunId = runId;
+    } catch (error) {
+      if (state.selectedId !== runId || state.selectionGeneration !== generation) return;
+      $("#diffStat").textContent = "Diff unavailable.";
+      $("#diffPatch").textContent = error.message;
+      return;
+    } finally {
+      if (state.selectedDiffLoadingRunId === runId) state.selectedDiffLoadingRunId = "";
+    }
+  }
+  $("#diffStat").textContent = truncateText(state.selectedDiff.stat || "No changed files yet.");
+  $("#diffPatch").textContent = truncateText(state.selectedDiff.patch || "No diff yet.", 120000);
+}
+
 function renderCI(run) {
   const ci = run.ci || {status: "not_started", checks: []};
   const checks = ci.checks || [];
   $("#ciResults").innerHTML = `
     <div class="ci-hero ci-${escapeHtml(ci.status || "not_started")}"><div><small>GITHUB CHECKS</small><strong>${escapeHtml(statusLabel(ci.status || "not_started"))}</strong></div><span>${escapeHtml(ci.summary || "Publish a draft PR to start the feedback loop.")}</span></div>
     ${checks.length ? checks.map((check) => `<div class="ci-check"><span>${escapeHtml(check.workflow || "workflow")}</span><strong>${escapeHtml(check.name || "check")}</strong><em>${escapeHtml(check.bucket || check.state || "unknown")}</em></div>`).join("") : `<div class="empty-card">No GitHub check runs recorded.</div>`}
-    ${ci.logs ? `<details class="ci-logs"><summary>Failed log captured for agent resume</summary><pre>${escapeHtml(ci.logs)}</pre></details>` : ""}
+    ${ci.logs ? `<details class="ci-logs"><summary>Failed log captured for agent resume</summary><pre>${escapeHtml(truncateText(ci.logs, 120000))}</pre></details>` : ""}
     <div class="ci-foot"><span>Automatic repairs: ${escapeHtml(ci.attempt || 0)}</span><span>${ci.updated_at ? `Updated ${relativeTime(ci.updated_at)} ago` : "Not polled"}</span></div>`;
 }
 
 function openStream(runId) {
-  if (state.view !== "tasks" || state.stream) return;
-  const after = state.events.at(-1)?.seq || 0; const stream = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`); state.stream = stream;
+  if (state.view !== "tasks" || state.selectedId !== runId) return;
+  if (state.stream && state.streamRunId === runId) return;
+  closeStream();
+  const after = state.eventsLoadedRunId === runId
+    ? (state.events.at(-1)?.seq || 0)
+    : Number(state.selected?.event_seq || 0);
+  const stream = new EventSource(`/api/runs/${encodeURIComponent(runId)}/stream?after=${after}`);
+  state.stream = stream;
+  state.streamRunId = runId;
   stream.addEventListener("odysseus", (message) => {
+    if (state.selectedId !== runId) return;
     const event = JSON.parse(message.data); if (state.events.some((item) => item.seq === event.seq)) return;
-    state.events.push(event); renderEvents(); window.clearTimeout(state.refreshTimer);
+    state.events.push(event);
+    if (state.taskSection === "activity" && state.eventsLoadedRunId === runId) renderEvents();
+    if (["artifact.created", "run.review_ready", "run.accepted"].includes(event.type)) {
+      state.selectedDiff = null;
+      state.selectedDiffRunId = "";
+    }
+    window.clearTimeout(state.refreshTimer);
     state.refreshTimer = window.setTimeout(async () => { await refreshRuns(); if (["run.review_ready", "run.failed", "run.accepted", "pr.created", "artifact.created", "integration.completed", "integration.conflict", "ci.started", "ci.failed", "ci.passed", "ci.retry_pushed", "agent.usage", "agent.tool.started"].includes(event.type)) await refreshSelected(); }, 180);
   });
   stream.onopen = () => setConnection(true); stream.onerror = () => setConnection(false);
 }
-function closeStream() { if (state.stream) state.stream.close(); state.stream = null; }
+function closeStream() { if (state.stream) state.stream.close(); state.stream = null; state.streamRunId = ""; }
 function setConnection(online) { $(".connection").classList.toggle("online", online); $("#connectionLabel").textContent = online ? "Live" : "Reconnecting"; }
 
 async function copyCommand(command) {
@@ -1588,6 +1745,7 @@ async function init() {
     const params = new URLSearchParams(location.search);
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
     else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github", "settings"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView("work"); } }
+    const requestedSection = params.get("section"); if (["summary", "changes", "activity", "evidence"].includes(requestedSection)) activateTaskSection(requestedSection);
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
     const requestedDialog = params.get("dialog"); if (requestedDialog === "task") { $("#taskPrompt").value = params.get("prompt") || ""; $("#newTaskButton").click(); scheduleTaskSkillRecommendations(); } else if (requestedDialog === "epic") $("#newEpicButton").click();
     setConnection(true);

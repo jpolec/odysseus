@@ -6,14 +6,30 @@
 
 ## Current version
 
-**0.6.8 — 2026-08-16**
+**0.6.9 — 2026-08-16**
 
-Version 0.6.8 makes task intake, queue capacity, assistant configuration, and
-local delivery understandable from the web UI. It integrates the accepted
-Odysseus dogfood artifact as a real merge parent rather than reimplementing it
-outside the managed task history.
+Version 0.6.9 keeps accepted and long-running tasks responsive. The task
+summary opens first; diffs, activity journals, and evidence are fetched and
+rendered only when the operator asks for them. It reconciles the accepted
+Odysseus dogfood artifact with the current source as a real merge parent.
 
-## What is available in 0.6.8
+## What is available in 0.6.9
+
+### 0.6.9 Responsive Task Inspection
+
+- Repository and task navigation use compact run summaries instead of polling
+  full snapshots containing checks, context, review logs, and CI output.
+- Opening a task fetches only its summary data. Changes, Activity, and each
+  Evidence tab load on demand, with bounded browser rendering for large text
+  and event histories.
+- Task selection is generation-guarded, so late responses and SSE streams from
+  a previously selected task cannot overwrite the current view.
+- Live SSE starts at the stored event tail instead of replaying the complete
+  journal before Activity is opened.
+- Apply conflicts now offer **Ask agent to resolve**, prefilled with a safe
+  integration instruction, alongside draft PR and repository status options.
+
+## Earlier 0.6 releases
 
 ### 0.6.8 Task Intake and Settings
 
@@ -34,8 +50,6 @@ outside the managed task history.
   tracked paths that must be committed or stashed.
 - A blocked Apply now includes a short diagnosis, a status command, an optional
   recoverable stash command, and an explicit retry action.
-
-## Earlier 0.6 releases
 
 ### 0.6.7 Review and Delivery Clarity
 
@@ -423,7 +437,7 @@ outside the managed task history.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.8` |
+| Application version | `0.6.9` |
 | Run snapshot schema | `10` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

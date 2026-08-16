@@ -6,6 +6,16 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.9: responsive task inspection
+
+- Task lists poll compact summaries; full run evidence is fetched only for the
+  selected task.
+- Changes, Activity, and Evidence render on demand with bounded text and event
+  windows, while the complete auditable records remain on disk.
+- Selection generations and run-bound SSE streams prevent stale responses from
+  making a newly selected task appear frozen or incorrect.
+- Conflicting accepted artifacts have a direct **Ask agent to resolve** path.
+
 ## Shipped — 0.6.8: task intake and operator settings
 
 - Starting work clears the submitted prompt, shows an explicit progress state,

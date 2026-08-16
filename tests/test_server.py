@@ -95,6 +95,40 @@ class ServerTests(unittest.TestCase):
             finally:
                 app.stop()
 
+    def test_run_summary_endpoint_omits_heavy_task_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Keep navigation light", "project_path": str(project)})
+            store.update(
+                run["id"],
+                check_results=[{"command": "test", "returncode": 0, "output": "x" * 100_000}],
+                context_bundle=[{"path": "README.md", "content": "y" * 100_000}],
+                review_summary="z" * 100_000,
+            )
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/runs?summary=1") as response:
+                    summary = json.load(response)["runs"][0]
+                self.assertEqual(summary["id"], run["id"])
+                self.assertEqual(summary["task"], "Keep navigation light")
+                self.assertNotIn("check_results", summary)
+                self.assertNotIn("context_bundle", summary)
+                self.assertNotIn("review_summary", summary)
+                with urllib.request.urlopen(f"{base}/api/runs") as response:
+                    complete = json.load(response)["runs"][0]
+                self.assertIn("check_results", complete)
+                self.assertIn("context_bundle", complete)
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_ui_bootstrap_and_token_protected_create(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -110,7 +144,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.8")
+                self.assertEqual(bootstrap["version"], "0.6.9")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -223,6 +257,10 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("feedbackDialog", app_js)
                 self.assertIn("Apply to repository", app_js)
                 self.assertIn("accepted · not applied", app_js)
+                self.assertIn("Open Changes to load the diff.", app_js)
+                self.assertIn("eventsLoadedRunId", app_js)
+                self.assertIn("Ask agent to resolve", app_js)
+                self.assertNotIn("const [run, diff] = await Promise.all", app_js)
 
                 assist_request = urllib.request.Request(
                     f"{base}/api/assist",
