@@ -6,7 +6,10 @@ TEMP_ROOT="$(mktemp -d)"
 SERVER_PID=''
 
 cleanup() {
-  if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" >/dev/null 2>&1 || true; fi
+  if [ -n "$SERVER_PID" ]; then
+    kill "$SERVER_PID" >/dev/null 2>&1 || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
   rm -rf "$TEMP_ROOT"
 }
 trap cleanup EXIT INT TERM

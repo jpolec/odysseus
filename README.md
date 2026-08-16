@@ -420,8 +420,9 @@ Checks can be supplied per task or committed as `.odysseus.json`:
 }
 ```
 
-Task checks take precedence. Check and setup commands run through `/bin/sh -lc`
-inside the resolved execution profile. In ordinary mode, repository
+Task checks take precedence. Check and setup commands run through `/bin/sh -c`
+inside the resolved execution profile and inherit the server's `PATH`; shell
+login files are deliberately not loaded. In ordinary mode, repository
 configuration is trusted. `--untrusted-project` requires operator-controlled
 Docker isolation and one explicit approval before repository commands run.
 

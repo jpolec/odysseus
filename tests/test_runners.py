@@ -53,14 +53,21 @@ class RunnerTests(unittest.TestCase):
 
     def test_codex_resume_and_typed_telemetry(self) -> None:
         runner = AgentRunner()
+        worktree = Path("/tmp/worktree")
         command = runner.command(
             "codex",
-            Path("/tmp/worktree"),
+            worktree,
             "continue",
             review=False,
             resume_session_id="0199a213-81c0-7800-8aa1-bbab2a035a53",
         )
-        self.assertEqual(command[:3], ["codex", "exec", "resume"])
+        self.assertEqual(command[:3], ["codex", "exec", "--json"])
+        self.assertEqual(command[command.index("-C") + 1], str(worktree))
+        self.assertLess(command.index("--sandbox"), command.index("resume"))
+        self.assertEqual(
+            command[command.index("resume") + 1],
+            "0199a213-81c0-7800-8aa1-bbab2a035a53",
+        )
         normalizer = _VendorNormalizer("codex", "agent", True)
         events = normalizer.events(
             {"type": "thread.started", "thread_id": "0199a213-81c0-7800-8aa1-bbab2a035a53"}
@@ -73,6 +80,27 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertEqual([item[0] for item in events], ["agent.session", "agent.tool.started", "agent.usage"])
         self.assertEqual(events[-1][1]["cached_input_tokens"], 12)
+
+    def test_host_checks_preserve_server_path_without_a_login_shell(self) -> None:
+        runner = CheckRunner()
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict(
+            os.environ,
+            {"PATH": "/opt/odysseus-test-bin:/usr/bin:/bin"},
+            clear=False,
+        ), mock.patch("odysseus.runners._stream_process") as stream:
+            runner.run(
+                "python3 --version",
+                Path(temp),
+                emit=lambda *_args: None,
+                cancelled=lambda: False,
+                execution={"profile": "host"},
+            )
+
+        self.assertEqual(stream.call_args.args[0], ["/bin/sh", "-c", "python3 --version"])
+        self.assertEqual(
+            stream.call_args.kwargs["process_env"]["PATH"],
+            "/opt/odysseus-test-bin:/usr/bin:/bin",
+        )
 
     def test_claude_denied_tool_becomes_permission_request(self) -> None:
         normalizer = _VendorNormalizer("claude", "agent", False)

@@ -165,10 +165,14 @@ class AgentRunner:
                 return [
                     "codex",
                     "exec",
-                    "resume",
                     "--json",
+                    "--color",
+                    "never",
+                    "-C",
+                    str(worktree),
                     "--sandbox",
                     sandbox,
+                    "resume",
                     resume_session_id,
                     prompt,
                 ]
@@ -267,9 +271,13 @@ class CheckRunner:
         execution: Mapping[str, Any] | None = None,
         phase: str = "check",
     ) -> ProcessResult:
+        # A login shell can rewrite PATH (notably through macOS path_helper),
+        # selecting /usr/bin/python3 even when the server and `doctor` found a
+        # newer Homebrew/pyenv interpreter. Checks should use the exact host
+        # environment captured by wrap_command instead of shell startup files.
         args, cwd, process_env = wrap_command(
             execution,
-            ["/bin/sh", "-lc", command],
+            ["/bin/sh", "-c", command],
             worktree,
             phase=phase,
         )

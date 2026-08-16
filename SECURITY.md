@@ -9,7 +9,7 @@ user who started the server, so use it only with repositories and commands you
 trust.
 
 > **Trusted-repository boundary:** in `host` mode, `setup`, `checks`, and
-> `evaluators` execute through `/bin/sh -lc` in the task worktree with the
+> `evaluators` execute through `/bin/sh -c` in the task worktree with the
 > server user's permissions. Opening an untrusted repository without
 > `--untrusted-project` is remote code execution by design.
 

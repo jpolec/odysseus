@@ -9,7 +9,10 @@ PROOF_HTTP_STATE="$(mktemp -d)"
 SERVER_PID=''
 
 cleanup() {
-  if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" >/dev/null 2>&1 || true; fi
+  if [ -n "$SERVER_PID" ]; then
+    kill "$SERVER_PID" >/dev/null 2>&1 || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
   rm -rf "$PROOF_STATE" "$PROOF_HTTP_STATE"
 }
 trap cleanup EXIT INT TERM

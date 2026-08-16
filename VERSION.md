@@ -1,5 +1,12 @@
 # Odysseus version and capabilities
 
+## Unreleased
+
+- Host checks now preserve the Odysseus server's `PATH` instead of starting a
+  login shell that can silently fall back to an older system Python on macOS.
+- Codex continuation places execution options before the `resume` subcommand,
+  matching the current Codex CLI and preserving the task worktree and sandbox.
+
 ## Current version
 
 **0.6.5 — 2026-08-15**

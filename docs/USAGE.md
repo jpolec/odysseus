@@ -596,8 +596,10 @@ Commit `.odysseus.json` in a project to provide default checks:
 ```
 
 Checks passed directly with `--check` or the web form take precedence. These
-commands are trusted configuration and execute through `/bin/sh -lc` inside the
-isolated task worktree.
+commands are trusted configuration and execute through `/bin/sh -c` inside the
+isolated task worktree. Host checks inherit the Odysseus server's `PATH`; they
+do not load login-shell files that could silently select a different Python,
+Node, or other toolchain.
 
 ### Add independent evaluators and policy
 

@@ -19,7 +19,7 @@ and operator decisions in the selected state directory.
 
 For 0.6.5 the release gate is:
 
-- 90 automated tests, including repository identity, hidden internal worktrees,
+- 91 automated tests, including repository identity, hidden internal worktrees,
   read-only tmux discovery,
   strict untruncated evidence journals, terminal
   outcome eligibility, privacy-reduced receipts, legacy Epic provenance,
