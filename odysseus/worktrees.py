@@ -190,13 +190,6 @@ class WorktreeManager:
             raise GitError("the accepted task is missing repository or artifact metadata")
 
         repo = WorktreeManager.repository(project_path)
-        dirty = _run(["git", "-C", str(repo), "status", "--porcelain"]).stdout.strip()
-        if dirty:
-            raise GitError(
-                "the source checkout has uncommitted or untracked changes; "
-                "commit or stash them before applying this task"
-            )
-
         branch_result = _run(
             ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"],
             check=False,
@@ -217,6 +210,8 @@ class WorktreeManager:
             raise GitError("the accepted artifact commit is no longer available in this repository")
 
         before_sha = _run(["git", "-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
+        # A previously integrated artifact is safe to acknowledge even when the
+        # operator has started new local work since the merge.
         if _run(
             ["git", "-C", str(repo), "merge-base", "--is-ancestor", artifact_sha, before_sha],
             check=False,
@@ -231,6 +226,20 @@ class WorktreeManager:
                 "error": "",
                 "already_applied": True,
             }
+
+        # Tracked edits can be silently included in or disturbed by a merge, so
+        # they remain a hard gate. Harmless untracked files are allowed: Git
+        # itself refuses the merge if an artifact would overwrite one.
+        dirty = _run(
+            ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"]
+        ).stdout.splitlines()
+        if dirty:
+            paths = [line[3:].strip() for line in dirty[:5] if len(line) > 3]
+            detail = f" Local changes: {', '.join(paths)}." if paths else ""
+            raise GitError(
+                "the source checkout has tracked local changes; commit or stash "
+                f"them before applying this task.{detail}"
+            )
 
         if _run(
             ["git", "-C", str(repo), "merge-base", "--is-ancestor", base_sha, before_sha],

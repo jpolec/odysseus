@@ -6,14 +6,36 @@
 
 ## Current version
 
-**0.6.7 — 2026-08-16**
+**0.6.8 — 2026-08-16**
 
-Version 0.6.7 makes completion and delivery explicit. A successful agent run is
-first ready for review, then optionally accepted as a durable artifact, and
-only a separate confirmed action applies it to the source checkout or publishes
-it as a draft pull request.
+Version 0.6.8 makes task intake, queue capacity, assistant configuration, and
+local delivery understandable from the web UI. It integrates the accepted
+Odysseus dogfood artifact as a real merge parent rather than reimplementing it
+outside the managed task history.
 
-## What is available in 0.6.7
+## What is available in 0.6.8
+
+### 0.6.8 Task Intake and Settings
+
+- **Start task** and **Start & add another** clear the submitted request at
+  once, disable duplicate submission, show an explicit Starting state, restore
+  the draft on failure, and either open the live run or focus a fresh composer.
+- Queue capacity is literal: `queued` is displayed as **Waiting to start**.
+  The slot count, queued task action, and repository composer all link to one
+  Settings surface.
+- Settings controls parallel agents, default implementation/planner/reviewer
+  lanes, retries, budgets, and CI repair limits without editing JSON.
+- Context Assistant settings show which local CLI and direct API providers are
+  configured. Direct OpenAI and Anthropic model names may be saved; API keys
+  remain server-environment secrets and are never persisted in Odysseus or the
+  browser.
+- Local Apply acknowledges artifacts already merged into the source branch,
+  allows harmless untracked files, preserves untracked collisions, and names
+  tracked paths that must be committed or stashed.
+- A blocked Apply now includes a short diagnosis, a status command, an optional
+  recoverable stash command, and an explicit retry action.
+
+## Earlier 0.6 releases
 
 ### 0.6.7 Review and Delivery Clarity
 
@@ -34,8 +56,6 @@ it as a draft pull request.
   Cancel, and Escape. Empty/null notifications now have readable fallback text.
 - The Review stage visibly remains current until acceptance and becomes complete
   after acceptance instead of appearing inactive.
-
-## Earlier 0.6 releases
 
 ### 0.6.6 Guided Recovery and Context Assistant
 
@@ -403,7 +423,7 @@ it as a draft pull request.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.7` |
+| Application version | `0.6.8` |
 | Run snapshot schema | `10` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

@@ -52,9 +52,11 @@ Accepting a task creates a local commit on its Odysseus task branch and does not
 update the operator's source checkout. Downstream artifact composition runs
 `git merge` only in the downstream task worktree and aborts on conflict. The
 separate, confirmed **Apply to repository** action is the only normal workflow
-action that updates the source checkout: it refuses a dirty checkout, detached
-HEAD, wrong branch, missing artifact, or rewritten base history, and aborts a
-conflicting merge. Draft PR and CI-repair actions can push the task branch
+action that updates the source checkout: it refuses tracked local edits, a
+detached HEAD, wrong branch, missing artifact, or rewritten base history, and
+aborts a conflicting merge. Unrelated untracked files remain untouched, while
+Git refuses an untracked path that the artifact would overwrite. Draft PR and
+CI-repair actions can push the task branch
 through the service user's Git credentials. Odysseus does not auto-merge pull
 requests.
 

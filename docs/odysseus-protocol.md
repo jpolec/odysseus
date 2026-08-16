@@ -98,6 +98,7 @@ The default origin is `http://127.0.0.1:8741`.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/bootstrap` | UI metadata and the per-process mutation token |
+| `GET/POST` | `/api/config` | Read or update allowlisted queue, lane, budget, CI, and assistant-model settings; secrets are not accepted |
 | `GET` | `/api/health` | Scheduler health plus active, queued, blocked, and attention counts |
 | `GET` | `/api/runs?project_id=&status=` | Current run snapshots with optional exact filters |
 | `POST` | `/api/runs` | Create a queued run |
@@ -107,7 +108,7 @@ The default origin is `http://127.0.0.1:8741`.
 | `GET` | `/api/runs/:id/diff` | Unified patch, stat, and untracked file list |
 | `POST` | `/api/runs/:id/cancel` | Request cancellation |
 | `POST` | `/api/runs/:id/accept` | Accept and create a durable local artifact commit |
-| `POST` | `/api/runs/:id/apply` | Merge an accepted artifact into its clean expected source branch |
+| `POST` | `/api/runs/:id/apply` | Merge an accepted artifact into its expected source branch; tracked edits and conflicts fail closed |
 | `POST` | `/api/runs/:id/send-back` | Requeue with `{ "feedback": "..." }` |
 | `POST` | `/api/runs/:id/resume` | Continue with `{ "prompt": "...", "strategy": "resume|switch|clean", "lane": "..." }` |
 | `POST` | `/api/runs/:id/takeover` | Create/return a managed interactive tmux continuation |

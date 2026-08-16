@@ -6,6 +6,18 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.8: task intake and operator settings
+
+- Starting work clears the submitted prompt, shows an explicit progress state,
+  prevents duplicate clicks, and makes **Start & add another** a true blank
+  next-task loop.
+- Queue capacity and defaults have one Settings surface for parallel slots,
+  agents, retries, budgets, and CI repair behavior.
+- Context Assistant settings expose provider readiness and configurable direct
+  API models while keeping API keys out of browser and state storage.
+- Local delivery allows unrelated untracked files, explains tracked-file and
+  merge-conflict gates, and recognizes artifacts already present in `main`.
+
 ## Shipped — 0.6.7: review and delivery clarity
 
 - Review now says explicitly that the agent is finished while nothing has been

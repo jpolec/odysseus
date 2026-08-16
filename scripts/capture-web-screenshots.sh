@@ -78,4 +78,5 @@ COMMON=(--headless=new --disable-gpu --no-sandbox --hide-scrollbars --force-devi
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-ci-repair.png" "$BASE_URL/?tab=ci#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-context-receipt.png" "$BASE_URL/?tab=context#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-new-task.png" "$BASE_URL/?view=work&dialog=task&prompt=Review%20authentication%20security"
-printf 'Ten real screenshots written to %s\n' "$OUTPUT_DIR"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-settings.png" "$BASE_URL/?view=settings"
+printf 'Eleven real screenshots written to %s\n' "$OUTPUT_DIR"

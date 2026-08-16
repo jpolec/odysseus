@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.7](https://img.shields.io/badge/version-0.6.7-171a16)
+![Version: 0.6.8](https://img.shields.io/badge/version-0.6.8-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -159,6 +159,14 @@ Skills, execution environments, planning, Context Receipts, and repository histo
 progressive depth instead of blocking the first run. See [START.md](START.md)
 for the complete five-minute path.
 
+Submitting clears the request immediately and shows **Starting**. **Start task**
+opens the live run; **Start & add another** leaves a fresh composer so several
+tasks can be queued quickly. `queued` means **Waiting to start** because all
+configured agent slots are busy. Open **Settings**—or click the slot count in
+the title bar—to change parallel capacity, default agents, retries, budgets,
+CI behavior, and direct-API assistant models. API keys are never saved in the
+browser or Odysseus state.
+
 Starting the same state twice does not create a second scheduler. If Odysseus
 is already listening on the selected port, `start --open` reports and opens
 that instance. If the selected port is occupied by another service, the CLI
@@ -181,8 +189,9 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes ten real browser captures—First run, Repositories, Repository,
-Attention, Review, Delivery, Integration, CI repair, Context Receipt, and New task—to `docs/screenshots/` and
+The script writes eleven real browser captures—First run, Repositories, Repository,
+Attention, Review, Delivery, Integration, CI repair, Context Receipt, New task,
+and Settings—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
 
@@ -318,7 +327,7 @@ At the review gate:
 | --- | --- |
 | **View changes** | Opens the complete diff before any delivery decision. |
 | **Accept result** | Records approval and a durable local artifact commit; the source checkout remains unchanged. |
-| **Apply to repository** | After acceptance, safely merges the complete artifact into the clean expected local branch and aborts conflicts. |
+| **Apply to repository** | After acceptance, safely merges the complete artifact into the expected local branch, preserving unrelated untracked files and aborting tracked-edit or merge conflicts. |
 | **Request changes instead** | Sends guidance to the saved implementation thread in the same worktree. |
 | **Continue in terminal** | Resumes the exact implementation thread in a managed tmux session and copies its open command. |
 | **Create draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request without changing the source checkout. |
@@ -332,7 +341,9 @@ the already authenticated local Codex CLI or Claude Code CLI; no separate API
 key is required for local mode. Task, failure, review, and check context are
 explicit toggles, while diff/code sharing is off by default. Direct ChatGPT or
 Claude API modes are optional and require `OPENAI_API_KEY` or
-`ANTHROPIC_API_KEY` in the Odysseus server environment.
+`ANTHROPIC_API_KEY` in the Odysseus server environment. Their non-secret model
+names can be selected in **Settings**; the keys themselves are only reported as
+configured or missing and are never persisted.
 
 You do not need tmux for the normal workflow. Use **Continue in terminal** only
 when you want an interactive shell, manual debugging, or direct control of the
@@ -418,6 +429,12 @@ Odysseus imports at most 50 entries and removes the handoff file before the
 diff/review stage, so discovered work does not pollute the current patch.
 
 ## Configuration and state
+
+The web **Settings** view is the normal place to change queue capacity, default
+lanes, retries, budgets, CI repair behavior, and direct-API assistant models.
+The title-bar slot count links there. API keys are deliberately excluded: local
+Codex/Claude uses existing CLI login, while direct API keys must be supplied in
+the server environment.
 
 Checks can be supplied per task or committed as `.odysseus.json`:
 

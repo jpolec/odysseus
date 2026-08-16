@@ -104,12 +104,15 @@ class WorktreeTests(unittest.TestCase):
             (Path(task["worktree_path"]) / "feature.txt").write_text("delivered\n")
             task.update(manager.snapshot(task))
 
+            (repo / "operator-notes.txt").write_text("keep me\n")
             applied = manager.apply_to_repository(task)
             self.assertEqual((repo / "feature.txt").read_text(), "delivered\n")
+            self.assertEqual((repo / "operator-notes.txt").read_text(), "keep me\n")
             self.assertEqual(applied["status"], "applied")
             self.assertFalse(applied["already_applied"])
             self.assertEqual(applied["target_branch"], "main")
 
+            (repo / "base.txt").write_text("new operator work\n")
             repeated = manager.apply_to_repository(task)
             self.assertTrue(repeated["already_applied"])
             self.assertEqual(repeated["target_after_sha"], applied["target_after_sha"])
@@ -130,10 +133,10 @@ class WorktreeTests(unittest.TestCase):
             (Path(task["worktree_path"]) / "shared.txt").write_text("task\n")
             task.update(manager.snapshot(task))
 
-            (repo / "untracked.txt").write_text("operator work\n")
-            with self.assertRaisesRegex(GitError, "uncommitted or untracked"):
+            (repo / "shared.txt").write_text("operator work\n")
+            with self.assertRaisesRegex(GitError, "tracked local changes.*shared.txt"):
                 manager.apply_to_repository(task)
-            (repo / "untracked.txt").unlink()
+            (repo / "shared.txt").write_text("base\n")
 
             (repo / "shared.txt").write_text("source\n")
             git(repo, "add", "shared.txt")
@@ -142,6 +145,28 @@ class WorktreeTests(unittest.TestCase):
                 manager.apply_to_repository(task)
             self.assertEqual((repo / "shared.txt").read_text(), "source\n")
             self.assertEqual(git(repo, "status", "--porcelain"), "")
+
+    def test_apply_preserves_untracked_file_that_would_be_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-b", "main")
+            git(repo, "config", "user.name", "Odysseus Test")
+            git(repo, "config", "user.email", "odysseus@example.test")
+            (repo / "base.txt").write_text("base\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-m", "base")
+            manager = WorktreeManager(root / "worktrees")
+            task = manager.create({"id": "untracked-collision", "project_path": str(repo)}, lambda *_: None)
+            (Path(task["worktree_path"]) / "feature.txt").write_text("artifact\n")
+            task.update(manager.snapshot(task))
+
+            (repo / "feature.txt").write_text("operator file\n")
+            with self.assertRaisesRegex(GitError, "artifact could not be applied"):
+                manager.apply_to_repository(task)
+            self.assertEqual((repo / "feature.txt").read_text(), "operator file\n")
+            self.assertFalse((repo / ".git" / "MERGE_HEAD").exists())
 
     def test_conflicting_artifacts_stop_on_the_isolated_integration_branch(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

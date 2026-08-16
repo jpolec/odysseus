@@ -78,11 +78,19 @@ In the web UI:
 4. Select **Start task**, or **Start & add another** to queue the next request
    immediately.
 
+The submitted text disappears as soon as Odysseus shows **Starting**. If the
+request cannot be queued, the draft is restored. **Start task** opens the live
+run; **Start & add another** focuses a blank composer for the next task.
+
 The large text box is the only required input. Write the desired result as you
 would to Codex, including constraints and what “done” means. The selected
 repository supplies the default agent and automatically relevant generic
 Skills. Different tasks can use different agents. Odysseus starts as many as
 the configured parallel limit permits and leaves the remainder safely queued.
+Queued means **Waiting to start**—nothing is wrong. Open **Settings** or click
+the slot count in the title bar to change parallel capacity, default agents,
+retries, budgets, CI behavior, and direct-API assistant models. API keys remain
+in the server environment and are never saved in Odysseus state.
 Select **More options…** only when defaults are not enough; it opens the full
 task form without losing the text you entered.
 

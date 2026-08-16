@@ -214,6 +214,9 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if parsed.path == "/api/config":
+            self._json(self.server.app.store.config())
+            return
         if parsed.path == "/api/health":
             self._json(
                 {
@@ -335,6 +338,22 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             body = self._body()
+            if parsed.path == "/api/config":
+                changes: dict[str, Any] = {}
+                for key in (
+                    "max_parallel",
+                    "default_lane",
+                    "planner_lane",
+                    "review_lane",
+                    "max_retries",
+                    "assistant_models",
+                    "budgets",
+                    "ci",
+                ):
+                    if key in body:
+                        changes[key] = body[key]
+                self._json(self.server.app.store.update_config(changes))
+                return
             if parsed.path == "/api/runs":
                 run = self.server.app.store.create({**body, "origin": "web", "evidence_class": "observed"})
                 self._json(run, HTTPStatus.CREATED)
@@ -600,7 +619,13 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         api_key = os.environ.get(key_env)
         if not api_key:
             raise RuntimeError(f"set {key_env} before using direct API mode")
-        model = str(body.get("model") or os.environ.get(model_env) or default_model).strip()
+        configured_models = self.server.app.store.config().get("assistant_models") or {}
+        model = str(
+            body.get("model")
+            or (configured_models.get(provider) if isinstance(configured_models, dict) else "")
+            or os.environ.get(model_env)
+            or default_model
+        ).strip()
         if provider == "anthropic":
             answer = self._call_anthropic(api_key, model, prompt)
         else:
@@ -608,12 +633,19 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         return {"provider": provider, "model": model, "prompt": answer.strip(), "shared_context": shared_context}
 
     def _assistant_bootstrap(self) -> dict[str, Any]:
+        configured_models = self.server.app.store.config().get("assistant_models") or {}
         direct = {
             provider: {
                 "mode": "direct_api",
                 "configured": bool(os.environ.get(env_name)),
                 "env": env_name,
-                "model": os.environ.get(model_env, default_model),
+                "model": (
+                    configured_models.get(provider)
+                    if isinstance(configured_models, dict)
+                    else ""
+                )
+                or os.environ.get(model_env, default_model),
+                "model_env": model_env,
             }
             for provider, (env_name, model_env, default_model) in DIRECT_ASSISTANT_PROVIDER_ENV.items()
         }

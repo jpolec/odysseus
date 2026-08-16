@@ -37,6 +37,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_retries": 2,
     "planner_lane": "",
     "review_lane": "",
+    "assistant_models": {},
     "lanes": {},
     "budgets": {
         "timeout_seconds": 0,
@@ -290,6 +291,12 @@ class RunStore:
         if isinstance(merged.get("budgets"), dict):
             budgets.update(merged["budgets"])
         merged["budgets"] = budgets
+        raw_models = merged.get("assistant_models")
+        merged["assistant_models"] = {
+            provider: str(model).strip()[:200]
+            for provider, model in (raw_models.items() if isinstance(raw_models, dict) else [])
+            if provider in {"openai", "anthropic"} and str(model).strip()
+        }
         return merged
 
     def update_config(self, changes: Mapping[str, Any]) -> dict[str, Any]:
@@ -300,6 +307,7 @@ class RunStore:
             "max_retries",
             "planner_lane",
             "review_lane",
+            "assistant_models",
             "lanes",
             "evaluation_policy",
             "budgets",

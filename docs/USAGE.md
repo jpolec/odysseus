@@ -185,6 +185,8 @@ The workbench keeps the same three numbered circles visible for every repository
 2. **Describe a change.** Write one finished outcome and choose **Start task**.
    Default agent routing, Skills, checks, budgets, and review policy are applied
    automatically. Use **More options…** only when this task needs overrides.
+   The submitted text clears immediately while **Starting** is visible. Choose
+   **Start & add another** to return to a blank composer after each queued task.
 3. **Follow & review.** Watch the Summary and respond only when **Needs You**
    appears. Inspect Changes, Activity, and Evidence before the final decision.
 
@@ -341,7 +343,7 @@ and becomes a high-priority operator item; the source checkout is untouched.
 
 | State | Operator meaning |
 | --- | --- |
-| `queued` | Waiting for a scheduler slot. |
+| `queued` | **Waiting to start** because every configured agent slot is busy. Open Settings or click the slot count to change capacity. |
 | `blocked` | Waiting for DAG dependencies or a failed predecessor decision. |
 | `running` | The implementation agent is active. |
 | `checking` | Trusted project checks are executing. |
@@ -384,7 +386,9 @@ instead** returns feedback to the same agent thread without presenting a
 successful review as a recovery failure.
 
 The optional **Direct API: ChatGPT** and **Direct API: Claude** choices require
-`OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the server environment. Run-derived
+`OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the server environment. Settings can
+save the non-secret model names and show whether each provider is ready, but
+Odysseus never stores API keys in JSON or browser storage. Run-derived
 context is secret-redacted before it leaves Odysseus. Local CLI helpers run in
 a blank scratch workspace, although their host process still has the filesystem
 permissions of the user running Odysseus.
@@ -459,9 +463,13 @@ bin/odysseus draft-pr RUN_ID
 Accept records the decision and snapshots the complete worktree into a local
 Git artifact. It does not push or merge the artifact. Apply is a separate,
 explicit action: the source checkout must be clean, checked out on the task's
-base branch, and still descend from the recorded base commit. Odysseus merges
+base branch, and still descend from the recorded base commit. Here “clean”
+means no tracked local edits: unrelated untracked files are preserved, while
+Git refuses any untracked path the artifact would overwrite. Odysseus merges
 the complete artifact branch so composed DAG predecessors are not lost, and it
-aborts a conflicting merge before returning an error. Draft PR pushes the task
+aborts a conflicting merge before returning an error. A blocked web action
+shows the reason, a source-status command, and—when applicable—a recoverable
+stash command before **Try apply again**. Draft PR pushes the task
 branch and invokes `gh pr create --draft` without changing the source checkout.
 
 ## Reach green after publishing
