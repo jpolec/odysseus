@@ -13,6 +13,8 @@ import traceback
 from pathlib import Path
 from typing import Any, Mapping
 
+from .delivery import INTEGRATED_DELIVERY_STATUSES
+from .delivery import is_delivered_delivery
 from .evaluation import EvaluationEngine
 from .environments import EnvironmentManager
 from .events import now_iso
@@ -877,7 +879,7 @@ class ReviewActions:
             return "stale"
         if str(candidate.get("task_key") or "") == "integration-delivery":
             return "already_delivered"
-        if delivery.get("status") in {"applied", "pr_created", "integration_queued", "integrated_applied", "integrated_pr_created"}:
+        if is_delivered_delivery(delivery) or delivery.get("status") == "integration_queued":
             return "already_delivered"
         if disposition.get("state") == "superseded":
             return "superseded"
@@ -1140,7 +1142,7 @@ class ReviewActions:
             if run.get("status") != "accepted":
                 raise ValueError("accept the result before applying it to the repository")
             delivery = dict(run.get("delivery") or {})
-            if delivery.get("status") == "applied":
+            if is_delivered_delivery(delivery):
                 return run
             if delivery.get("status") == "integration_queued":
                 return run
@@ -1357,6 +1359,9 @@ class ReviewActions:
             return run
         if run.get("status") not in {"review", "accepted"}:
             raise ValueError("a draft PR can only be created from review or accepted state")
+        delivery = run.get("delivery") if isinstance(run.get("delivery"), dict) else {}
+        if delivery.get("status") in INTEGRATED_DELIVERY_STATUSES or delivery.get("status") == "integration_queued":
+            return run
         previous_status = str(run["status"])
         artifact = self.scheduler.worktrees.snapshot(run, reason="published")
         self.store.update(run_id, **artifact, artifact_created_at=now_iso())

@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- No unreleased changes yet.
+- The web UI now uses shorter decision labels: **1 Choose repository -> 2 New
+  task -> 3 Review**, **Ask integration agent**, and one visible primary action
+  on review and delivery states.
 
 ## Current version
 
@@ -70,7 +72,7 @@ to Odysseus itself and reach a run only through explicit `allow_env`.
   a previously selected task cannot overwrite the current view.
 - Live SSE starts at the stored event tail instead of replaying the complete
   journal before Activity is opened.
-- Apply conflicts now offer **Ask agent to resolve**, prefilled with a safe
+- Apply conflicts now offer **Ask integration agent**, prefilled with a safe
   integration instruction, alongside draft PR and repository status options.
 
 ### 0.6.8 Task Intake and Settings
@@ -171,7 +173,7 @@ to Odysseus itself and reach a run only through explicit `allow_env`.
 ### 0.6.4 Clarity
 
 - A persistent, clickable three-step path now anchors the web workbench:
-  **1 Choose a project -> 2 Describe a change -> 3 Follow & review**.
+  **1 Choose repository -> 2 New task -> 3 Review**.
 - The current step is visually distinct. Completed and upcoming steps remain
   visible, and each step takes the operator directly to the relevant surface.
 - First-run readiness is presented as unnumbered diagnostics, so it no longer

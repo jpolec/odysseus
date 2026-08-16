@@ -87,6 +87,41 @@ class LifecycleLeaseTests(unittest.TestCase):
             self.assertIsNone(updated["worktree_path"])
             self.assertTrue(updated["resource_reclaimed_at"])
 
+    def test_delivery_status_matrix_controls_reclaim_eligibility(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            store = RunStore(root / "state")
+            cases = [
+                ("applied", "accepted", "applied", True),
+                ("draft-pr", "pr_created", "pr_created", True),
+                ("integrated-applied", "accepted", "integrated_applied", True),
+                ("integrated-pr", "accepted", "integrated_pr_created", True),
+                ("not-applied", "accepted", "not_applied", False),
+                ("integration-queued", "accepted", "integration_queued", False),
+                ("failed-recovery", "failed", "not_applied", False),
+            ]
+            for name, status, delivery_status, _expected in cases:
+                run = store.create({"title": name, "task": name, "project_path": str(repo)})
+                worktree = store.worktrees_dir / name
+                worktree.mkdir(parents=True)
+                (worktree / "marker.txt").write_text(name, encoding="utf-8")
+                store.update(
+                    run["id"],
+                    status=status,
+                    worktree_path=str(worktree),
+                    delivery={"status": delivery_status, "delivered_at": "2020-01-01T00:00:00Z"},
+                    finished_at="2020-01-01T00:00:00Z",
+                )
+
+            preview = ResourceLifecycle(store).inspect(retention_days=1)
+            records = {item["title"]: item for item in preview["worktrees"]}
+
+            for name, _status, _delivery_status, expected in cases:
+                self.assertEqual(records[name]["force_reclaimable"], expected, name)
+                self.assertEqual(records[name]["reclaimable"], expected, name)
+
     def test_reclaim_keeps_failed_worktree_for_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

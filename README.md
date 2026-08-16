@@ -15,8 +15,8 @@ queue to the coding agents and tmux sessions you already use. Its light web UI
 is also a live window into existing tmux sessions:
 discovery is automatic, while tracking and terminal handoff stay explicit.
 
-The web workbench keeps one path visible at all times: **1 Choose a repository ->
-2 New task -> 3 Follow & review**. Each numbered step is also a shortcut to the
+The web workbench keeps one path visible at all times: **1 Choose repository ->
+2 New task -> 3 Review**. Each numbered step is also a shortcut to the
 right place. Choose an agent beside the task, then use **Start & add another**
 to queue several independent tasks without leaving the composer. Checks,
 budgets, evaluation, and integration evidence remain under **More options**.

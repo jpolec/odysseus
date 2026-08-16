@@ -187,7 +187,7 @@ The workbench keeps the same three numbered circles visible for every repository
    automatically. Use **More options…** only when this task needs overrides.
    The submitted text clears immediately while **Starting** is visible. Choose
    **Start & add another** to return to a blank composer after each queued task.
-3. **Follow & review.** Watch the Summary and respond only when **Needs You**
+3. **Review.** Watch the Summary and respond only when **Needs You**
    appears. Inspect Changes, Activity, and Evidence before the final decision.
 
 In the default Auto mode, Odysseus previews the generic Skills it will attach

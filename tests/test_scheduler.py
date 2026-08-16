@@ -317,6 +317,64 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(excluded[old_ui["id"]], "superseded")
             self.assertEqual(excluded[backend["id"]], "already_delivered")
 
+    def test_delivery_status_matrix_controls_integration_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
+            actions = ReviewActions(store, scheduler)
+
+            anchor = self._accepted_artifact(store, scheduler, actions, repo, "Anchor", "anchor.txt")
+            cases = [
+                ("Applied", "applied", False),
+                ("Draft PR", "pr_created", False),
+                ("Integrated applied", "integrated_applied", False),
+                ("Integrated PR", "integrated_pr_created", False),
+                ("Not applied", "not_applied", True),
+                ("Integration queued", "integration_queued", False),
+            ]
+            expected_eligible = {anchor["id"]}
+            expected_excluded: set[str] = set()
+            for title, delivery_status, eligible in cases:
+                run = self._accepted_artifact(store, scheduler, actions, repo, title, f"{title.lower().replace(' ', '-')}.txt")
+                store.update(run["id"], delivery={**run["delivery"], "status": delivery_status})
+                if eligible:
+                    expected_eligible.add(run["id"])
+                else:
+                    expected_excluded.add(run["id"])
+
+            preview = actions.integration_candidates(anchor["id"])
+            candidate_ids = {item["id"] for item in preview["candidates"]}
+            excluded = {item["run_id"]: item["reason"] for item in preview["excluded"]}
+
+            self.assertEqual(expected_eligible, candidate_ids)
+            for run_id in expected_excluded:
+                self.assertEqual(excluded[run_id], "already_delivered")
+
+    def test_integrated_delivery_statuses_do_not_duplicate_delivery_actions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
+            actions = ReviewActions(store, scheduler)
+
+            for status in ("integrated_applied", "integrated_pr_created", "integration_queued"):
+                run = self._accepted_artifact(store, scheduler, actions, repo, status, f"{status}.txt")
+                store.update(run["id"], delivery={**run["delivery"], "status": status})
+                before_events = [event["type"] for event in store.events(run["id"])]
+                with mock.patch.object(WorktreeManager, "apply_to_repository") as apply_to_repository:
+                    applied = actions.apply(run["id"])
+                with mock.patch.object(WorktreeManager, "draft_pr") as draft_pr:
+                    published = actions.draft_pr(run["id"])
+
+                apply_to_repository.assert_not_called()
+                draft_pr.assert_not_called()
+                self.assertEqual(applied["delivery"]["status"], status)
+                self.assertEqual(published["delivery"]["status"], status)
+                self.assertEqual([event["type"] for event in store.events(run["id"])], before_events)
+
     def test_successful_integration_delivery_fans_out_source_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

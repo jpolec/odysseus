@@ -63,13 +63,13 @@
       <section class="workspace">
         <section class="view-panel work-view active" id="workView">
           <header class="work-header">
-            <div><p class="breadcrumb" id="workBreadcrumb">ODYSSEUS</p><h1 id="workTitle">Repositories</h1><p id="workDescription">Choose the repository you want Codex to change.</p></div>
+            <div><p class="breadcrumb" id="workBreadcrumb">ODYSSEUS</p><h1 id="workTitle">Repositories</h1><p id="workDescription">Choose where the agent should work.</p></div>
             <div class="work-actions"><button class="ghost" id="workPlanButton" type="button">Plan feature</button><button class="primary" id="workNewTaskButton" type="button">＋ New task</button></div>
           </header>
           <nav class="journey-stepper" id="journeyStepper" aria-label="How to use Odysseus">
-            <button data-journey-step="1" type="button"><span class="journey-number">1</span><span><strong>Choose a repository</strong><small>Pick the code Codex should change</small></span></button>
-            <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>New task</strong><small>Describe what the agent should change</small></span></button>
-            <button data-journey-step="3" type="button"><span class="journey-number">3</span><span><strong>Follow &amp; review</strong><small>Odysseus asks only when needed</small></span></button>
+            <button data-journey-step="1" type="button"><span class="journey-number">1</span><span><strong>Choose repository</strong><small>Pick code</small></span></button>
+            <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>New task</strong><small>Describe outcome</small></span></button>
+            <button data-journey-step="3" type="button"><span class="journey-number">3</span><span><strong>Review</strong><small>Act when asked</small></span></button>
           </nav>
           <section class="current-repository-hint hidden" id="currentRepositoryHint" aria-live="polite"></section>
           <div class="work-meta" id="workMeta"></div>
@@ -78,26 +78,26 @@
           <section class="project-home hidden" id="projectHome" aria-label="Repository overview">
             <div class="project-home-grid">
               <article class="project-knowledge-card project-about-card">
-                <header><div><p class="eyebrow">ABOUT</p><h2>Repository overview</h2></div><button class="ghost compact" id="editProjectBrief" type="button">Edit overview</button></header>
+                <header><div><p class="eyebrow">ABOUT</p><h2>Overview</h2></div><button class="ghost compact" id="editProjectBrief" type="button">Edit</button></header>
                 <p class="project-about" id="projectAbout">Loading repository context…</p>
                 <p class="project-source" id="projectAboutSource"></p>
                 <div class="project-notes hidden" id="projectNotes"></div>
               </article>
               <article class="project-knowledge-card">
-                <header><div><p class="eyebrow">REPOSITORY CONTEXT</p><h2>What agents can discover</h2></div><span class="quiet-badge" id="projectContextCount">0 sources</span></header>
+                <header><div><p class="eyebrow">CONTEXT</p><h2>Sources</h2></div><span class="quiet-badge" id="projectContextCount">0 sources</span></header>
                 <div class="context-stack" id="projectStack"></div>
                 <div class="context-source-list" id="projectContextSources"></div>
               </article>
             </div>
             <details class="project-deep-section">
-              <summary><span><strong>Repository knowledge and history</strong><small>Skills, memory, recent commits, and the audit timeline</small></span><span>Open details</span></summary>
+              <summary><span><strong>Knowledge and history</strong><small>Skills, memory, commits, timeline</small></span><span>Open</span></summary>
               <div class="project-deep-content">
                 <article class="project-knowledge-card project-skills-card">
-                  <header><div><p class="eyebrow">SKILLS</p><h2>Reusable engineering guidance</h2><p class="card-description">Odysseus can load small, generic playbooks when a task matches. Repository-local skills override the bundled catalog.</p></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
+                  <header><div><p class="eyebrow">SKILLS</p><h2>Guidance</h2></div><span class="quiet-badge" id="projectSkillCount">0 enabled</span></header>
                   <div class="project-skill-list" id="projectSkillList"><div class="empty-list">Loading repository skills…</div></div>
                 </article>
                 <article class="project-knowledge-card project-memory-card">
-                  <header><div><p class="eyebrow">REPOSITORY MEMORY</p><h2>Codebase-specific knowledge</h2><p class="card-description">Store facts unique to this codebase. Triggers and folders attach only relevant memory to a task; every attachment appears in its Context Receipt.</p></div><div class="memory-head-actions"><span class="quiet-badge" id="projectMemoryCount">0 active</span><button class="ghost compact" id="addProjectMemory" type="button">Add memory</button></div></header>
+                  <header><div><p class="eyebrow">MEMORY</p><h2>Repository facts</h2></div><div class="memory-head-actions"><span class="quiet-badge" id="projectMemoryCount">0 active</span><button class="ghost compact" id="addProjectMemory" type="button">Add</button></div></header>
                   <div class="project-memory-list" id="projectMemoryList"><div class="empty-list">Loading repository memory…</div></div>
                   <div class="memory-suggestions hidden" id="memorySuggestions"></div>
                 </article>
@@ -107,24 +107,24 @@
                     <div class="project-commit-list" id="projectCommitList"></div>
                   </article>
                   <article class="project-knowledge-card">
-                    <header><div><p class="eyebrow">TASK HISTORY</p><h2>What happened and how</h2></div></header>
+                    <header><div><p class="eyebrow">TASKS</p><h2>Timeline</h2></div></header>
                     <div class="project-timeline" id="projectTimeline"></div>
                   </article>
                 </div>
               </div>
             </details>
           </section>
-          <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">REPOSITORIES</p><h2 id="workListTitle">Your repositories</h2><p class="section-description" id="workListDescription">Repositories saved on this computer.</p></div><button class="ghost" id="workSecondaryAction" type="button">Add repository</button></div><div class="work-list" id="workList"></div></section>
+          <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">REPOSITORIES</p><h2 id="workListTitle">Your repositories</h2><p class="section-description" id="workListDescription">Saved local checkouts.</p></div><button class="ghost" id="workSecondaryAction" type="button">Add repository</button></div><div class="work-list" id="workList"></div></section>
         </section>
 
         <section class="view-panel collection-view" id="attentionView">
-          <div class="page-head"><div><p class="eyebrow">HUMAN ATTENTION</p><h1>Needs You</h1><p>Only questions, permissions, failures, broken dependencies, and review gates that need an operator decision.</p></div><button class="ghost" id="refreshAttention" type="button">Refresh</button></div>
+          <div class="page-head"><div><p class="eyebrow">DECISIONS</p><h1>Needs You</h1><p>Answer these to continue work.</p></div><button class="ghost" id="refreshAttention" type="button">Refresh</button></div>
           <div class="attention-summary" id="attentionSummary"></div>
           <div class="stack-list" id="attentionList"></div>
         </section>
 
         <section class="view-panel collection-view" id="epicsView">
-          <div class="page-head"><div><p class="eyebrow">LARGER WORK</p><h1>Plans</h1><p>Describe a feature. Odysseus proposes smaller tasks and their order; nothing starts until you approve the plan.</p></div><button class="primary" id="newEpicButton" type="button">Plan feature</button></div>
+          <div class="page-head"><div><p class="eyebrow">TASK GRAPHS</p><h1>Plans</h1><p>Approve a graph before agents start.</p></div><button class="primary" id="newEpicButton" type="button">Plan feature</button></div>
           <div class="stack-list" id="epicList"></div>
         </section>
 
@@ -132,9 +132,9 @@
           <div class="empty-state" id="emptyState">
             <div class="orbit" aria-hidden="true"><span>O</span></div>
             <p class="eyebrow">NO TASK SELECTED</p>
-            <h2>Choose a repository, then describe a change.</h2>
-            <p>Odysseus runs the agent and checks. You follow progress and make the final decision.</p>
-          <div class="empty-actions"><button class="primary" id="emptyNewTask" type="button">Start a task</button><button class="ghost" data-open-view="sessions" type="button">Existing terminal sessions</button></div>
+            <h2>Choose a repository.</h2>
+            <p>Then describe the change.</p>
+          <div class="empty-actions"><button class="primary" id="emptyNewTask" type="button">Start task</button><button class="ghost" data-open-view="sessions" type="button">Terminals</button></div>
           </div>
 
           <article class="run-detail hidden" id="runDetail">
@@ -142,7 +142,7 @@
             <header class="detail-head">
               <div class="detail-heading">
                 <div class="status-row"><span class="status-pill" id="detailStatus">—</span><span class="run-id" id="detailId">—</span></div>
-                <div class="journey-context"><span>3</span><strong>Follow &amp; review</strong><small>Watch progress. Act only when Odysseus asks.</small></div>
+                <div class="journey-context"><span>3</span><strong>Review</strong><small>Act when asked.</small></div>
                 <h2 id="detailTitle">—</h2><p id="detailTask">—</p>
               </div>
               <div class="actions" id="runActions"></div>
@@ -168,17 +168,17 @@
                   <button class="task-section-tab" data-section="evidence" type="button">Evidence</button>
                 </nav>
                 <section class="task-section-pane active" id="task-section-summary">
+                  <section class="review-decision hidden" id="reviewDecisionCard" aria-label="Review and deliver this change"></section>
                   <section class="run-narrative" id="runNarrative">
                     <span class="narrative-mark" id="narrativeMark" aria-hidden="true">→</span>
                     <div><small id="narrativeLabel">CURRENT STEP</small><strong id="narrativeTitle">Preparing the task</strong><p id="narrativeCopy">Odysseus is resolving the next safe action.</p></div>
                     <span class="narrative-tail" id="narrativeTail">No action needed</span>
                   </section>
-                  <section class="review-decision hidden" id="reviewDecisionCard" aria-label="Review and deliver this change"></section>
                   <section class="recovery-card hidden" id="recoveryCard" aria-label="Resume task with feedback">
                     <div class="recovery-copy">
                       <small id="recoveryLabel">RECOVERY</small>
                       <strong id="recoveryTitle">Resume this task with feedback</strong>
-                      <p id="recoveryCopy">The same task branch and saved agent thread are reused. Put the next instruction here, or insert an assistant answer below.</p>
+                      <p id="recoveryCopy">Continues the saved branch and agent thread.</p>
                     </div>
                     <textarea id="inlineFeedback" rows="5" placeholder="Tell the agent exactly what to change or investigate next."></textarea>
                     <div class="recovery-actions">
@@ -191,7 +191,7 @@
                       <div>
                         <small>CONTEXT ASSISTANT</small>
                         <strong>Ask what to send next</strong>
-                        <p id="summaryAssistantShareNotice">Shared: Task, Failure, Review, Checks. Diff/code is off.</p>
+                        <p id="summaryAssistantShareNotice">Shared: Task, Failure, Review, Checks. Diff/code off.</p>
                       </div>
                       <label>Assistant
                         <select id="summaryAssistantProvider">
@@ -202,7 +202,7 @@
                         </select>
                       </label>
                     </div>
-                    <p class="summary-assistant-access" id="summaryAssistantAccess">Local CLI helpers start in a blank scratch workspace, not the task repository. They receive only selected context by prompt, but run with the Odysseus user's filesystem permissions.</p>
+                    <p class="summary-assistant-access" id="summaryAssistantAccess">Local CLI helpers use selected context in a scratch workspace.</p>
                     <div class="summary-assistant-compose">
                       <textarea id="summaryAssistantComposer" rows="3" placeholder="Ask what feedback to send, what else to inspect, or how to turn this state into the next agent prompt."></textarea>
                       <button class="primary" id="summaryAssistantSend" type="button">Ask</button>
@@ -267,7 +267,7 @@
                     <summary>Share diff/code excerpt</summary>
                     <label><input type="checkbox" id="assistantIncludeDiff"> Include redacted diff/code in this assistant request</label>
                   </details>
-                  <p id="assistantShareNotice">Shared: Task, Failure, Review, Checks. Diff/code is off.</p>
+                  <p id="assistantShareNotice">Shared: Task, Failure, Review, Checks. Diff/code off.</p>
                 </section>
                 <div class="assistant-messages" id="assistantMessages" aria-live="polite"></div>
                 <div class="assistant-compose">
@@ -280,11 +280,12 @@
                   <button class="ghost" id="assistantCopy" type="button">Copy answer</button>
                   <button class="ghost" id="assistantQueueTask" type="button">Queue as new task</button>
                 </div>
-                <p class="assistant-status" id="assistantStatus">Selected context is attached explicitly. Local CLI assistants run in a blank scratch workspace, not the task repository, but the host process still has the filesystem permissions of the Odysseus user. Direct API modes require server environment keys.</p>
+                <p class="assistant-status" id="assistantStatus">Selected context is attached explicitly. CLI helpers use a scratch workspace; direct API modes require server keys.</p>
+                <details class="assistant-code-scope"><summary>Security details</summary><p>Local CLI assistants run in a blank scratch workspace, not the task repository, but keep the Odysseus user's filesystem permissions. Direct API modes require server environment keys.</p></details>
               </aside>
             </div>
             <details class="technical-details" id="technicalDetails">
-              <summary><span>Technical details</span><small>run id, branch, worktree, sessions, dependencies, usage</small></summary>
+              <summary><span>Technical details</span><small>IDs, Git, sessions, usage</small></summary>
               <div class="metadata" id="metadata"></div>
             </details>
           </article>
@@ -302,17 +303,17 @@
         </section>
 
         <section class="view-panel collection-view" id="inboxView">
-          <div class="page-head"><div><p class="eyebrow">PARK WORK FOR LATER</p><h1>Inbox</h1><p>Agents and humans put follow-up ideas here without starting work. “Queue as task” is the explicit step that launches an agent workflow.</p></div><button class="primary" id="newInboxButton" type="button">Add follow-up</button></div>
+          <div class="page-head"><div><p class="eyebrow">FOLLOW-UPS</p><h1>Inbox</h1><p>Park work; queue explicitly.</p></div><button class="primary" id="newInboxButton" type="button">Add follow-up</button></div>
           <div class="stack-list" id="inboxList"></div>
         </section>
 
         <section class="view-panel collection-view" id="projectsView">
-          <div class="page-head"><div><p class="eyebrow">LOCAL REPOSITORIES</p><h1>Manage repositories</h1><p>Each entry is one local Git repository. Odysseus reads it in place and never moves your code.</p></div><button class="primary" id="manageAddProjectButton" type="button">Add repository</button></div>
+          <div class="page-head"><div><p class="eyebrow">LOCAL</p><h1>Manage repositories</h1><p>Saved Git checkouts.</p></div><button class="primary" id="manageAddProjectButton" type="button">Add repository</button></div>
           <div class="card-grid" id="projectList"></div>
         </section>
 
         <section class="view-panel collection-view" id="settingsView">
-          <div class="page-head"><div><p class="eyebrow">CONTROL PLANE</p><h1>Settings</h1><p>Set how many agents may run, choose default lanes, and see how assistant API modes are configured.</p></div><button class="ghost" id="refreshSettings" type="button">Refresh</button></div>
+          <div class="page-head"><div><p class="eyebrow">CONTROL</p><h1>Settings</h1><p>Capacity, agents, CI, resources, assistants.</p></div><button class="ghost" id="refreshSettings" type="button">Refresh</button></div>
           <div class="settings-grid">
             <form class="settings-panel" id="settingsForm">
               <div class="panel-head"><div><p class="eyebrow">TASK EXECUTION</p><h3>Defaults for new work</h3></div></div>
@@ -327,7 +328,7 @@
                 <label class="checkbox-row"><input type="checkbox" name="ci_auto_resume"> Auto-resume on failed CI logs</label>
                 <div class="form-row"><label>CI max attempts <input name="ci_max_attempts" type="number" min="0" max="20" value="2"></label><label>CI poll seconds <input name="ci_poll_seconds" type="number" min="5" value="30"></label></div>
                 <label>Resource retention days <input name="resource_retention_days" type="number" min="1" max="365" value="14"></label>
-                <p class="settings-note">Task-specific overrides still live under <strong>More options...</strong> in New task.</p>
+                <p class="settings-note">Task overrides live under <strong>More options</strong>.</p>
                 <div class="dialog-actions"><button class="primary" type="submit">Save settings</button></div>
               </div>
             </form>
@@ -335,8 +336,8 @@
               <div class="panel-head"><div><p class="eyebrow">RESOURCE LIFECYCLE</p><h3>Worktrees and runtime directories</h3></div></div>
               <div class="settings-body">
                 <div id="resourceSettings"><div class="empty-list">Loading retained resources...</div></div>
-                <p class="settings-note">Delivered, published, completed, and cancelled runs can be reclaimed. Review, failed, attention, blocked, and accepted-but-not-delivered runs keep their worktree for recovery or delivery. Branches are preserved.</p>
-                <div class="dialog-actions"><button class="ghost" data-reclaim-resources="expired" type="button">Reclaim expired</button><button class="primary" data-reclaim-resources="force" type="button">Reclaim now</button></div>
+                <p class="settings-note">Recovery and delivery worktrees are kept. Branches are preserved.</p>
+                <div class="dialog-actions"><button class="ghost" data-reclaim-resources="expired" type="button">Reclaim expired</button><button class="ghost" data-reclaim-resources="force" type="button">Reclaim now</button></div>
               </div>
             </section>
             <form class="settings-panel" id="assistantSettingsForm">
@@ -347,8 +348,8 @@
                   <label>OpenAI API model <input name="openai_model" placeholder="Use server default"></label>
                   <label>Anthropic API model <input name="anthropic_model" placeholder="Use server default"></label>
                 </div>
-                <p class="settings-note"><strong>API keys are never saved in Odysseus or the browser.</strong> Local Codex and Claude use their existing CLI login. Direct API modes read <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> from the server environment when Odysseus starts.</p>
-                <div class="dialog-actions"><button class="primary" type="submit">Save models</button></div>
+                <p class="settings-note"><strong>API keys are never saved.</strong> Direct API modes read server environment keys.</p>
+                <div class="dialog-actions"><button class="ghost" type="submit">Save models</button></div>
               </div>
             </form>
           </div>
@@ -369,7 +370,7 @@
 
     <dialog id="projectProfileDialog"><form method="dialog" id="projectProfileForm">
       <div class="dialog-head"><div><p class="eyebrow">REPOSITORY KNOWLEDGE</p><h2>Edit repository overview</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>This lives in Odysseus, not in the repository.</strong><p>Leave the summary empty to use the repository README automatically. Notes are operator context and never overwrite repository files.</p></div>
+      <div class="dialog-intro"><strong>Saved in Odysseus only.</strong><p>Leave empty to use the README.</p></div>
       <label>Short description <span class="field-help">What this codebase is and why it exists.</span><textarea name="summary" rows="4" placeholder="Uses README automatically when empty."></textarea></label>
       <label>Operator notes <span class="field-help">Important boundaries, current focus, or onboarding facts.</span><textarea name="notes" rows="7" placeholder="Optional repository-specific context."></textarea></label>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Save overview</button></div>
@@ -377,7 +378,7 @@
 
     <dialog id="knowledgeDialog"><form method="dialog" id="knowledgeForm">
       <div class="dialog-head"><div><p class="eyebrow">REPOSITORY MEMORY</p><h2>Teach Odysseus about this repository</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Keep this specific to one repository.</strong><p>Use generic Skills for security, databases, or testing. Use Repository Memory for local architecture, commands, constraints, and conventions.</p></div>
+      <div class="dialog-intro"><strong>Repository-specific facts only.</strong><p>Skills handle generic guidance.</p></div>
       <input type="hidden" name="id">
       <input type="hidden" name="source" value="operator">
       <label>Title <input name="title" required maxlength="200" placeholder="Billing migration rule"></label>
@@ -388,24 +389,24 @@
     </form></dialog>
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
-      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> NEW TASK</p><h2>What should the agent change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Choose a repository and describe one finished outcome.</strong><p>Odysseus handles the worktree, agent, checks, and review. Your source checkout stays untouched.</p></div>
+      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> NEW TASK</p><h2>Describe the finished change</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Describe one finished outcome.</strong><p>Your source checkout stays untouched.</p></div>
       <label>Task
-        <span class="field-help">Write the outcome, important constraints, and what “done” means.</span>
+        <span class="field-help">Outcome, constraints, done.</span>
         <textarea name="task" id="taskPrompt" rows="5" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
       </label>
-      <details class="prompt-example"><summary>Show a good task example</summary><p>Update the setup command in README, verify every referenced path exists, and run the documentation checks. Do not change application behavior.</p></details>
+      <details class="prompt-example"><summary>Example</summary><p>Update the setup command, verify referenced paths, and run docs checks.</p></details>
       <label>Repository
         <span class="field-help">The repository where this task belongs.</span>
         <select name="project_id" id="taskProjectSelect" required><option value="">Add a repository first</option></select>
       </label>
       <label>Implementation agent
-        <span class="field-help">Choose who should perform this task. Tasks can use different agents and run in parallel.</span>
+        <span class="field-help">Who should run it.</span>
         <select name="lane" id="laneSelect"></select>
       </label>
       <details class="advanced"><summary>More options…</summary>
         <label>Execution environment
-          <span class="field-help">Repository default uses `.odysseus.json` when present. Docker is the isolated option.</span>
+          <span class="field-help">Default, host, Docker, or devcontainer.</span>
           <select name="environment_profile" id="environmentProfile"><option value="">Repository default — recommended</option><option value="host">Host — compatibility, not isolated</option><option value="docker">Docker — isolated command runtime</option><option value="devcontainer">Devcontainer — reviewed repository configuration</option></select>
         </label>
         <div class="environment-options hidden" id="environmentOptions">
@@ -414,9 +415,9 @@
           <div class="form-row"><label>CPU limit <input name="environment_cpus" type="number" min="0.1" max="64" step="0.1" placeholder="2"></label><label>Memory limit <input name="environment_memory" placeholder="4g"></label></div>
           <label>Preview ports <span class="field-help">One `NAME=CONTAINER_PORT` per line. Odysseus allocates host ports automatically.</span><textarea name="environment_ports" rows="2" placeholder="APP_PORT=3000&#10;DEBUG_PORT=9229"></textarea></label>
         </div>
-        <label class="checkbox-row"><input type="checkbox" name="untrusted_project" id="untrustedProject"> Treat this repository as untrusted; use Docker and approve repository commands before execution</label>
+        <label class="checkbox-row"><input type="checkbox" name="untrusted_project" id="untrustedProject"> Untrusted: require Docker and command approval</label>
         <label>Engineering skills
-          <span class="field-help">Auto selects relevant repository guidance. Manual lets you choose; None sends no skill playbooks.</span>
+          <span class="field-help">Auto, manual, or none.</span>
           <select name="skill_mode" id="taskSkillMode"><option value="auto">Auto — recommended</option><option value="manual">Choose manually</option><option value="none">None</option></select>
         </label>
         <div class="task-skill-recommendations hidden" id="taskSkillRecommendations"></div>
@@ -430,20 +431,20 @@
         <div class="form-row"><label>Process timeout <input name="timeout" type="number" min="0" value="0"></label><label>Max tokens <input name="max_tokens" type="number" min="0" value="0"></label></div>
         <div class="form-row"><label>Max tool calls <input name="max_tool_calls" type="number" min="0" value="0"></label><label>Max reported cost (USD) <input name="max_cost" type="number" min="0" step="0.01" value="0"></label></div>
       </details>
-      <p class="submit-note">For a larger feature with parallel parts, close this dialog and choose <strong>Plan feature</strong>.</p>
+      <p class="submit-note">For parallel work, choose <strong>Plan feature</strong>.</p>
       <p class="task-submit-status hidden" id="taskSubmitStatus" aria-live="polite"></p>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="primary" value="default" type="submit">Start task</button></div>
     </form></dialog>
 
     <dialog id="epicDialog"><form method="dialog" id="epicForm">
       <div class="dialog-head"><div><p class="eyebrow">PLAN ONLY · NOTHING RUNS YET</p><h2>Break work into agent tasks</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Use this for a feature with multiple dependent or parallel parts.</strong><p>A planner reads the repository and proposes a task graph. You see the complete plan and must approve it before any implementation agent starts.</p></div>
+      <div class="dialog-intro"><strong>Planner proposes a task graph.</strong><p>Nothing runs before approval.</p></div>
       <div class="flow-preview" aria-label="Feature planning flow"><span><b>1</b> Requirement</span><i>→</i><span><b>2</b> Proposed task graph</span><i>→</i><span><b>3</b> Your approval</span><i>→</i><span><b>4</b> Agents run</span></div>
       <label>What should the finished feature do?
-        <span class="field-help">Describe the end state and constraints. Do not decompose it yourself—the planner will do that.</span>
+        <span class="field-help">End state and constraints.</span>
         <textarea name="requirement" rows="6" required placeholder="Add passkey sign-in end to end. Keep password login working, include the schema migration, browser flow, integration tests, and a security review."></textarea>
       </label>
-      <details class="prompt-example"><summary>When should I use this?</summary><p>Use a plan when work can be split into backend, frontend, migration, tests, or independent review tasks. For one focused change, choose “New task” instead.</p></details>
+      <details class="prompt-example"><summary>When to use this</summary><p>Use a plan for dependent or parallel work.</p></details>
       <label>Repository
         <span class="field-help">The planner inspects this repository read-only.</span>
         <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
@@ -453,7 +454,7 @@
         <label>Independent review agent <select name="review_lane" id="epicReviewLaneSelect"></select></label>
         <label>Verification commands <span class="optional">optional</span><span class="field-help">Trusted shell commands, one per line, inherited by proposed tasks.</span><textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea></label>
       </details>
-      <p class="submit-note">This button only creates a proposal. No implementation begins until you inspect the tasks and click <strong>Approve plan</strong>.</p>
+      <p class="submit-note">Creates a proposal only.</p>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Generate task plan</button></div>
     </form></dialog>
 
@@ -472,7 +473,7 @@
 
     <dialog id="projectDialog"><form method="dialog" id="projectForm">
       <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>1</span> CHOOSE A REPOSITORY</p><h2>Add a Git repository</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>A repository is the code Codex will work on.</strong><p>Choose its local folder. Odysseus reads the name from Git and leaves the existing checkout in place.</p></div>
+      <div class="dialog-intro"><strong>Choose a local Git folder.</strong><p>Registration does not move code.</p></div>
       <label>Repository folder <span class="field-help">An absolute path on the computer running Odysseus.</span><input name="path" required placeholder="/Users/me/code/my-project"></label>
       <details class="advanced"><summary>More options…</summary><label>Custom display name <span class="field-help">Usually unnecessary; the Git repository name is used automatically.</span><input name="name" placeholder="Optional"></label><label>Tags <input name="tags" placeholder="client, backend, priority"></label></details>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Add repository</button></div>
@@ -486,7 +487,7 @@
 
     <dialog id="integrationDialog"><form method="dialog" id="integrationForm">
       <div class="dialog-head"><div><p class="eyebrow">INTEGRATION DELIVERY</p><h2>Choose artifact disposition</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Every current candidate needs an explicit choice.</strong><p>Only artifacts marked Integrate now will be composed into the integration run.</p></div>
+      <div class="dialog-intro"><strong>Choose each artifact.</strong><p>Only Integrate now is composed.</p></div>
       <div class="integration-candidate-list" id="integrationCandidateList"></div>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create integration run</button></div>
     </form></dialog>
@@ -501,7 +502,7 @@
 
     <dialog id="commandDialog"><form method="dialog" id="commandDialogForm">
       <div class="dialog-head"><div><p class="eyebrow">TERMINAL COMMAND</p><h2>Run this command</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Clipboard access is unavailable in this browser context.</strong><p>Terminal access remains optional for this path; this command is here when you want it.</p></div>
+      <div class="dialog-intro"><strong>Clipboard unavailable.</strong><p>Run manually when needed.</p></div>
       <pre class="copy-command" id="commandDialogText"></pre>
       <div class="dialog-actions"><button class="primary" value="cancel" type="submit">Close</button></div>
     </form></dialog>
