@@ -23,7 +23,7 @@ const state = {
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
-const activeStatuses = new Set(["queued", "starting", "running", "checking", "reviewing", "cancelling", "publishing"]);
+const activeStatuses = new Set(["queued", "starting", "running", "checking", "reviewing", "waiting_variants", "cancelling", "publishing"]);
 const ciGreenStatuses = new Set(["passed", "success", "green"]);
 const ciWaitingStatuses = new Set(["pending", "running", "queued", "in_progress", "waiting", "requested", "repairing"]);
 const ciFailedStatuses = new Set(["failed", "failure", "fail", "error", "poll_error", "timed_out", "cancelled", "retry_exhausted"]);
@@ -140,7 +140,7 @@ function formatBytes(value) {
 }
 function statusClass(status) { return `status-${String(status || "unknown").replace(/[^a-z_]/g, "")}`; }
 function statusLabel(status) {
-  const labels = {queued: "waiting", review: "ready for review"};
+  const labels = {queued: "waiting", waiting_variants: "running variants", review: "ready for review", decided: "decided", rejected: "rejected"};
   const key = String(status || "unknown");
   return labels[key] || key.replaceAll("_", " ");
 }
@@ -153,10 +153,12 @@ function runActionLine(run) {
   if (run?.status === "accepted" && deliveredDeliveryStatuses.has(delivery.status)) return "No action needed.";
   if (run?.status === "accepted" && delivery.status === "failed") return "Fix apply prerequisite.";
   if (run?.status === "accepted") return "Choose delivery.";
+  if (run?.status === "decided") return "No action needed.";
   if (run?.status === "attention") return "Answer Needs You.";
   if (run?.status === "failed") return "Resume with feedback.";
   if (run?.status === "blocked") return "Accept predecessor.";
   if (run?.status === "queued") return "Wait for a slot.";
+  if (run?.status === "waiting_variants") return "Wait for candidates.";
   if (activeStatuses.has(run?.status)) return "No action needed.";
   return UI_COPY.noAction;
 }
@@ -1184,9 +1186,13 @@ async function loadDecisionDiff(run) {
 
 function renderReviewDecision(run) {
   const node = $("#reviewDecisionCard");
-  const visible = ["review", "accepted", "pr_created"].includes(run.status);
+  const visible = ["review", "accepted", "pr_created", "decided"].includes(run.status);
   node.classList.toggle("hidden", !visible);
   if (!visible) { node.innerHTML = ""; return; }
+  if (run.workflow === "variants") {
+    renderVariantDecision(run, node);
+    return;
+  }
   const project = projectById(run.project_id);
   const delivery = run.delivery || {};
   const applied = ["applied", "integrated_applied"].includes(delivery.status);
@@ -1249,6 +1255,46 @@ function renderReviewDecision(run) {
   $$('[data-review-action]').forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
 }
 
+function renderVariantDecision(run, node) {
+  const project = projectById(run.project_id);
+  const comparison = run.variant_comparison || {};
+  const candidates = comparison.candidates || [];
+  const frontier = new Set(comparison.pareto_frontier || []);
+  const decided = run.variant_decision || {};
+  const rows = candidates.map((item) => {
+    const tests = item.tests || {};
+    const quality = item.code_quality || {};
+    const cost = item.observed_cost || {};
+    const size = item.unnecessary_change_size || {};
+    const attention = item.human_attention || {};
+    const artifact = item.artifact || {};
+    const frontierMark = frontier.has(item.run_id) ? `<span class="variant-frontier">Frontier</span>` : "";
+    return `<article class="variant-candidate">
+      <header><div><strong>${escapeHtml(item.title || item.run_id)}</strong><small>${escapeHtml(item.run_id)} · ${escapeHtml(item.lane || "")}</small></div>${frontierMark}</header>
+      <div class="variant-metrics">
+        <span><small>Tests</small><strong>${escapeHtml(tests.passed || 0)}/${escapeHtml(tests.total || 0)}</strong></span>
+        <span><small>Quality</small><strong>${escapeHtml(Math.round(Number(quality.confidence || 0) * 100))}%</strong></span>
+        <span><small>Risk</small><strong>${escapeHtml((item.regression_merge_risk || {}).risk || "unknown")}</strong></span>
+        <span><small>Cost</small><strong>$${escapeHtml(Number(cost.usd || 0).toFixed(2))}</strong></span>
+        <span><small>Size</small><strong>${escapeHtml(size.files || 0)} files</strong></span>
+        <span><small>Needs</small><strong>${escapeHtml(attention.count || 0)}</strong></span>
+      </div>
+      <footer><span>${escapeHtml(artifact.sha ? artifact.sha.slice(0, 12) : "no artifact")}</span>${run.status === "review" && artifact.sha ? `<button class="ghost compact" data-review-action="variant-select" data-candidate-id="${escapeHtml(item.run_id)}" type="button">Select</button>` : ""}</footer>
+    </article>`;
+  }).join("");
+  const canCombine = run.status === "review" && (comparison.pareto_frontier || []).length >= 2;
+  const decisionCopy = decided.decision
+    ? `Decision recorded: ${decided.decision.replaceAll("_", " ")}${decided.integration_run_id ? ` · integration ${decided.integration_run_id}` : ""}.`
+    : "Choose a candidate, queue a separate integration task, or reject all.";
+  node.innerHTML = `
+    <header class="review-decision-head"><div><small>VARIANTS</small><strong>Comparison ready</strong></div><span>${escapeHtml(runActionLine(run))}</span></header>
+    <section class="variant-summary"><strong>${escapeHtml(decisionCopy)}</strong><p>${escapeHtml(comparison.summary || "Candidates are preserved for operator review.")}</p></section>
+    <div class="variant-candidate-list">${rows || `<div class="empty-card">No variant candidates recorded.</div>`}</div>
+    <section class="delivery-decision"><div><strong>Artifacts are preserved; nothing has been applied or merged.</strong></div><div class="delivery-actions">${canCombine ? `<button class="primary" data-review-action="variant-combine" type="button">Combine frontier</button>` : ""}${run.status === "review" ? `<button class="ghost" data-review-action="variant-reject" type="button">Reject all</button>` : ""}</div></section>
+    <footer class="delivery-target">Repository: <strong>${escapeHtml(projectName(project))}</strong> · Local branch: <code>${escapeHtml(run.base_ref || "unknown")}</code></footer>`;
+  $$('[data-review-action]').forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
+}
+
 async function reviewAction(action, button) {
   if (action === "view-changes") { activateTaskSection("changes"); return; }
   if (action === "view-evidence") { activateTaskSection("evidence"); activateTab("checks"); return; }
@@ -1281,7 +1327,33 @@ async function reviewAction(action, button) {
     await openIntegrationDialog(button);
     return;
   }
+  if (action === "variant-select") {
+    await submitVariantDecision("select", [button.dataset.candidateId], button);
+    return;
+  }
+  if (action === "variant-combine") {
+    await submitVariantDecision("combine", state.selected?.variant_comparison?.pareto_frontier || [], button);
+    return;
+  }
+  if (action === "variant-reject") {
+    await submitVariantDecision("reject_all", [], button);
+    return;
+  }
   await runAction(action);
+}
+
+async function submitVariantDecision(decision, selectedRunIds, button) {
+  if (!state.selectedId) return;
+  const originalLabel = button?.textContent;
+  try {
+    if (button) { button.disabled = true; button.textContent = "Saving..."; }
+    const result = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/variants`, {method: "POST", body: JSON.stringify({decision, selected_run_ids: selectedRunIds})});
+    toast(decision === "combine" && result.integration_run ? "Integration run queued." : decision === "reject_all" ? "Variants rejected." : "Variant selected.");
+    await refreshRuns(); await refreshSelected();
+  } catch (error) { toast(error.message, true); }
+  finally {
+    if (button) { button.disabled = false; button.textContent = originalLabel; }
+  }
 }
 
 async function openIntegrationDialog(button) {
@@ -2170,6 +2242,7 @@ function bindDialogs() {
   $("#taskSkillMode").addEventListener("change", () => { renderTaskSkillChoices(); renderTaskSkillRecommendations(); scheduleTaskSkillRecommendations(); });
   $("#environmentProfile").addEventListener("change", (event) => $("#environmentOptions").classList.toggle("hidden", event.currentTarget.value !== "docker"));
   $("#untrustedProject").addEventListener("change", (event) => { if (!event.currentTarget.checked) return; const select = $("#environmentProfile"); const docker = select.querySelector('option[value="docker"]'); if (docker?.disabled) { event.currentTarget.checked = false; toast("Install Docker before running an untrusted repository.", true); return; } select.value = "docker"; select.dispatchEvent(new Event("change")); });
+  $("#variantsEnabled").addEventListener("change", (event) => $("#variantOptions").classList.toggle("hidden", !event.currentTarget.checked));
   $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
   $("#taskForm").addEventListener("submit", async (event) => {
     if (event.submitter?.value === "cancel") return;
@@ -2184,10 +2257,15 @@ function bindDialogs() {
     let environment;
     try { environment = environmentFromForm(data); }
     catch (error) { toast(error.message, true); return; }
+    const variantsEnabled = data.get("variants_enabled") === "on";
+    const variantCount = Number(data.get("variant_count") || 2);
+    const variantLanes = String(data.get("variant_lanes") || "").split(",").map((item) => item.trim()).filter(Boolean);
+    const variantPrompts = String(data.get("variant_prompts") || "").split("\n").map((item) => item.trim()).filter(Boolean);
     const payload = {
       task: data.get("task"), title: data.get("title"), project_path: project.path, lane: data.get("lane"),
       skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), environment,
-      untrusted_project: data.get("untrusted_project") === "on", workflow: "agent-check-review",
+      untrusted_project: data.get("untrusted_project") === "on", workflow: variantsEnabled ? "variants" : "agent-check-review",
+      variants: variantsEnabled ? {enabled: true, count: variantCount, lanes: variantLanes, prompts: variantPrompts} : {enabled: false},
       priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")),
       checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean),
       budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))},
@@ -2215,6 +2293,7 @@ function bindDialogs() {
         taskDialog.close();
         form.reset();
         $("#environmentOptions").classList.add("hidden");
+        $("#variantOptions").classList.add("hidden");
         state.taskSkillCatalog = null;
         renderTaskSkillChoices();
         await selectRun(run.id);

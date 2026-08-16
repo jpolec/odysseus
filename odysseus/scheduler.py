@@ -20,10 +20,12 @@ from .environments import EnvironmentManager
 from .events import now_iso
 from .runners import AgentRunner, CheckRunner, ProcessResult
 from .store import RunStore
+from .variants import TERMINAL_VARIANT_STATUSES, child_budgets, compare_candidates
 from .worktrees import WorktreeManager
 
 
 VALID_INTEGRATION_DISPOSITIONS = frozenset({"integrate_now", "keep_for_later", "supersede"})
+VALID_VARIANT_DECISIONS = frozenset({"select", "combine", "reject_all"})
 SENSITIVE_VALUE_RE = re.compile(
     r"(?i)\b("
     r"sk-[A-Za-z0-9_-]{12,}|"
@@ -86,6 +88,12 @@ class Scheduler:
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         run = self.store.request_cancel(run_id)
+        variants = run.get("variants") if isinstance(run.get("variants"), dict) else {}
+        for child_id in variants.get("candidate_run_ids") or []:
+            try:
+                self.cancel(str(child_id))
+            except (KeyError, ValueError):
+                continue
         with self._guard:
             active = self._active.get(run_id)
         if active:
@@ -95,6 +103,7 @@ class Scheduler:
     def _loop(self) -> None:
         while not self._stop.is_set():
             self._reap_and_cancel()
+            self._advance_variant_parents()
             self.store.epics.refresh_all()
             config = self.store.config()
             available = int(config["max_parallel"]) - self.active_count()
@@ -144,6 +153,32 @@ class Scheduler:
             with self._guard:
                 for run_id in finished:
                     self._active.pop(run_id, None)
+
+    def _advance_variant_parents(self) -> None:
+        for run in self.store.list():
+            if run.get("workflow") != "variants" or run.get("status") != "waiting_variants":
+                continue
+            run_id = str(run["id"])
+            if run.get("cancel_requested"):
+                for child_id in (run.get("variants") or {}).get("candidate_run_ids") or []:
+                    try:
+                        self.cancel(str(child_id))
+                    except (KeyError, ValueError):
+                        continue
+                self._cancel_run(run_id)
+                continue
+            reason = self._variant_budget_reason(run)
+            if reason:
+                for child_id in (run.get("variants") or {}).get("candidate_run_ids") or []:
+                    try:
+                        child = self.store.get(str(child_id))
+                    except KeyError:
+                        continue
+                    if child.get("status") not in TERMINAL_VARIANT_STATUSES:
+                        self.cancel(str(child_id))
+                self._fail_budget(run_id, reason)
+                continue
+            self._finalize_variants_if_ready(run)
 
     def _emit(self, run_id: str, event_type: str, source: str, data: Mapping[str, Any]) -> None:
         self.store.append_event(run_id, event_type, source, data)
@@ -217,6 +252,51 @@ class Scheduler:
             return f"Cost budget exceeded: ${cost:.4f} / ${max_cost:.4f}."
         return ""
 
+    def _variant_budget_reason(self, run: Mapping[str, Any]) -> str:
+        budgets = run.get("budgets") if isinstance(run.get("budgets"), dict) else {}
+        child_ids = [str(item) for item in (run.get("variants") or {}).get("candidate_run_ids") or []]
+        metrics = {"input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0, "tool_calls": 0, "cost_usd": 0.0}
+        for child_id in child_ids:
+            try:
+                child_metrics = self.store.get(child_id).get("metrics")
+            except KeyError:
+                continue
+            if not isinstance(child_metrics, dict):
+                continue
+            for key in ("input_tokens", "output_tokens", "reasoning_output_tokens", "tool_calls"):
+                metrics[key] += int(child_metrics.get(key) or 0)
+            try:
+                metrics["cost_usd"] += float(child_metrics.get("cost_usd") or 0.0)
+            except (TypeError, ValueError):
+                pass
+        tokens = sum(int(metrics[key]) for key in ("input_tokens", "output_tokens", "reasoning_output_tokens"))
+        max_tokens = int(budgets.get("max_tokens") or 0)
+        if max_tokens and tokens >= max_tokens:
+            return f"Shared variant token budget exceeded: {tokens:,} / {max_tokens:,}."
+        tools = int(metrics["tool_calls"])
+        max_tools = int(budgets.get("max_tool_calls") or 0)
+        if max_tools and tools >= max_tools:
+            return f"Shared variant tool-call budget exceeded: {tools} / {max_tools}."
+        try:
+            cost = float(metrics["cost_usd"])
+            max_cost = float(budgets.get("max_cost_usd") or 0.0)
+        except (TypeError, ValueError):
+            cost, max_cost = 0.0, 0.0
+        if max_cost and cost >= max_cost:
+            return f"Shared variant cost budget exceeded: ${cost:.4f} / ${max_cost:.4f}."
+        timeout = float(budgets.get("timeout_seconds") or 0)
+        if timeout:
+            try:
+                import datetime as dt
+
+                created = dt.datetime.fromisoformat(str(run.get("created_at") or "").replace("Z", "+00:00"))
+                elapsed = (dt.datetime.now(created.tzinfo) - created).total_seconds()
+            except (TypeError, ValueError):
+                elapsed = 0
+            if elapsed >= timeout:
+                return f"Shared variant time budget exceeded: {int(elapsed)}s / {int(timeout)}s."
+        return ""
+
     def _fail_budget(self, run_id: str, reason: str) -> None:
         self.store.update(run_id, budget_status={"state": "exceeded", "reason": reason})
         self.store.transition(
@@ -271,6 +351,9 @@ class Scheduler:
 
     def _execute(self, run_id: str, cancel: threading.Event) -> None:
         run = self.store.get(run_id)
+        if run.get("workflow") == "variants":
+            self._execute_variants(run_id, cancel)
+            return
         if run.get("workflow") != "agent-check-review":
             raise ValueError(f"unsupported workflow: {run.get('workflow')}")
 
@@ -332,6 +415,7 @@ class Scheduler:
                 },
             )
             return
+
         self.environments.activate(environment, worktree, emit)
         setup_results: list[dict[str, Any]] = []
         for command in environment.get("setup") or []:
@@ -653,6 +737,156 @@ class Scheduler:
                     data={"confidence": evaluation["confidence"]},
                 )
             return
+
+    def _execute_variants(self, run_id: str, cancel: threading.Event) -> None:
+        run = self.store.get(run_id)
+        variants = run.get("variants") if isinstance(run.get("variants"), dict) else {}
+        if not variants.get("enabled"):
+            raise ValueError("variants workflow is explicitly opt-in and requires variants.enabled")
+        candidates = variants.get("candidates") if isinstance(variants.get("candidates"), list) else []
+        if len(candidates) not in {2, 3}:
+            raise ValueError("variants workflow requires exactly 2 or 3 candidates")
+        if self._is_cancelled(run_id, cancel):
+            self._cancel_run(run_id)
+            return
+        existing = [str(item) for item in variants.get("candidate_run_ids") or []]
+        if existing:
+            self.store.update(run_id, status="waiting_variants", worker_pid=None)
+            return
+        self.store.append_event(
+            run_id,
+            "variants.started",
+            "odysseus",
+            {
+                "candidate_count": len(candidates),
+                "shared_budget": bool(variants.get("shared_budget", True)),
+            },
+        )
+        child_ids: list[str] = []
+        budgets = child_budgets(run, len(candidates))
+        for candidate in candidates:
+            prompt = str(candidate.get("prompt") or "")
+            child_task = (
+                f"{run['task']}\n\n"
+                "Variant-specific instructions:\n"
+                f"{prompt}\n\n"
+                "You are one isolated candidate in an explicit Odysseus Variants workflow. "
+                "Do not assume any other candidate's intermediate answer, worktree, or hidden reasoning exists. "
+                "Leave a complete standalone candidate ready for deterministic checks and independent review."
+            )
+            child = self.store.create(
+                {
+                    "title": f"{run.get('title') or run.get('id')} / {candidate.get('title')}",
+                    "task": child_task,
+                    "project_path": str(run.get("project_path") or ""),
+                    "lane": str(candidate.get("lane") or run.get("lane") or ""),
+                    "review_lane": str(candidate.get("review_lane") or run.get("review_lane") or candidate.get("lane") or ""),
+                    "workflow": "agent-check-review",
+                    "checks": list(run.get("checks") or []),
+                    "max_retries": int(run.get("max_retries", 2) or 0),
+                    "base_ref": str(run.get("base_ref") or ""),
+                    "priority": int(run.get("priority", 50) or 50),
+                    "skill_mode": str(run.get("skill_mode") or "auto"),
+                    "skills": [str(item) for item in run.get("skills_requested") or []],
+                    "environment": dict(run.get("environment_request") or {}),
+                    "untrusted_project": bool(run.get("untrusted_project")),
+                    "origin": "variant",
+                    "evidence_class": (run.get("provenance") or {}).get("evidence_class", "observed"),
+                    "release": (run.get("provenance") or {}).get("release", ""),
+                    "budgets": budgets,
+                    "variant_parent_id": run_id,
+                    "variant_index": int(candidate.get("index") or 0),
+                    "variant_title": str(candidate.get("title") or ""),
+                    "variant_prompt_sha256": str(candidate.get("prompt_sha256") or ""),
+                    "variant_model": str(candidate.get("model") or ""),
+                }
+            )
+            child_ids.append(str(child["id"]))
+            self.store.append_event(
+                run_id,
+                "variants.candidate_queued",
+                "odysseus",
+                {
+                    "candidate_run_id": child["id"],
+                    "index": candidate.get("index"),
+                    "lane": child["lane"],
+                    "review_lane": child["review_lane"],
+                    "prompt_sha256": candidate.get("prompt_sha256"),
+                },
+            )
+        variants = {**variants, "candidate_run_ids": child_ids, "state": "running"}
+        self.store.update(
+            run_id,
+            status="waiting_variants",
+            variants=variants,
+            worker_pid=None,
+            started_at=run.get("started_at") or now_iso(),
+            last_error="",
+        )
+
+    def _finalize_variants_if_ready(self, run: Mapping[str, Any]) -> None:
+        run_id = str(run["id"])
+        variants = run.get("variants") if isinstance(run.get("variants"), dict) else {}
+        child_ids = [str(item) for item in variants.get("candidate_run_ids") or []]
+        if not child_ids:
+            return
+        children: list[dict[str, Any]] = []
+        for child_id in child_ids:
+            try:
+                child = self.store.get(child_id)
+            except KeyError:
+                return
+            if child.get("status") not in TERMINAL_VARIANT_STATUSES:
+                return
+            children.append(child)
+        completed_before = {
+            str((event.get("data") or {}).get("candidate_run_id"))
+            for event in self.store.events(run_id)
+            if event.get("type") == "variants.candidate_completed"
+        }
+        for child in children:
+            if child.get("status") == "review" and not child.get("artifact_sha"):
+                artifact = self.worktrees.snapshot(child, reason="variant candidate")
+                self.store.update(str(child["id"]), **artifact, artifact_created_at=now_iso())
+                self.store.append_event(str(child["id"]), "artifact.created", "git", artifact)
+            if str(child["id"]) not in completed_before:
+                self.store.append_event(
+                    run_id,
+                    "variants.candidate_completed",
+                    "odysseus",
+                    {
+                        "candidate_run_id": child["id"],
+                        "status": child.get("status"),
+                        "artifact_sha": child.get("artifact_sha"),
+                    },
+                )
+        children = [self.store.get(child_id) for child_id in child_ids]
+        comparison = compare_candidates(run, children)
+        variants = {**variants, "state": "comparison_ready"}
+        self.store.update(run_id, variants=variants, variant_comparison=comparison)
+        self.store.append_event(
+            run_id,
+            "variants.comparison_ready",
+            "odysseus",
+            {
+                "candidate_run_ids": child_ids,
+                "pareto_frontier": comparison["pareto_frontier"],
+                "message": comparison["summary"],
+            },
+        )
+        self.store.transition(
+            run_id,
+            "review",
+            event_type="run.review_ready",
+            worker_pid=None,
+            review_status="variants_ready",
+            review_summary=comparison["summary"],
+            last_error="",
+            data={
+                "title": f"Variants ready: {run.get('title') or run_id}",
+                "message": comparison["summary"],
+            },
+        )
 
     def _run_checks(
         self,
@@ -1134,11 +1368,78 @@ class ReviewActions:
                 self.store.update(str(item["id"]), integration_disposition=disposition)
             return self.store.get(run_id) | {"integration_candidates": preview, "integration_run": integration}
 
+    def decide_variants(self, run_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+        with self._delivery_lock:
+            parent = self.store.get(run_id)
+            if parent.get("workflow") != "variants" or parent.get("status") != "review":
+                raise ValueError("variants can only be decided after comparison review is ready")
+            comparison = parent.get("variant_comparison") if isinstance(parent.get("variant_comparison"), dict) else {}
+            candidate_ids = [str(item) for item in comparison.get("candidate_run_ids") or []]
+            if not candidate_ids:
+                raise ValueError("variant comparison is not ready")
+            decision = str(payload.get("decision") or "").strip()
+            if decision not in VALID_VARIANT_DECISIONS:
+                raise ValueError("decision must be select, combine, or reject_all")
+            selected_ids = [str(item) for item in payload.get("selected_run_ids") or []]
+            if decision == "reject_all":
+                selected_ids = []
+            elif not selected_ids:
+                raise ValueError("select or combine requires selected_run_ids")
+            unknown = sorted(set(selected_ids) - set(candidate_ids))
+            if unknown:
+                raise ValueError(f"unknown variant candidate: {', '.join(unknown)}")
+            if decision == "select" and len(selected_ids) != 1:
+                raise ValueError("select requires exactly one candidate")
+            if decision == "combine" and len(selected_ids) < 2:
+                raise ValueError("combine requires at least two candidates")
+            selected: list[dict[str, Any]] = []
+            for child_id in selected_ids:
+                child = self.store.get(child_id)
+                if not child.get("artifact_sha"):
+                    raise ValueError(f"variant candidate has no preserved artifact: {child_id}")
+                if child.get("status") == "review":
+                    delivery = {
+                        "status": "not_applied",
+                        "method": "",
+                        "target_branch": str(child.get("base_ref") or ""),
+                        "target_before_sha": "",
+                        "target_after_sha": "",
+                        "delivered_at": None,
+                        "error": "",
+                    }
+                    self.store.update(child_id, delivery=delivery)
+                    self.store.append_event(child_id, "review.accepted", "user", {"variant_parent_id": run_id})
+                    self.store.transition(child_id, "accepted", event_type="run.accepted", source="user", review_status="variant_selected")
+                    child = self.store.get(child_id)
+                if child.get("status") != "accepted":
+                    raise ValueError(f"variant candidate is not selectable: {child_id}")
+                selected.append(child)
+            integration = None
+            if decision == "combine":
+                integration = self._queue_integration_delivery(parent, selected)
+            variant_decision = {
+                "decision": decision,
+                "selected_run_ids": selected_ids,
+                "integration_run_id": str((integration or {}).get("id") or ""),
+                "reason": _audit_text(payload.get("reason")),
+                "decided_at": now_iso(),
+            }
+            self.store.update(run_id, variant_decision=variant_decision)
+            self.store.append_event(run_id, "variants.decision_recorded", "user", variant_decision)
+            if decision == "reject_all":
+                self.store.attention.resolve_for_run(run_id, resolution="variants.rejected")
+                return self.store.transition(run_id, "rejected", event_type="run.cancelled", source="user", review_status="variants_rejected") | {"integration_run": None}
+            self.store.attention.resolve_for_run(run_id, resolution="variants.decided")
+            updated = self.store.transition(run_id, "decided", event_type="run.status", source="user", review_status=f"variants_{decision}")
+            return updated | {"integration_run": integration}
+
     def apply(self, run_id: str) -> dict[str, Any]:
         """Apply an accepted artifact to its original clean checkout."""
 
         with self._delivery_lock:
             run = self.store.get(run_id)
+            if run.get("workflow") == "variants":
+                raise ValueError("apply a selected variant candidate or queued integration run, not the variants comparison")
             if run.get("status") != "accepted":
                 raise ValueError("accept the result before applying it to the repository")
             delivery = dict(run.get("delivery") or {})
@@ -1359,6 +1660,8 @@ class ReviewActions:
             return run
         if run.get("status") not in {"review", "accepted"}:
             raise ValueError("a draft PR can only be created from review or accepted state")
+        if run.get("workflow") == "variants":
+            raise ValueError("publish a selected variant candidate or queued integration run, not the variants comparison")
         delivery = run.get("delivery") if isinstance(run.get("delivery"), dict) else {}
         if delivery.get("status") in INTEGRATED_DELIVERY_STATUSES or delivery.get("status") == "integration_queued":
             return run

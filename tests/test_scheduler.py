@@ -55,6 +55,37 @@ class FlakyCheckRunner:
         return ProcessResult(returncode, output, 0.01)
 
 
+class PassingCheckRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def run(self, command, worktree, *, emit, cancelled):  # noqa: ANN001
+        self.calls.append((command, str(worktree)))
+        emit("check.output", "check", {"text": "ok", "stream": "stdout"})
+        return ProcessResult(0, "ok", 0.01, cancelled=cancelled())
+
+
+class VariantAgentRunner:
+    def __init__(self, *, fail_lane: str = "") -> None:
+        self.fail_lane = fail_lane
+        self.prompts: dict[str, str] = {}
+
+    def run(self, lane, worktree, prompt, *, review, emit, cancelled):  # noqa: ANN001
+        if review:
+            return ProcessResult(
+                0,
+                'No material concerns.\nODYSSEUS_EVALUATION: {"score": 0.9, "verdict": "pass", "findings": []}',
+                0.01,
+            )
+        self.prompts[str(lane)] = prompt
+        if str(lane) == self.fail_lane:
+            return ProcessResult(1, "candidate failed", 0.01)
+        emit("agent.usage", lane, {"input_tokens": 10, "output_tokens": 5})
+        emit("agent.cost", lane, {"cost_usd": 0.25})
+        (worktree / f"{lane}.txt").write_text(f"{lane}\n")
+        return ProcessResult(0, f"implemented {lane}", 0.01, cancelled=cancelled())
+
+
 class BlockingAgentRunner:
     def __init__(self) -> None:
         self.started = threading.Event()
@@ -191,6 +222,243 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(published["status"], "pr_created")
             self.assertEqual(published["pull_request_url"], "https://github.com/example/project/pull/1")
             self.assertEqual(published["delivery"]["status"], "pr_created")
+
+    def test_variants_queue_isolated_candidates_compare_and_preserve_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            run = store.create(
+                {
+                    "title": "Ambiguous change",
+                    "task": "Implement the ambiguous change",
+                    "project_path": str(repo),
+                    "workflow": "variants",
+                    "checks": ["deterministic-check"],
+                    "variants": {
+                        "enabled": True,
+                        "count": 2,
+                        "candidates": [
+                            {"title": "Small", "lane": "small", "prompt": "small prompt"},
+                            {"title": "Broad", "lane": "broad", "prompt": "broad prompt"},
+                        ],
+                    },
+                    "budgets": {"max_tokens": 100, "max_cost_usd": 2.0},
+                }
+            )
+            agents = VariantAgentRunner()
+            checks = PassingCheckRunner()
+            scheduler = Scheduler(store, agent_runner=agents, check_runner=checks, poll_seconds=0.01)
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline and store.get(run["id"])["status"] != "review":
+                    time.sleep(0.03)
+                parent = store.get(run["id"])
+            finally:
+                scheduler.stop()
+
+            self.assertEqual(parent["status"], "review")
+            child_ids = parent["variants"]["candidate_run_ids"]
+            self.assertEqual(len(child_ids), 2)
+            children = [store.get(child_id) for child_id in child_ids]
+            self.assertEqual({child["status"] for child in children}, {"review"})
+            self.assertEqual(len({child["worktree_path"] for child in children}), 2)
+            self.assertTrue(all(child["artifact_sha"] for child in children))
+            self.assertEqual({child["variant"]["parent_run_id"] for child in children}, {run["id"]})
+            self.assertTrue(all(child["variant"]["prompt_sha256"] for child in children))
+            self.assertIn("small prompt", agents.prompts["small"])
+            self.assertNotIn("broad prompt", agents.prompts["small"])
+            self.assertEqual([call[0] for call in checks.calls], ["deterministic-check", "deterministic-check"])
+            comparison = parent["variant_comparison"]
+            self.assertEqual(comparison["status"], "ready")
+            self.assertEqual(set(comparison["candidate_run_ids"]), set(child_ids))
+            self.assertEqual(set(comparison["pareto_frontier"]), set(child_ids))
+            self.assertEqual(comparison["totals"]["artifacts"], 2)
+            self.assertIn("did not select, apply, or merge", comparison["summary"])
+            self.assertFalse((repo / "small.txt").exists())
+            events = [event["type"] for event in store.events(run["id"])]
+            self.assertIn("variants.started", events)
+            self.assertIn("variants.comparison_ready", events)
+
+    def test_variants_decision_selects_candidate_without_applying_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=VariantAgentRunner(), check_runner=PassingCheckRunner(), poll_seconds=0.01)
+            actions = ReviewActions(store, scheduler)
+            parent = store.create(
+                {
+                    "title": "Choose one",
+                    "task": "Choose one",
+                    "project_path": str(repo),
+                    "workflow": "variants",
+                    "variants": {"enabled": True, "count": 2},
+                }
+            )
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline and store.get(parent["id"])["status"] != "review":
+                    time.sleep(0.03)
+            finally:
+                scheduler.stop()
+            ready = store.get(parent["id"])
+            selected_id = ready["variant_comparison"]["pareto_frontier"][0]
+
+            decided = actions.decide_variants(
+                parent["id"],
+                {"decision": "select", "selected_run_ids": [selected_id], "reason": "lowest risk"},
+            )
+
+            self.assertEqual(decided["status"], "decided")
+            self.assertEqual(decided["variant_decision"]["decision"], "select")
+            self.assertEqual(store.get(selected_id)["status"], "accepted")
+            self.assertEqual(store.get(selected_id)["delivery"]["status"], "not_applied")
+            with self.assertRaisesRegex(ValueError, "variants comparison"):
+                actions.apply(parent["id"])
+            self.assertFalse(any(path.name.endswith(".txt") for path in repo.iterdir()))
+
+    def test_variants_can_queue_separate_integration_or_reject_all(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=VariantAgentRunner(), check_runner=PassingCheckRunner(), poll_seconds=0.01)
+            actions = ReviewActions(store, scheduler)
+            parent = store.create(
+                {
+                    "title": "Combine",
+                    "task": "Combine",
+                    "project_path": str(repo),
+                    "workflow": "variants",
+                    "variants": {"enabled": True, "count": 2},
+                }
+            )
+            reject = store.create(
+                {
+                    "title": "Reject",
+                    "task": "Reject",
+                    "project_path": str(repo),
+                    "workflow": "variants",
+                    "variants": {"enabled": True, "count": 2},
+                }
+            )
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline and (
+                    store.get(parent["id"])["status"] != "review" or store.get(reject["id"])["status"] != "review"
+                ):
+                    time.sleep(0.03)
+            finally:
+                scheduler.stop()
+
+            child_ids = store.get(parent["id"])["variants"]["candidate_run_ids"]
+            combined = actions.decide_variants(parent["id"], {"decision": "combine", "selected_run_ids": child_ids})
+            self.assertEqual(combined["status"], "decided")
+            self.assertEqual(combined["integration_run"]["status"], "queued")
+            self.assertEqual(combined["integration_run"]["depends_on"], child_ids)
+            self.assertEqual(store.get(parent["id"])["variant_decision"]["integration_run_id"], combined["integration_run"]["id"])
+
+            rejected = actions.decide_variants(reject["id"], {"decision": "reject_all", "reason": "too risky"})
+            self.assertEqual(rejected["status"], "rejected")
+            self.assertEqual(store.get(reject["id"])["variant_decision"]["decision"], "reject_all")
+
+    def test_variants_partial_failure_is_compared_with_human_attention(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            parent = store.create(
+                {
+                    "title": "Partial",
+                    "task": "Partial",
+                    "project_path": str(repo),
+                    "workflow": "variants",
+                    "variants": {
+                        "enabled": True,
+                        "count": 2,
+                        "candidates": [
+                            {"title": "Failing", "lane": "fail"},
+                            {"title": "Passing", "lane": "pass"},
+                        ],
+                    },
+                }
+            )
+            scheduler = Scheduler(store, agent_runner=VariantAgentRunner(fail_lane="fail"), check_runner=PassingCheckRunner(), poll_seconds=0.01)
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline and store.get(parent["id"])["status"] != "review":
+                    time.sleep(0.03)
+            finally:
+                scheduler.stop()
+
+            comparison = store.get(parent["id"])["variant_comparison"]
+            by_lane = {item["lane"]: item for item in comparison["candidates"]}
+            self.assertEqual(by_lane["fail"]["status"], "failed")
+            self.assertEqual(by_lane["fail"]["human_attention"]["count"], 1)
+            self.assertEqual(by_lane["pass"]["status"], "review")
+            self.assertEqual(comparison["totals"]["complete"], 2)
+
+    def test_variants_parent_cancel_and_shared_budget_cancel_children(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            parent = store.create(
+                {
+                    "title": "Cancel variants",
+                    "task": "Cancel variants",
+                    "project_path": str(repo),
+                    "workflow": "variants",
+                    "variants": {"enabled": True, "count": 2},
+                }
+            )
+            scheduler = Scheduler(store, agent_runner=BlockingAgentRunner(), check_runner=PassingCheckRunner(), poll_seconds=0.01)
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and not store.get(parent["id"])["variants"]["candidate_run_ids"]:
+                    time.sleep(0.02)
+                scheduler.cancel(parent["id"])
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and store.get(parent["id"])["status"] != "cancelled":
+                    time.sleep(0.02)
+            finally:
+                scheduler.stop()
+            cancelled = store.get(parent["id"])
+            self.assertEqual(cancelled["status"], "cancelled")
+            for child_id in cancelled["variants"]["candidate_run_ids"]:
+                self.assertEqual(store.get(child_id)["status"], "cancelled")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            parent = store.create(
+                {
+                    "title": "Budget variants",
+                    "task": "Budget variants",
+                    "project_path": str(repo),
+                    "workflow": "variants",
+                    "variants": {"enabled": True, "count": 2},
+                    "budgets": {"max_cost_usd": 0.3},
+                }
+            )
+            scheduler = Scheduler(store, agent_runner=VariantAgentRunner(), check_runner=PassingCheckRunner(), poll_seconds=0.01)
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline and store.get(parent["id"])["status"] != "failed":
+                    time.sleep(0.03)
+            finally:
+                scheduler.stop()
+            failed = store.get(parent["id"])
+            self.assertEqual(failed["budget_status"]["state"], "exceeded")
+            self.assertIn("Shared variant cost budget exceeded", failed["last_error"])
 
     def test_apply_keeps_single_artifact_delivery_backward_compatible_with_pending_backlog(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

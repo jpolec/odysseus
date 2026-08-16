@@ -34,7 +34,7 @@ from .tmux import TmuxBridge
 from .worktrees import WorktreeManager
 
 
-RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|apply|integration-candidates|integration|send-back|resume|takeover|draft-pr|ci-poll))?$")
+RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|apply|integration-candidates|integration|variants|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
 PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile|skills|knowledge))?$")
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
@@ -406,7 +406,11 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json(self.server.app.store.update_config(changes))
                 return
             if parsed.path == "/api/runs":
-                run = self.server.app.store.create({**body, "origin": "web", "evidence_class": "observed"})
+                request = {**body, "origin": "web", "evidence_class": "observed"}
+                variants = request.get("variants") if isinstance(request.get("variants"), Mapping) else {}
+                if variants.get("enabled") and not request.get("workflow"):
+                    request["workflow"] = "variants"
+                run = self.server.app.store.create(request)
                 self._json(run, HTTPStatus.CREATED)
                 return
             if parsed.path == "/api/assist":
@@ -527,6 +531,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json(self.server.app.actions.apply(run_id))
             elif action == "integration":
                 self._json(self.server.app.actions.create_integration_delivery(run_id, body), HTTPStatus.CREATED)
+            elif action == "variants":
+                self._json(self.server.app.actions.decide_variants(run_id, body), HTTPStatus.CREATED)
             elif action == "send-back":
                 self._json(self.server.app.actions.send_back(run_id, str(body.get("feedback", ""))))
             elif action == "resume":

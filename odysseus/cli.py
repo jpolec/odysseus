@@ -198,6 +198,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         "max_tool_calls": args.max_tool_calls,
         "max_cost_usd": args.max_cost,
     }
+    workflow = "variants" if args.variants else args.workflow
     run = _store(args).create(
         {
             "task": task,
@@ -205,7 +206,13 @@ def cmd_run(args: argparse.Namespace) -> int:
             "project_path": args.project,
             "lane": args.lane,
             "review_lane": args.review_lane or args.lane,
-            "workflow": args.workflow,
+            "workflow": workflow,
+            "variants": {
+                "enabled": bool(args.variants),
+                "count": args.variants or 2,
+                "lanes": args.variant_lane,
+                "prompts": args.variant_prompt,
+            },
             "checks": args.check,
             "max_retries": args.max_retries,
             "base_ref": args.base,
@@ -334,6 +341,18 @@ def cmd_cancel(args: argparse.Namespace) -> int:
 def cmd_draft_pr(args: argparse.Namespace) -> int:
     _, actions = _actions(args)
     _print_json(actions.draft_pr(args.run_id))
+    return 0
+
+
+def cmd_variants(args: argparse.Namespace) -> int:
+    _, actions = _actions(args)
+    selected = [item for value in args.selected_run_id for item in value.split(",") if item]
+    payload = {
+        "decision": args.decision,
+        "selected_run_ids": selected,
+        "reason": args.reason or "",
+    }
+    _print_json(actions.decide_variants(args.run_id, payload))
     return 0
 
 
@@ -703,6 +722,9 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--lane", default="codex")
     run.add_argument("--review-lane")
     run.add_argument("--workflow", default="agent-check-review")
+    run.add_argument("--variants", type=int, choices=(2, 3), help="explicitly opt into a 2- or 3-candidate variants workflow")
+    run.add_argument("--variant-lane", action="append", default=[], help="candidate lane; repeat up to --variants times")
+    run.add_argument("--variant-prompt", action="append", default=[], help="candidate-specific instruction; repeat up to --variants times")
     run.add_argument("--check", action="append", default=[], help="check command; repeat as needed")
     run.add_argument("--max-retries", type=int, default=2)
     run.add_argument("--base", default="")
@@ -791,6 +813,13 @@ def parser() -> argparse.ArgumentParser:
     draft = sub.add_parser("draft-pr", help="commit, push, and open a draft pull request")
     draft.add_argument("run_id")
     draft.set_defaults(func=cmd_draft_pr)
+
+    variants = sub.add_parser("variants", help="record an explicit variants decision")
+    variants.add_argument("run_id")
+    variants.add_argument("decision", choices=["select", "combine", "reject_all"])
+    variants.add_argument("--selected-run-id", action="append", default=[], help="selected candidate run id; repeat or comma-separate")
+    variants.add_argument("--reason", default="")
+    variants.set_defaults(func=cmd_variants)
 
     resume = sub.add_parser("resume", help="continue a review/failed run in its existing agent session")
     resume.add_argument("run_id")

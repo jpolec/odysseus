@@ -22,10 +22,11 @@ from .notifications import NotificationManager
 from .project_knowledge import ProjectKnowledge
 from .projects import ProjectRegistry
 from .skills import SkillRegistry, VALID_TASK_MODES
+from .variants import normalize_variants_request
 
 
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
-TERMINAL_STATUSES = frozenset({"accepted", "pr_created", "cancelled"})
+TERMINAL_STATUSES = frozenset({"accepted", "pr_created", "cancelled", "rejected", "decided"})
 ACTIVE_STATUSES = frozenset(
     {"starting", "running", "checking", "reviewing", "cancelling", "publishing"}
 )
@@ -153,6 +154,22 @@ def _run_defaults() -> dict[str, Any]:
             "odysseus_version": "",
             "release": "",
             "observed_at": None,
+        },
+        "variants": {"enabled": False},
+        "variant": {
+            "parent_run_id": "",
+            "index": 0,
+            "title": "",
+            "prompt_sha256": "",
+            "model": "",
+        },
+        "variant_comparison": {},
+        "variant_decision": {
+            "decision": "",
+            "selected_run_ids": [],
+            "integration_run_id": "",
+            "reason": "",
+            "decided_at": None,
         },
     }
 
@@ -427,6 +444,10 @@ class RunStore:
         if not isinstance(skills_requested, list) or not all(isinstance(item, str) for item in skills_requested):
             raise ValueError("skills must be a list of skill names")
         environment_request = normalize_environment_request(request.get("environment"))
+        workflow = str(request.get("workflow") or config["default_workflow"])
+        variants = normalize_variants_request(request, default_lane=str(request.get("lane") or config["default_lane"]))
+        if workflow == "variants" and not variants.get("enabled"):
+            raise ValueError("variants workflow requires explicit variants configuration")
         from . import __version__
 
         evidence_class = str(request.get("evidence_class") or "observed")
@@ -464,7 +485,7 @@ class RunStore:
             "project_id": project_record["id"],
             "lane": str(request.get("lane") or config["default_lane"]),
             "review_lane": str(request.get("review_lane") or request.get("lane") or config["default_lane"]),
-            "workflow": str(request.get("workflow") or config["default_workflow"]),
+            "workflow": workflow,
             "checks": checks,
             "max_retries": max(0, max_retries),
             "status": initial_status,
@@ -548,6 +569,14 @@ class RunStore:
                 "odysseus_version": __version__,
                 "release": release,
                 "observed_at": stamp,
+            },
+            "variants": variants,
+            "variant": {
+                "parent_run_id": str(request.get("variant_parent_id") or ""),
+                "index": _safe_int(request.get("variant_index")),
+                "title": str(request.get("variant_title") or ""),
+                "prompt_sha256": str(request.get("variant_prompt_sha256") or ""),
+                "model": str(request.get("variant_model") or ""),
             },
         }
         with self.locked():
@@ -882,7 +911,7 @@ class RunStore:
             return run
         if run.get("status") in {"review", "failed", "accepted"}:
             return run
-        if run.get("status") in {"queued", "blocked", "attention"}:
+        if run.get("status") in {"queued", "blocked", "attention", "waiting_variants"}:
             self.update(
                 run_id,
                 cancel_requested=False,
