@@ -149,6 +149,55 @@ class OutcomeRouterTests(unittest.TestCase):
             self.assertEqual(run["outcome_routing"]["recommended_lane"], "claude")
             self.assertEqual(run["outcome_routing"]["applied_lane"], "codex")
 
+    def test_auto_route_applies_eligible_recommendation_and_records_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "repo"
+            project.mkdir()
+            store = RunStore(root / "state")
+            store.update_config({"default_lane": "codex", "outcome_router": {"min_samples": 1}})
+            self._run(store, project, lane="claude", index=1)
+
+            run = store.create(
+                {
+                    "task": "Outcome router fixture",
+                    "project_path": str(project),
+                    "lane": "codex",
+                    "auto_route": True,
+                    "skill_mode": "manual",
+                    "skills": ["test-strategy"],
+                }
+            )
+
+            self.assertEqual(run["lane"], "claude")
+            self.assertEqual(run["review_lane"], "claude")
+            self.assertEqual(run["outcome_routing"]["mode"], "automatic")
+            self.assertEqual(run["outcome_routing"]["applied_lane"], "claude")
+            self.assertTrue(run["outcome_routing"]["autonomous_routing"])
+            self.assertIn("historical evidence", run["outcome_routing"]["reason"])
+
+    def test_auto_route_transparently_falls_back_when_history_is_sparse(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "repo"
+            project.mkdir()
+            store = RunStore(root / "state")
+            store.update_config({"default_lane": "codex", "outcome_router": {"min_samples": 3}})
+
+            run = store.create(
+                {
+                    "task": "Sparse routing fixture",
+                    "project_path": str(project),
+                    "lane": "codex",
+                    "auto_route": True,
+                }
+            )
+
+            self.assertEqual(run["lane"], "codex")
+            self.assertEqual(run["outcome_routing"]["mode"], "automatic_fallback")
+            self.assertFalse(run["outcome_routing"]["autonomous_routing"])
+            self.assertEqual(run["outcome_routing"]["recommendation_reason"], "insufficient_samples")
+
     def test_backtest_uses_only_prior_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

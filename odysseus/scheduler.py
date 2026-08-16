@@ -737,15 +737,23 @@ class Scheduler:
                 policy_decision=evaluation["decision"],
                 human_review_required=evaluation["human_review_required"],
             )
-            evaluation_event = "evaluation.completed" if evaluation["eligible"] else "evaluation.failed"
+            evaluation_event = (
+                "evaluation.completed"
+                if evaluation["eligible"]
+                else "evaluation.failed"
+                if evaluation["failing_evaluators"]
+                else "evaluation.inconclusive"
+            )
             emit(
                 evaluation_event,
                 "odysseus",
                 {
                     "message": (
-                        "Evaluation reached the configured confidence policy."
+                        "Evaluation reached the configured evidence threshold."
                         if evaluation["eligible"]
-                        else "Evaluation requires operator review."
+                        else "Independent evaluation found failing evidence."
+                        if evaluation["failing_evaluators"]
+                        else "Evaluation is inconclusive and needs operator review."
                     ),
                     "confidence": evaluation["confidence"],
                     "threshold": evaluation["threshold"],

@@ -992,6 +992,34 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 body { background-color: var(--base); background-image: none; }
 :root[data-theme="dark"] body { background-image: none; }
 
+#taskDialog { width: min(720px,calc(100vw - 28px)); }
+#taskDialog form { padding: 24px; }
+#taskDialog .dialog-head { margin-bottom: 18px; }
+#taskDialog .dialog-head h2 { font-size: 25px; }
+.task-agent-reason { margin: -7px 0 15px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.task-agent-reason strong { color: var(--ink); font-weight: 600; }
+.checkbox-row { display: flex; min-width: 0; align-items: center; gap: 8px; white-space: normal; }
+.checkbox-row input { flex: 0 0 15px; width: 15px; min-height: 15px; margin: 0; }
+.advanced-limits { margin: 4px 0 14px; padding: 0 12px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); }
+.advanced-limits > summary { padding: 10px 0; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; }
+.advanced-limits[open] > summary { margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.evaluation-note { margin: 8px 0 0; color: var(--faint); font-size: 10px; }
+.attention-group { gap: 0; padding: 0; overflow: hidden; }
+.attention-group > .card-row,
+.attention-group > h3,
+.attention-group-footer { margin-right: 16px; margin-left: 16px; }
+.attention-group > .card-row { margin-top: 16px; }
+.attention-group > h3 { margin-bottom: 12px; }
+.attention-group-events { display: grid; border-top: 1px solid var(--line); }
+.attention-group-event { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.attention-group-event:last-child { border-bottom: 0; }
+.attention-event-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.attention-event-head strong { color: var(--ink); font-size: 11px; font-weight: 600; }
+.attention-event-head span { color: var(--faint); font-size: 9px; white-space: nowrap; }
+.attention-group-event > p { margin: 6px 0 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.attention-event-actions { display: flex; align-items: center; gap: 7px; }
+.attention-group-footer { padding: 11px 0 14px; }
+
 @media (max-width: 1280px) {
   .titlebar .brand-copy small { display: none; }
   .titlebar { grid-template-columns: 210px minmax(120px,1fr) minmax(210px,280px) auto; }

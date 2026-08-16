@@ -24,6 +24,10 @@ class EventTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Event(run_id="run-1", type="vendor.surprise", source="codex")
 
+    def test_inconclusive_evaluation_is_a_first_class_event(self) -> None:
+        event = Event(run_id="run-1", type="evaluation.inconclusive", source="odysseus").to_dict()
+        self.assertEqual(event["type"], "evaluation.inconclusive")
+
 
 if __name__ == "__main__":
     unittest.main()

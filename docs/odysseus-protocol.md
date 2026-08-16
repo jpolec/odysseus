@@ -79,7 +79,7 @@ system.recovered
 session.adopted         session.resumed         session.takeover_ready
 inbox.created           inbox.promoted
 attention.answered      attention.resolved
-evaluation.started      evaluation.completed    evaluation.failed
+evaluation.started      evaluation.completed    evaluation.inconclusive    evaluation.failed
 epic.created            epic.proposed           epic.activated
 epic.task_created       epic.completed          epic.failed
 dag.dependency_met      dag.blocked              dag.unblocked
@@ -263,10 +263,12 @@ Schema 11 adds `integration_disposition` for selected, deferred, and
 superseded accepted artifacts. Store open migrates old snapshots by adding
 defaults; it never rewrites event journals.
 
-Schema 12 adds `outcome_routing`, an immutable shadow recommendation captured
-when a task is queued. It records the operator default, recommendation,
+Schema 12 adds `outcome_routing`, an immutable recommendation captured when a
+task is queued. It records the operator default, recommendation, applied lane,
 features, minimum sample policy, candidate evidence, counterfactual, drift,
-and governance note. Shadow routing never changes `lane` autonomously.
+and governance note. Requests without `auto_route=true` remain shadow-only.
+With explicit Auto, eligible evidence may set the run lane; sparse or disabled
+routing records `automatic_fallback` and retains the configured default.
 
 Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 `skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7
@@ -286,7 +288,7 @@ before any agent or repository command; answering its permission request with
 - `GET /api/portfolio?days=7` returns windowed engineering delivery metrics,
   per-agent sample sizes, failure attribution, and current blockers. Unknown
   cost and unconfigured engineer-time baselines remain `null`.
-- `POST /api/projects/:id/router/recommend` returns a shadow recommendation;
+- `POST /api/projects/:id/router/recommend` returns a read-only recommendation;
   `GET|POST .../router/backtest` evaluates only evidence that predates each
   decision; `GET /api/router/export` exports normalized records.
 - `POST /api/projects/:id/router/delete` excludes that repository from future

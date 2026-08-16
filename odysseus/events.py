@@ -79,6 +79,7 @@ EVENT_TYPES = frozenset(
         "attention.resolved",
         "evaluation.started",
         "evaluation.completed",
+        "evaluation.inconclusive",
         "evaluation.failed",
         "epic.created",
         "epic.proposed",

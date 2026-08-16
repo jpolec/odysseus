@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.8.0](https://img.shields.io/badge/version-0.8.0-171a16)
+![Version: 0.8.1](https://img.shields.io/badge/version-0.8.1-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -65,7 +65,8 @@ adds repositories by itself.
   the browser.
 - **See the work.** The UI exposes normalized messages, reasoning summaries,
   tool calls/results, token and cache usage, checks, independent evaluation,
-  confidence, policy, and live activity.
+  evidence score, policy, and live activity. The score is explicitly heuristic,
+  not presented as a calibrated delivery probability.
 - **Keep control.** Accept saves a local artifact without touching the source
   checkout. A separate, confirmed **Integrate into repository** action merges it only
   when the checkout is clean, on the expected branch, and history is compatible.
@@ -78,9 +79,10 @@ adds repositories by itself.
   delivery, first-pass rate, corrective human interventions, observed cost,
   agent effectiveness with sample size, failure attribution, and current
   blockers. Missing cost and unconfigured time-saved estimates stay Unknown.
-- **Learn in shadow mode.** The outcome router records an explainable routing
-  receipt and compares repository-local agent history without changing the
-  operator's selected worker. Sparse samples fall back explicitly.
+- **Route from delivered outcomes.** New Task defaults to **Agent: Auto**. The
+  outcome router applies an eligible repository-local recommendation, records
+  the evidence and counterfactual, and falls back explicitly when the sample is
+  sparse. A manual worker override remains one click away.
 - **Propose before executing external work.** GitHub Issue intake re-fetches the
   authoritative issue through `gh`, redacts evidence, deduplicates observations,
   and creates an approval-gated Plan instead of silently starting an agent.
@@ -215,6 +217,20 @@ Repositories, Repository, Attention, Review, Delivery, Integration, CI repair,
 Context Receipt, New task, and Settings—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
+
+### Start with the outcome
+
+New Task keeps the default path to three choices: the finished change, its
+repository, and **Agent: Auto**. Runtime and budget overrides stay collapsed.
+
+![Odysseus New Task with Agent Auto](docs/screenshots/web-new-task.png)
+
+### One queue for human decisions
+
+Needs You counts tasks separately from their open decisions and groups every
+question, review gate, or recovery action under the task it belongs to.
+
+![Odysseus Needs You queue](docs/screenshots/web-attention.png)
 
 ### Engineering Portfolio
 
@@ -378,7 +394,7 @@ At the review gate:
 | Action | Result |
 | --- | --- |
 | **View changes** | Opens the complete diff before any delivery decision. |
-| **Accept result** | Records approval and a durable local artifact commit; the source checkout remains unchanged. |
+| **Accept artifact** | Records approval and a durable local artifact commit; it does not merge or deliver the change. |
 | **Integrate into repository** | After acceptance, safely merges the complete artifact into the expected local branch, preserving unrelated untracked files and aborting tracked-edit or merge conflicts. |
 | **Request changes instead** | Sends guidance to the saved implementation thread in the same worktree. |
 | **Continue in terminal** | Resumes the exact implementation thread in a managed tmux session and copies its open command. |

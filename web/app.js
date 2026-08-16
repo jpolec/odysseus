@@ -16,6 +16,7 @@ const state = {
   selectionGeneration: 0, filter: "active", projectFilter: "all", view: "portfolio",
   stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
+  taskAgentRecommendation: null, taskAgentTimer: null,
   skillsProjectId: "", skillsCatalog: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
   selectedDecisionPaths: [],
@@ -327,6 +328,28 @@ function filteredRuns() {
 
 function runsForProject(projectId) { return state.runs.filter((run) => run.project_id === projectId); }
 function attentionForProject(projectId) { return state.attention.filter((item) => item.project_id === projectId); }
+function groupAttention(items = state.attention) {
+  const groups = new Map();
+  const priorityRank = {critical: 4, high: 3, medium: 2, low: 1};
+  items.forEach((item) => {
+    const key = item.run_id ? `run:${item.run_id}` : `item:${item.id}`;
+    if (!groups.has(key)) groups.set(key, {key, run_id: item.run_id || "", project_id: item.project_id || "", priority: item.priority || "medium", items: []});
+    const group = groups.get(key);
+    group.items.push(item);
+    if ((priorityRank[item.priority] || 0) > (priorityRank[group.priority] || 0)) group.priority = item.priority;
+  });
+  return [...groups.values()].sort((left, right) => {
+    const priority = (priorityRank[right.priority] || 0) - (priorityRank[left.priority] || 0);
+    if (priority) return priority;
+    return String(right.items[0]?.created_at || "").localeCompare(String(left.items[0]?.created_at || ""));
+  });
+}
+function attentionTaskCount(items = state.attention) { return groupAttention(items).length; }
+function agentLaneOptions(selected = "", includeAuto = false) {
+  const automatic = includeAuto ? `<option value="auto" ${selected === "auto" ? "selected" : ""}>Auto — recommended</option>` : "";
+  const manual = (state.bootstrap?.lanes || []).map((lane) => `<option value="${escapeHtml(lane)}" ${lane === selected ? "selected" : ""}>${escapeHtml(lane)}</option>`).join("");
+  return automatic + manual;
+}
 function projectTerminalCount(project) { return state.sessions.filter((session) => session.project_path === project.path).length; }
 function repositoryScopedSessions() {
   const project = activeProject();
@@ -365,7 +388,7 @@ function environmentFromForm(data) {
 function renderProjectTree() {
   $("#projectCount").textContent = state.projects.length;
   $("#allWorkCount").textContent = state.projects.length;
-  $("#sidebarAttentionCount").textContent = state.attention.length;
+  $("#sidebarAttentionCount").textContent = attentionTaskCount();
   updateSessionNavCount();
   const currentProject = activeProject();
   $(".task-section").classList.toggle("hidden", !currentProject);
@@ -452,6 +475,56 @@ function renderTaskSkillRecommendations() {
   const selected = (state.taskSkillRecommendations?.recommendations || []).filter((item) => item.selected);
   container.classList.toggle("hidden", $("#taskSkillMode").value !== "auto" || !selected.length);
   container.innerHTML = selected.length ? `<small>AUTO WILL ATTACH</small>${selected.map((item) => `<div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml((item.reasons || [])[0] || "repository policy")}</span></div>`).join("")}` : "";
+}
+
+function renderTaskAgentRecommendation() {
+  const node = $("#taskAgentReason");
+  if (!node) return;
+  const choice = $("#laneSelect").value;
+  if (choice !== "auto") {
+    node.innerHTML = `<strong>${escapeHtml(choice)}</strong> is manually selected. Auto routing is off for this task.`;
+    return;
+  }
+  const recommendation = state.taskAgentRecommendation;
+  const fallback = state.bootstrap?.default_lane || "codex";
+  if (!recommendation) {
+    node.innerHTML = `<strong>Auto is recommended.</strong> Sparse history falls back to ${escapeHtml(fallback)}.`;
+    return;
+  }
+  const lane = recommendation.recommended_lane || fallback;
+  const evidence = (recommendation.evidence || []).find((item) => item.agent === lane);
+  const samples = Number(evidence?.samples || 0);
+  const eligible = !["disabled", "insufficient_samples"].includes(recommendation.reason);
+  node.innerHTML = eligible
+    ? `<strong>${escapeHtml(lane)} selected.</strong> Best historical fit from ${escapeHtml(samples)} comparable outcome${samples === 1 ? "" : "s"}; the routing decision will be recorded.`
+    : `<strong>${escapeHtml(fallback)} fallback.</strong> Not enough comparable outcomes yet; Odysseus records this choice and learns from delivery.`;
+}
+
+function scheduleTaskAgentRecommendation() {
+  window.clearTimeout(state.taskAgentTimer);
+  state.taskAgentTimer = window.setTimeout(() => refreshTaskAgentRecommendation().catch((error) => {
+    state.taskAgentRecommendation = null;
+    renderTaskAgentRecommendation();
+    toast(error.message, true);
+  }), 300);
+}
+
+async function refreshTaskAgentRecommendation() {
+  const projectId = $("#taskProjectSelect").value;
+  const task = $("#taskPrompt").value.trim();
+  if ($("#laneSelect").value !== "auto" || !projectId || task.length < 4) {
+    state.taskAgentRecommendation = null;
+    renderTaskAgentRecommendation();
+    return;
+  }
+  const expected = `${projectId}\n${task}`;
+  const recommendation = await api(`/api/projects/${encodeURIComponent(projectId)}/router/recommend`, {
+    method: "POST",
+    body: JSON.stringify({task, operator_default: state.bootstrap.default_lane, role: "implementer", origin: "web"}),
+  });
+  if (`${$("#taskProjectSelect").value}\n${$("#taskPrompt").value.trim()}` !== expected || $("#laneSelect").value !== "auto") return;
+  state.taskAgentRecommendation = recommendation;
+  renderTaskAgentRecommendation();
 }
 
 function renderSkillCatalog(catalog, listSelector, countSelector) {
@@ -937,7 +1010,7 @@ function renderWork() {
   const project = activeProject();
   const runs = project ? runsForProject(project.id) : state.runs;
   const active = runs.filter((run) => activeStatuses.has(run.status)).length;
-  const needs = project ? attentionForProject(project.id).length : state.attention.length;
+  const needs = project ? attentionTaskCount(attentionForProject(project.id)) : attentionTaskCount();
   const complete = runs.filter((run) => ["accepted", "pr_created", "completed"].includes(run.status)).length;
   const terminals = project ? projectTerminalCount(project) : state.sessions.length;
   const delivered = runs.filter((run) => run.status === "pr_created" || deliveredDeliveryStatuses.has(run.delivery?.status)).length;
@@ -980,7 +1053,7 @@ function renderWork() {
   $("#workList").closest(".work-section").classList.toggle("hidden", !state.projects.length);
   if (!project) {
     $("#workList").innerHTML = state.projects.length ? state.projects.map((item) => {
-      const itemRuns = runsForProject(item.id); const itemActive = itemRuns.filter((run) => activeStatuses.has(run.status)).length; const itemNeeds = attentionForProject(item.id).length;
+      const itemRuns = runsForProject(item.id); const itemActive = itemRuns.filter((run) => activeStatuses.has(run.status)).length; const itemNeeds = attentionTaskCount(attentionForProject(item.id));
       const checkoutNote = projectHasDuplicateCheckout(item) ? `Checkout · ${item.folder_name}` : item.path;
       return `<article class="project-overview-card"><button class="project-overview-main" data-work-project="${escapeHtml(item.id)}" type="button"><span class="project-glyph">${escapeHtml(projectName(item).slice(0, 1).toUpperCase())}</span><span class="project-overview-copy"><strong>${escapeHtml(projectName(item))}</strong><span class="repository-reference">${escapeHtml(projectRepository(item))}</span><small>${escapeHtml(checkoutNote)}</small></span></button><div class="project-overview-side"><div class="project-card-signals"><span>${itemRuns.length} tasks</span><span>${itemActive} active</span>${itemNeeds ? `<span class="needs">${itemNeeds} need you</span>` : ""}</div><button class="text-button danger-text" data-forget-project-inline="${escapeHtml(item.id)}" type="button">Remove</button></div></article>`;
     }).join("") : `<div class="empty-card"><strong>No repositories yet.</strong><br>Add one, then describe the first task.</div>`;
@@ -1148,7 +1221,7 @@ function renderDetail(run) {
   $("#observedSession").classList.toggle("hidden", !interactive);
   const decisionVisible = !interactive && ["review", "accepted", "pr_created"].includes(run.status);
   $("#assistantPanel").classList.toggle("hidden", interactive);
-  $("#summaryAssistant").classList.toggle("hidden", interactive || !canAssistantFollowUp(run));
+  $("#summaryAssistant").classList.add("hidden");
   renderAssistantPanel(run);
   renderRecoveryCard(run);
   $("#runNarrative").classList.toggle("hidden", interactive || decisionVisible);
@@ -1158,7 +1231,7 @@ function renderDetail(run) {
   $("#metrics").innerHTML = [
     ["Tokens", compactNumber(Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0))],
     ["Cost", metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown],
-    ["Confidence", run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}%`],
+    ["Evidence score", run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}/100`],
     ["GitHub CI", run.ci?.status || "not started"],
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
   renderEnvironment(run);
@@ -1193,7 +1266,7 @@ function renderDetail(run) {
     $("#checkResults").innerHTML = `<div class="empty-card">Open Evidence to inspect checks.</div>`;
     $("#contextReceipt").innerHTML = `<div class="empty-card">Open Context to inspect attached snapshots.</div>`;
     $("#reviewSummary").textContent = "Open Review to inspect reviewer output.";
-    $("#evaluationResults").innerHTML = `<div class="empty-card">Open Evaluation to inspect confidence signals.</div>`;
+    $("#evaluationResults").innerHTML = `<div class="empty-card">Open Evaluation to inspect evidence signals.</div>`;
     $("#ciResults").innerHTML = `<div class="empty-card">Open CI to inspect GitHub checks.</div>`;
   }
   renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
@@ -1318,11 +1391,11 @@ function decisionEvidence(run) {
   const cost = run.metrics?.cost_observed
     ? `$${Number(run.metrics.cost_usd || 0).toFixed(4)}`
     : UI_COPY.unknown;
-  const confidence = run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}%`;
+  const evidenceScore = run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}/100`;
   const title = (run.status === "review" && (!ciObserved || !["passed", "success"].includes(String(ci.status).toLowerCase())))
     ? "Ready for your decision"
     : run.status === "review" ? "Ready for your decision" : "Delivery decision";
-  return {checks, passed, failed, ci, ciFailures, files, stat, riskPaths, unresolved, verdict, ciObserved, cost, confidence, title};
+  return {checks, passed, failed, ci, ciFailures, files, stat, riskPaths, unresolved, verdict, ciObserved, cost, evidenceScore, title};
 }
 
 function renderDecisionSummary(run) {
@@ -1341,7 +1414,7 @@ function renderDecisionSummary(run) {
       <div><small>Files</small><strong>${escapeHtml(fileValue)}</strong></div>
       <div><small>Review</small><strong>${escapeHtml(evidence.verdict || UI_COPY.unknown)}</strong></div>
       <div><small>GitHub CI</small><strong>${escapeHtml(ciValue)}</strong></div>
-      <div><small>Confidence</small><strong>${escapeHtml(evidence.confidence)}</strong></div>
+      <div><small>Evidence score</small><strong>${escapeHtml(evidence.evidenceScore)}</strong></div>
       <div><small>Cost</small><strong>${escapeHtml(evidence.cost)}</strong></div>
     </section>
     <details class="decision-detail"><summary>More evidence</summary><pre>${escapeHtml([
@@ -1385,8 +1458,8 @@ function renderReviewDecision(run) {
   const delivered = deliveredDeliveryStatuses.has(delivery.status);
   const failed = delivery.status === "failed";
   const previewUrl = run.environment?.preview_url || "";
-  let deliveryCopy = "Accepting saves a durable artifact. It does not change your source checkout.";
-  let deliveryActions = `<button class="primary" data-review-action="accept" type="button">Accept result</button>`;
+  let deliveryCopy = "Accepting preserves this artifact. It does not merge or deliver it.";
+  let deliveryActions = `<button class="primary" data-review-action="accept" type="button">Accept artifact</button>`;
   let alternateActions = `<button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
   let deliveryHelp = "";
   if (run.status === "accepted" && !delivered) {
@@ -1435,7 +1508,7 @@ function renderReviewDecision(run) {
     ${renderDecisionSummary(run)}
     <section class="delivery-decision"><div><strong>${escapeHtml(deliveryCopy)}</strong>${deliveryHelp}</div><div class="delivery-actions">${deliveryActions}</div></section>
     <details class="review-secondary"><summary>Inspect or choose another action</summary><div class="secondary-action-grid"><button class="ghost" data-review-action="view-changes" type="button">View changes</button>${previewUrl ? previewLinks(previewUrl) : `<button class="ghost" data-review-action="view-evidence" type="button">View evidence</button>`}${alternateActions}</div></details>
-    ${run.status === "review" ? `<details class="review-request"><summary>Request changes</summary><textarea id="reviewFeedback" rows="4" placeholder="What should the agent change before you accept this result?"></textarea><div><button class="primary" data-review-action="send-back" type="button">Send changes</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
+    ${run.status === "review" ? `<details class="review-request"><summary>Request changes</summary><textarea id="reviewFeedback" rows="4" placeholder="What should the agent change before you accept this artifact?"></textarea><div><button class="primary" data-review-action="send-back" type="button">Send changes</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
     <footer class="delivery-target">Repository: <strong>${escapeHtml(projectName(project))}</strong> · Local branch: <code>${escapeHtml(run.base_ref || "unknown")}</code></footer>`;
   $$('[data-review-action]').forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
 }
@@ -1458,7 +1531,7 @@ function renderVariantDecision(run, node) {
       <header><div><strong>${escapeHtml(item.title || item.run_id)}</strong><small>${escapeHtml(item.run_id)} · ${escapeHtml(item.lane || "")}</small></div>${frontierMark}</header>
       <div class="variant-metrics">
         <span><small>Tests</small><strong>${escapeHtml(tests.passed || 0)}/${escapeHtml(tests.total || 0)}</strong></span>
-        <span><small>Quality</small><strong>${escapeHtml(Math.round(Number(quality.confidence || 0) * 100))}%</strong></span>
+        <span><small>Evidence</small><strong>${escapeHtml(Math.round(Number(quality.confidence || 0) * 100))}/100</strong></span>
         <span><small>Risk</small><strong>${escapeHtml((item.regression_merge_risk || {}).risk || "unknown")}</strong></span>
         <span><small>Cost</small><strong>$${escapeHtml(Number(cost.usd || 0).toFixed(2))}</strong></span>
         <span><small>Size</small><strong>${escapeHtml(size.files || 0)} files</strong></span>
@@ -1689,7 +1762,8 @@ function renderContextReceipt(run) {
 function renderEvaluation(evaluation) {
   const components = evaluation.components || [];
   $("#evaluationResults").innerHTML = evaluation.version ? `
-    <div class="evaluation-head"><strong>${Math.round(Number(evaluation.confidence || 0) * 100)}% confidence</strong><span>${escapeHtml(evaluation.decision || "human_review")}</span></div>
+    <div class="evaluation-head"><strong>Evidence score ${Math.round(Number(evaluation.confidence || 0) * 100)}/100</strong><span>${escapeHtml(evaluation.decision || "human_review")}</span></div>
+    <p class="evaluation-note">Heuristic evidence synthesis; not a calibrated delivery probability.</p>
     ${components.map((item) => `<div class="evaluation-row"><div><strong>${escapeHtml(item.id)}</strong><small>${escapeHtml(item.kind || "signal")}</small></div><span>${Math.round(Number(item.score || 0) * 100)}%</span><span class="${item.verdict === "fail" ? "check-fail" : "check-pass"}">${escapeHtml(item.verdict || "—")}</span></div>`).join("")}
   ` : `<div class="empty-card">Evaluation has not run yet.</div>`;
 }
@@ -2072,31 +2146,56 @@ async function runAction(action) {
   try {
     const result = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/${action}`, {method: "POST", body: "{}"});
     if (action === "takeover") await copyCommand(result.command);
-    else toast(action === "accept" ? "Result accepted. Integrate it to change the source repository." : action === "apply" ? "Artifact integrated into the source repository." : action === "draft-pr" ? "Draft pull request created." : action === "ci-poll" ? "GitHub checks refreshed." : `Action completed: ${action}`);
+    else toast(action === "accept" ? "Artifact accepted. Integrate it to change the source repository." : action === "apply" ? "Artifact integrated into the source repository." : action === "draft-pr" ? "Draft pull request created." : action === "ci-poll" ? "GitHub checks refreshed." : `Action completed: ${action}`);
     await refreshRuns(); await refreshSelected();
   } catch (error) { toast(error.message, true); }
 }
 
+function attentionItemLabel(item) {
+  if (item.type === "evaluation_review") return "Evaluation needs review";
+  if (item.type === "evaluation_failed" && /requires operator review|inconclusive|needs review/i.test(String(item.message || ""))) return "Evaluation needs review";
+  if (item.type === "evaluation_failed") return "Evaluation failed";
+  if (item.type === "review_ready") return "Artifact ready for review";
+  if (item.type === "merge_conflict") return "Integration conflict";
+  return statusLabel(item.type);
+}
+
+function renderAttentionEvent(item) {
+  const options = item.options || [];
+  const primaryOption = options.find((option) => option.id !== "takeover") || options[0];
+  const extraOptions = options.filter((option) => option !== primaryOption);
+  const actionLabel = item.type === "merge_conflict" ? "Resolve integration" : "Answer";
+  const primary = primaryOption
+    ? `<button class="primary" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(primaryOption.id)}" type="button">${escapeHtml(primaryOption.label)}</button>`
+    : `<button class="primary" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>`;
+  const extras = extraOptions.map((option) => `<button class="ghost" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
+  const detail = item.data || {};
+  const conflicts = detail.conflicts || [];
+  const preserved = detail.preserved_branches || detail.preserved || [];
+  const conflictBody = item.type === "merge_conflict" ? `<div class="attention-conflict-list"><strong>Conflicting files</strong>${conflicts.length ? conflicts.map((file) => `<code>${escapeHtml(file)}</code>`).join("") : `<span>Unknown</span>`}<strong>Preserved branches</strong>${preserved.length ? preserved.map((branch) => `<code>${escapeHtml(branch)}</code>`).join("") : `<span>Source and integration branches are preserved.</span>`}</div>` : "";
+  const message = item.type === "merge_conflict" ? "Prerequisite: resolve listed files." : item.message;
+  return `<section class="attention-group-event"><div class="attention-event-head"><strong>${escapeHtml(attentionItemLabel(item))}</strong><span>${escapeHtml(relativeTime(item.created_at))} ago</span></div><p>${escapeHtml(message)}</p>${conflictBody}<div class="attention-event-actions">${primary}<details class="card-more-actions"><summary>More</summary><div>${extras}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button><button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve decision</button></div></details></div></section>`;
+}
+
 async function refreshAttention() {
   state.attention = (await api("/api/attention?status=open")).items;
-  const counts = state.attention.reduce((value, item) => ({...value, [item.priority]: (value[item.priority] || 0) + 1}), {});
-  $("#attentionNavCount").textContent = state.attention.length || "";
+  const groups = groupAttention();
+  const highPriority = groups.filter((group) => ["critical", "high"].includes(group.priority)).length;
+  const multiple = groups.filter((group) => group.items.length > 1).length;
+  $("#attentionNavCount").textContent = groups.length || "";
   renderProjectTree(); renderWork();
-  $("#attentionSummary").innerHTML = ["critical", "high", "medium", "low"].map((priority) => `<div><strong>${counts[priority] || 0}</strong><span>${priority}</span></div>`).join("");
-  $("#attentionList").innerHTML = state.attention.length ? state.attention.map((item) => {
-    const options = (item.options || []);
-    const primaryOption = options.find((option) => option.id !== "takeover") || options[0];
-    const extraOptions = options.filter((option) => option !== primaryOption);
-    const optionButton = primaryOption ? `<button class="primary" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(primaryOption.id)}" type="button">${escapeHtml(primaryOption.label)}</button>` : "";
-    const extraButtons = extraOptions.map((option) => `<button class="ghost" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
-    const detail = item.data || {};
-    const conflicts = detail.conflicts || [];
-    const preserved = detail.preserved_branches || detail.preserved || [];
-    const conflictBody = item.type === "merge_conflict" ? `<div class="attention-conflict-list"><strong>Conflicting files</strong>${conflicts.length ? conflicts.map((file) => `<code>${escapeHtml(file)}</code>`).join("") : `<span>Unknown</span>`}<strong>Preserved branches</strong>${preserved.length ? preserved.map((branch) => `<code>${escapeHtml(branch)}</code>`).join("") : `<span>Source and integration branches are preserved.</span>`}</div>` : "";
-    const classes = `stack-card attention-card priority-${escapeHtml(item.priority)}${item.type === "merge_conflict" ? " attention-conflict" : ""}`;
-    const actionLabel = item.type === "merge_conflict" ? "Resolve integration" : "Answer";
-    const title = item.type === "merge_conflict" ? "Integration conflict" : item.title;
-    return `<article class="${classes}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(statusLabel(item.type))}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(item.type === "merge_conflict" ? "Prerequisite: resolve listed files." : item.message)}</p>${conflictBody}<div class="card-actions">${optionButton || `<button class="primary" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>`}<details class="card-more-actions"><summary>More</summary><div>${extraButtons}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></details></div></article>`;
+  $("#attentionSummary").innerHTML = [
+    [groups.length, "tasks need you"],
+    [state.attention.length, "open decisions"],
+    [highPriority, "high priority"],
+    [multiple, "multi-decision tasks"],
+  ].map(([count, label]) => `<div><strong>${escapeHtml(count)}</strong><span>${escapeHtml(label)}</span></div>`).join("");
+  $("#attentionList").innerHTML = groups.length ? groups.map((group) => {
+    const run = group.run_id ? state.runs.find((item) => item.id === group.run_id) : null;
+    const first = group.items[0];
+    const title = run ? runTitle(run) : (first.title || "Decision required");
+    const classes = `stack-card attention-card attention-group priority-${escapeHtml(group.priority)}${group.items.some((item) => item.type === "merge_conflict") ? " attention-conflict" : ""}`;
+    return `<article class="${classes}"><div class="card-row"><span class="mini-status status-${group.priority === "high" || group.priority === "critical" ? "failed" : "queued"}">${escapeHtml(group.priority)}</span><span class="run-id">${group.items.length} decision${group.items.length === 1 ? "" : "s"}</span></div><h3>${escapeHtml(title)}</h3><div class="attention-group-events">${group.items.map(renderAttentionEvent).join("")}</div>${group.run_id ? `<div class="attention-group-footer"><button class="ghost" data-open-run="${escapeHtml(group.run_id)}" type="button">Open task</button></div>` : ""}</article>`;
   }).join("") : `<div class="attention-zero"><span class="all-clear-mark">✓</span><p class="eyebrow">ALL CLEAR</p><strong>Nothing needs you.</strong><p>${escapeHtml(UI_COPY.noAction)}.</p><div class="empty-actions"><button class="primary" data-attention-new type="button">Start a task</button><button class="ghost" data-attention-epic type="button">Plan work</button><button class="ghost" data-open-terminals type="button">Terminals</button></div></div>`;
   $$('[data-attention-answer]').forEach((button) => button.addEventListener("click", () => respondAttention(button.dataset.attentionAnswer, button.dataset.answer)));
   $$('[data-attention-custom]').forEach((button) => button.addEventListener("click", () => openAttentionResponseDialog(button.dataset.attentionCustom)));
@@ -2291,8 +2390,8 @@ async function refreshSettings() {
   state.bootstrap.planner_lane = state.config.planner_lane || state.config.default_lane;
   state.bootstrap.review_lane = state.config.review_lane || state.config.default_lane;
   $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`;
-  const options = (selected) => state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}" ${lane === selected ? "selected" : ""}>${escapeHtml(lane)}</option>`).join("");
-  $("#laneSelect").innerHTML = options(state.bootstrap.default_lane);
+  const options = (selected) => agentLaneOptions(selected);
+  $("#laneSelect").innerHTML = agentLaneOptions("auto", true);
   $("#plannerLaneSelect").innerHTML = options(state.bootstrap.planner_lane);
   $("#epicLaneSelect").innerHTML = options(state.bootstrap.default_lane);
   $("#epicReviewLaneSelect").innerHTML = options(state.bootstrap.review_lane);
@@ -2527,9 +2626,10 @@ function bindDialogs() {
     finally { submit.disabled = false; }
   });
   const taskDialog = $("#taskDialog");
-  [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); taskDialog.showModal(); }));
-  $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); });
-  $("#taskPrompt").addEventListener("input", scheduleTaskSkillRecommendations);
+  [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); state.taskAgentRecommendation = null; renderTaskAgentRecommendation(); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); scheduleTaskAgentRecommendation(); taskDialog.showModal(); }));
+  $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); scheduleTaskAgentRecommendation(); });
+  $("#taskPrompt").addEventListener("input", () => { scheduleTaskSkillRecommendations(); scheduleTaskAgentRecommendation(); });
+  $("#laneSelect").addEventListener("change", scheduleTaskAgentRecommendation);
   $("#taskSkillMode").addEventListener("change", () => { renderTaskSkillChoices(); renderTaskSkillRecommendations(); scheduleTaskSkillRecommendations(); });
   $("#environmentProfile").addEventListener("change", (event) => $("#environmentOptions").classList.toggle("hidden", event.currentTarget.value !== "docker"));
   $("#untrustedProject").addEventListener("change", (event) => { if (!event.currentTarget.checked) return; const select = $("#environmentProfile"); const docker = select.querySelector('option[value="docker"]'); if (docker?.disabled) { event.currentTarget.checked = false; toast("Install Docker before running an untrusted repository.", true); return; } select.value = "docker"; select.dispatchEvent(new Event("change")); });
@@ -2552,8 +2652,10 @@ function bindDialogs() {
     const variantCount = Number(data.get("variant_count") || 2);
     const variantLanes = String(data.get("variant_lanes") || "").split(",").map((item) => item.trim()).filter(Boolean);
     const variantPrompts = String(data.get("variant_prompts") || "").split("\n").map((item) => item.trim()).filter(Boolean);
+    const laneChoice = String(data.get("lane") || "auto");
+    const autoRoute = laneChoice === "auto";
     const payload = {
-      task: data.get("task"), title: data.get("title"), project_path: project.path, lane: data.get("lane"),
+      task: data.get("task"), title: data.get("title"), project_path: project.path, lane: autoRoute ? state.bootstrap.default_lane : laneChoice, auto_route: autoRoute, origin: "web",
       skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), environment,
       untrusted_project: data.get("untrusted_project") === "on", workflow: variantsEnabled ? "variants" : "agent-check-review",
       variants: variantsEnabled ? {enabled: true, count: variantCount, lanes: variantLanes, prompts: variantPrompts} : {enabled: false},
@@ -2567,14 +2669,16 @@ function bindDialogs() {
     try {
       form.elements.task.value = "";
       form.elements.title.value = "";
-      status.textContent = `Starting ${payload.lane} on ${projectName(project)}...`;
+      status.textContent = autoRoute ? `Routing and starting on ${projectName(project)}...` : `Starting ${payload.lane} on ${projectName(project)}...`;
       status.classList.remove("hidden");
       setFormSubmitting(form, true, submit, "Starting...");
       const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)});
       state.taskSkillRecommendations = null;
+      state.taskAgentRecommendation = null;
       renderTaskSkillRecommendations();
+      renderTaskAgentRecommendation();
       status.textContent = addAnother ? "Task started. Add the next request." : "Task started. Opening the live task view...";
-      toast(`Task started for ${data.get("lane")}: ${runTitle(run)}`);
+      toast(`${autoRoute ? `Task routed to ${run.lane}` : `Task started for ${run.lane}`}: ${runTitle(run)}`);
       await Promise.all([refreshRuns(), refreshProjects()]);
       if (addAnother) {
         window.requestAnimationFrame(() => $("#taskPrompt").focus());
@@ -2717,7 +2821,7 @@ function bindDialogs() {
 
 async function init() {
   try {
-    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join(""); $("#laneSelect").innerHTML = laneOptions; $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions; $("#settingsDefaultLane").innerHTML = laneOptions; $("#settingsPlannerLane").innerHTML = laneOptions; $("#settingsReviewLane").innerHTML = laneOptions;
+    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = agentLaneOptions(); $("#laneSelect").innerHTML = agentLaneOptions("auto", true); $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions; $("#settingsDefaultLane").innerHTML = laneOptions; $("#settingsPlannerLane").innerHTML = laneOptions; $("#settingsReviewLane").innerHTML = laneOptions;
     [["docker", "Docker is not installed"], ["devcontainer", "Dev Container CLI is not installed"]].forEach(([profile, message]) => { const option = $("#environmentProfile").querySelector(`option[value="${profile}"]`); if (option && !state.bootstrap.capabilities?.[profile]) { option.disabled = true; option.textContent += ` — unavailable`; option.title = message; } });
     bindDialogs();
     syncThemeButton();
@@ -2769,6 +2873,19 @@ async function runBrowserRegression() {
   const narrow = window.matchMedia("(max-width: 760px)").matches;
   assert(!narrow || getComputedStyle($("#sidebarResizer")).display === "none", "mobile resize handle hidden");
 
+  $("#newTaskButton").click();
+  await sleep(50);
+  assert($("#taskDialog").open, "new task dialog opens");
+  assert($("#laneSelect").value === "auto", "new task defaults to Agent Auto");
+  assert($("#taskDialog").textContent.includes("Advanced execution settings"), "execution settings are collapsed behind one disclosure");
+  const advanced = $("#taskDialog > form > details.advanced");
+  advanced.open = true;
+  const checkbox = $("#untrustedProject");
+  const checkboxLabel = checkbox.closest("label");
+  assert(checkbox.getBoundingClientRect().width <= 20, "advanced checkbox retains compact width");
+  assert(checkboxLabel.scrollWidth <= checkboxLabel.clientWidth + 1, "advanced checkbox label does not overflow");
+  $("#taskDialog").close();
+
   const accepted = state.runs.filter((run) => run.status === "accepted");
   const acceptedNotApplied = accepted.find((run) => run.delivery?.status === "not_applied" || !run.delivery?.status);
   assert(accepted.length >= 3, "accepted artifacts available");
@@ -2786,10 +2903,15 @@ async function runBrowserRegression() {
   assert(review, "review task available");
   await selectRun(review.id);
   assert($("#reviewDecisionCard").textContent.includes("Review result"), "review decision leads task detail");
+  assert($("#reviewDecisionCard").textContent.includes("Evidence score"), "heuristic signal is labeled as evidence score");
+  assert(!$("#reviewDecisionCard").textContent.includes("Confidence"), "uncalibrated confidence label is hidden");
+  assert($("#reviewDecisionCard .delivery-decision .primary").textContent === "Accept artifact", "accept CTA names the durable artifact");
+  assert($("#reviewDecisionCard").textContent.includes("It does not merge or deliver it."), "acceptance and delivery are distinct");
   assert($("#runNarrative").classList.contains("hidden"), "review avoids duplicate narrative status");
   assert($("#reviewDecisionCard").textContent.includes("Cost") && $("#reviewDecisionCard").textContent.includes("Unknown"), "unknown cost remains explicit");
   assert($$("#reviewDecisionCard .delivery-decision .primary").length === 1, "review exposes one visible primary action");
-  assert(!$("#summaryAssistant").classList.contains("hidden"), "assistant available on decision states");
+  assert($("#summaryAssistant").classList.contains("hidden"), "duplicate summary assistant remains hidden");
+  assert(!$("#assistantPanel").classList.contains("hidden"), "one assistant rail remains available on decision states");
   assert(acceptedNotApplied, "accepted not-applied artifact available");
   await selectRun(acceptedNotApplied.id);
   assert($("#reviewDecisionCard").textContent.includes("Checks"), "decision evidence visible");
@@ -2834,6 +2956,9 @@ async function runBrowserRegression() {
   if (conflict) {
     assert($("#attentionList").textContent.includes("Conflicting files"), "conflict card shows files");
     assert($("#attentionList").textContent.includes("Prerequisite: resolve listed files."), "conflict card names prerequisite");
+    const group = conflict.run_id ? $(`[data-open-run="${CSS.escape(conflict.run_id)}"]`)?.closest(".attention-group") : null;
+    assert(group && group.querySelectorAll(".attention-group-event").length === 2, "multiple decisions for one task are grouped");
+    assert($("#attentionSummary").textContent.includes("tasks need you") && $("#attentionSummary").textContent.includes("open decisions"), "Needs You separates task and decision counts");
     openAttentionResponseDialog(conflict.id);
     assert($("#attentionResponseDialog").open, "native attention dialog opens");
     $("#attentionResponseDialog").close();

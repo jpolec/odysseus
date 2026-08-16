@@ -27,7 +27,7 @@ AGENT_ACTIVITY_EVENTS = frozenset(
         "agent.completed",
     }
 )
-VERIFIER_EVENTS = frozenset({"check.completed", "evaluation.completed", "evaluation.failed"})
+VERIFIER_EVENTS = frozenset({"check.completed", "evaluation.completed", "evaluation.inconclusive", "evaluation.failed"})
 OPERATOR_ACTION_EVENTS = frozenset(
     {
         "attention.answered",

@@ -160,8 +160,8 @@ The last command writes a public aggregate Markdown file and a locally ignored
 JSON receipt. For another project, use the underlying command directly:
 
 ```sh
-odysseus --state-dir ~/.odysseus proof --release 0.8.0
-odysseus --state-dir ~/.odysseus proof --release 0.8.0 --json --output proof.json
+odysseus --state-dir ~/.odysseus proof --release 0.8.1
+odysseus --state-dir ~/.odysseus proof --release 0.8.1 --json --output proof.json
 ```
 
 Classification as `observed` is necessary but not sufficient. A counted outcome
@@ -183,8 +183,10 @@ The workbench keeps the same three numbered circles visible for every repository
    an existing repository in the Explorer. The Git remote supplies its default
    name; the local checkout folder is shown separately.
 2. **Describe a change.** Write one finished outcome and choose **Start task**.
-   Default agent routing, Skills, checks, budgets, and review policy are applied
-   automatically. Use **More options…** only when this task needs overrides.
+   **Agent: Auto — recommended** uses eligible repository outcomes and falls
+   back transparently when history is sparse. Skills, checks, budgets, and
+   review policy are applied automatically. Use **Advanced execution settings**
+   only when this task needs overrides.
    The submitted text clears immediately while **Starting** is visible. Choose
    **Start & add another** to return to a blank composer after each queued task.
 3. **Review.** Watch the Summary and respond only when **Needs You**

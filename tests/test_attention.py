@@ -51,6 +51,27 @@ class AttentionTests(unittest.TestCase):
             self.assertEqual(queue.get(first["id"])["status"], "resolved")
             self.assertEqual(queue.get(second["id"])["status"], "open")
 
+    def test_inconclusive_evaluation_creates_review_item_not_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "repo"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Evaluate evidence", "project_path": str(project)})
+
+            store.append_event(
+                run["id"],
+                "evaluation.inconclusive",
+                "odysseus",
+                {"message": "Evaluation is inconclusive and needs operator review."},
+            )
+
+            item = store.attention.list(status="open", run_id=run["id"])[0]
+            self.assertEqual(item["type"], "evaluation_review")
+            self.assertEqual(item["priority"], "medium")
+            self.assertTrue(item["title"].startswith("Evaluation needs review:"))
+            self.assertNotIn("failed", item["title"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()

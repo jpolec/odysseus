@@ -456,21 +456,20 @@
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
       <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> NEW TASK</p><h2>Describe the finished change</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <div class="dialog-intro"><strong>Describe one finished outcome.</strong><p>Your source checkout stays untouched.</p></div>
       <label>Task
         <span class="field-help">Outcome, constraints, done.</span>
-        <textarea name="task" id="taskPrompt" rows="5" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
+        <textarea name="task" id="taskPrompt" rows="4" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
       </label>
-      <details class="prompt-example"><summary>Example</summary><p>Update the setup command, verify referenced paths, and run docs checks.</p></details>
       <label>Repository
         <span class="field-help">The repository where this task belongs.</span>
         <select name="project_id" id="taskProjectSelect" required><option value="">Add a repository first</option></select>
       </label>
-      <label>Implementation agent
-        <span class="field-help">Who should run it.</span>
+      <label>Agent
+        <span class="field-help">Auto lets Odysseus select the best available worker.</span>
         <select name="lane" id="laneSelect"></select>
       </label>
-      <details class="advanced"><summary>More options…</summary>
+      <p class="task-agent-reason" id="taskAgentReason" aria-live="polite">Auto is recommended. Sparse history falls back to the configured default agent.</p>
+      <details class="advanced"><summary>Advanced execution settings</summary>
         <label>Execution environment
           <span class="field-help">Default, host, Docker, or devcontainer.</span>
           <select name="environment_profile" id="environmentProfile"><option value="">Repository default — recommended</option><option value="host">Host — compatibility, not isolated</option><option value="docker">Docker — isolated command runtime</option><option value="devcontainer">Devcontainer — reviewed repository configuration</option></select>
@@ -498,11 +497,12 @@
           <textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea>
         </label>
         <div class="form-row"><label>Display title <input name="title" placeholder="Generated from the request"></label><label>Priority (0–100) <input name="priority" type="number" min="0" max="100" value="50"></label></div>
-        <div class="form-row"><label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label><label>Stall timeout (seconds) <input name="stall_timeout" type="number" min="0" value="900"></label></div>
-        <div class="form-row"><label>Process timeout <input name="timeout" type="number" min="0" value="0"></label><label>Max tokens <input name="max_tokens" type="number" min="0" value="0"></label></div>
-        <div class="form-row"><label>Max tool calls <input name="max_tool_calls" type="number" min="0" value="0"></label><label>Max reported cost (USD) <input name="max_cost" type="number" min="0" step="0.01" value="0"></label></div>
+        <details class="advanced-limits"><summary>Limits and retry policy</summary>
+          <div class="form-row"><label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label><label>Stall timeout (seconds) <input name="stall_timeout" type="number" min="0" value="900"></label></div>
+          <div class="form-row"><label>Process timeout <input name="timeout" type="number" min="0" value="0"></label><label>Max tokens <input name="max_tokens" type="number" min="0" value="0"></label></div>
+          <div class="form-row"><label>Max tool calls <input name="max_tool_calls" type="number" min="0" value="0"></label><label>Max reported cost (USD) <input name="max_cost" type="number" min="0" step="0.01" value="0"></label></div>
+        </details>
       </details>
-      <p class="submit-note">For parallel work, choose <strong>Plan feature</strong>.</p>
       <p class="task-submit-status hidden" id="taskSubmitStatus" aria-live="polite"></p>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="primary" value="default" type="submit">Start task</button></div>
     </form></dialog>

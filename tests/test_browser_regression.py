@@ -199,6 +199,15 @@ class BrowserRegressionTests(unittest.TestCase):
                     "artifact_sha": base_sha,
                 },
             )
+            store.append_event(
+                conflict_run["id"],
+                "agent.question",
+                "codex",
+                {
+                    "message": "Choose whether the source branch or artifact should win.",
+                    "options": [{"id": "source", "label": "Keep source"}, {"id": "artifact", "label": "Keep artifact"}],
+                },
+            )
             ci_cases = [
                 ("CI not started", {"status": "not_started", "checks": [], "attempt": 0, "max_attempts": 2}, "Poll CI."),
                 ("CI pending", {"status": "pending", "checks": [{"name": "tests", "bucket": "pending"}], "attempt": 0, "max_attempts": 2}, "Wait for CI."),

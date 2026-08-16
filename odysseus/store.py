@@ -509,6 +509,27 @@ class RunStore:
             if kind != "tmux"
             else {}
         )
+        auto_route = request.get("auto_route") is True and kind != "tmux"
+        if auto_route:
+            recommendation_reason = str(outcome_routing.get("reason") or "")
+            recommended_lane = str(outcome_routing.get("recommended_lane") or requested_lane)
+            configured_lanes = config.get("lanes") if isinstance(config.get("lanes"), dict) else {}
+            available_lanes = {"codex", "claude", *configured_lanes.keys()}
+            eligible = recommendation_reason not in {"disabled", "insufficient_samples"} and recommended_lane in available_lanes
+            selected_lane = recommended_lane if eligible else requested_lane
+            outcome_routing = {
+                **outcome_routing,
+                "mode": "automatic" if eligible else "automatic_fallback",
+                "applied_lane": selected_lane,
+                "autonomous_routing": eligible,
+                "recommendation_reason": recommendation_reason,
+                "reason": (
+                    f"auto selected {selected_lane} from eligible historical evidence"
+                    if eligible
+                    else f"auto fell back to {selected_lane}: {recommendation_reason or 'recommended lane unavailable'}"
+                ),
+            }
+            requested_lane = selected_lane
         run: dict[str, Any] = {
             "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
@@ -518,7 +539,7 @@ class RunStore:
             "project_path": str(project),
             "project_id": project_record["id"],
             "lane": requested_lane,
-            "review_lane": str(request.get("review_lane") or request.get("lane") or config["default_lane"]),
+            "review_lane": str(request.get("review_lane") or requested_lane),
             "workflow": workflow,
             "checks": checks,
             "max_retries": max(0, max_retries),
@@ -709,6 +730,7 @@ class RunStore:
             "run.failed": ("blocked", "high", "Task failed"),
             "dag.blocked": ("blocked", "high", "Dependency blocked"),
             "evaluation.failed": ("evaluation_failed", "high", "Evaluation failed"),
+            "evaluation.inconclusive": ("evaluation_review", "medium", "Evaluation needs review"),
             "agent.question": ("question", "medium", "Agent question"),
             "agent.permission_request": ("permission_request", "high", "Permission required"),
             "agent.blocked": ("blocked", "high", "Agent blocked"),

@@ -100,7 +100,7 @@ class ProductionProofTests(unittest.TestCase):
             self.assertEqual(run["provenance"]["format"], "odysseus-run-provenance-v1")
             self.assertEqual(run["provenance"]["evidence_class"], "observed")
             self.assertEqual(run["provenance"]["origin"], "web")
-            self.assertEqual(run["provenance"]["odysseus_version"], "0.8.0")
+            self.assertEqual(run["provenance"]["odysseus_version"], "0.8.1")
 
     def test_read_only_proof_does_not_backfill_legacy_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

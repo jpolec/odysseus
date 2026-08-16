@@ -18,6 +18,7 @@ ATTENTION_TYPES = frozenset(
         "blocked",
         "decision_required",
         "evaluation_failed",
+        "evaluation_review",
         "ci_failed",
         "merge_conflict",
         "stalled",

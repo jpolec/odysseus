@@ -6,6 +6,34 @@
 
 ## Current version
 
+**0.8.1 — 2026-08-17**
+
+Version 0.8.1 makes everyday task creation and review simpler without reducing
+the evidence or governance available below the fold.
+
+## What is available in 0.8.1
+
+### 0.8.1 Decision-first task flow
+
+- **New Task** defaults to only Task, Repository, and **Agent: Auto —
+  recommended**. Runtime, Skills, verification, variants, and display controls
+  live under one advanced disclosure; budgets and retries are nested one level
+  deeper.
+- Auto routing applies an eligible outcome-router recommendation, records why
+  it was chosen, and transparently falls back to the configured agent when the
+  historical sample is too small. Manual agent selection remains available.
+- Checkbox controls in advanced execution settings have fixed intrinsic width,
+  eliminating the narrow-label overflow visible at smaller dialog widths.
+- Uncalibrated percentages are labeled **Evidence score N/100**, never delivery
+  probability. Evaluation distinguishes inconclusive evidence needing review
+  from an actual failed evaluation.
+- **Needs You** groups events by task and reports task count separately from
+  decision count, while preserving a direct response control for each event.
+- The review gate says **Accept artifact** and explicitly states that acceptance
+  neither merges nor delivers the result.
+
+## Previous version
+
 **0.8.0 — 2026-08-16**
 
 Version 0.8.0 makes delivery outcomes visible across repositories and integrates
