@@ -37,8 +37,9 @@ running: it serves the UI and runs the persistent scheduler. State is stored in
 `~/.odysseus` unless `ODYSSEUS_HOME` or `--state-dir` overrides it.
 
 Running the command again opens the existing instance instead of starting a
-second scheduler. If another application—not Odysseus—owns port 8741, use the
-exact alternate-port command printed by the CLI.
+second scheduler. If another application or a different Odysseus state owns
+port 8741, the CLI tries 8742, then 8743, and prints and opens the address it
+actually selected.
 
 On a fresh state, the landing page shows one persistent path: **1 Choose a
 repository -> 2 Describe a change -> 3 Follow & review**. The numbered circles are

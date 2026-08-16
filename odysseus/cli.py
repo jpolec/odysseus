@@ -87,9 +87,19 @@ def _running_odysseus_url(host: str, port: int) -> str:
     try:
         with urllib.request.urlopen(f"{url}/api/health", timeout=1.5) as response:
             value = json.load(response)
+        with urllib.request.urlopen(f"{url}/", timeout=1.5) as response:
+            content_type = response.headers.get_content_type()
+            page = response.read(4096)
     except (OSError, urllib.error.URLError, json.JSONDecodeError):
         return ""
-    return url if isinstance(value, dict) and value.get("ok") is True else ""
+    healthy = (
+        isinstance(value, dict)
+        and value.get("ok") is True
+        and value.get("product") == "odysseus"
+        and content_type == "text/html"
+        and b"<title>Odysseus" in page
+    )
+    return url if healthy else ""
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -116,33 +126,38 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 raise ValueError("auth password file is empty")
         if args.allow_remote and not auth_password and not args.insecure_remote:
             raise ValueError("--allow-remote requires --auth-password-file (or explicit --insecure-remote)")
-        app = OdysseusApp(
-            store,
-            host=args.host,
-            port=args.port,
-            allow_remote=args.allow_remote,
-            verbose=args.verbose,
-            auth_user=args.auth_user if auth_password else "",
-            auth_password=auth_password,
-            max_http_connections=args.max_http_connections,
-            max_sse_connections=args.max_sse_connections,
-        )
-        try:
-            host, port = app.start()
-        except OSError as exc:
-            if exc.errno != errno.EADDRINUSE:
-                raise ValueError(f"cannot start the local server: {exc}") from exc
-            existing_url = _running_odysseus_url(args.host, args.port)
-            if existing_url:
-                print(f"Odysseus is already running at {existing_url}/")
-                print("No second scheduler was started.")
-                if args.open:
-                    webbrowser.open(f"{existing_url}/")
-                return 0
-            raise ValueError(
-                f"port {args.port} is already used by another process. "
-                f"Stop it or run `odysseus start --port {args.port + 1}`."
-            ) from exc
+        app: OdysseusApp | None = None
+        host = args.host
+        port = args.port
+        attempts = 1 if args.port == 0 else min(100, 65536 - args.port)
+        for offset in range(attempts):
+            candidate = args.port + offset
+            app = OdysseusApp(
+                store,
+                host=args.host,
+                port=candidate,
+                allow_remote=args.allow_remote,
+                verbose=args.verbose,
+                auth_user=args.auth_user if auth_password else "",
+                auth_password=auth_password,
+                max_http_connections=args.max_http_connections,
+                max_sse_connections=args.max_sse_connections,
+            )
+            try:
+                host, port = app.start()
+                break
+            except OSError as exc:
+                if exc.errno != errno.EADDRINUSE:
+                    raise ValueError(f"cannot start the local server: {exc}") from exc
+                if offset + 1 >= attempts:
+                    raise ValueError(
+                        f"ports {args.port}-{candidate} are unavailable; "
+                        "choose another starting port with `--port`."
+                    ) from exc
+                print(f"Port {candidate} is unavailable; trying {candidate + 1}.")
+        else:  # pragma: no cover - the loop always starts or raises
+            raise ValueError("cannot find an available local port")
+        assert app is not None
         lease.update(host=host, port=port)
         display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
         url = f"http://{display_host}:{port}/"

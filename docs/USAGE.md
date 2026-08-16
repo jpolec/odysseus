@@ -111,9 +111,9 @@ odysseus start
 Open <http://127.0.0.1:8741/>. Stop with `Ctrl-C`.
 
 If that same Odysseus state is already running, another `start --open` opens it
-without creating a second scheduler. If an unrelated process owns the port,
-the CLI reports the conflict and suggests an alternate port without a
-traceback.
+without creating a second scheduler. If another service owns the port, the CLI
+automatically tries consecutive ports and opens the
+first working address without a traceback.
 
 Inside tmux, `prefix` + `O` starts the server in a detached `odysseus-web`
 session if needed and opens the browser. Inspect that server with:

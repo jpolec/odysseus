@@ -154,8 +154,9 @@ for the complete five-minute path.
 
 Starting the same state twice does not create a second scheduler. If Odysseus
 is already listening on the selected port, `start --open` reports and opens
-that instance. If an unrelated program owns the port, the CLI prints a short
-recovery command instead of a Python traceback.
+that instance. If the selected port is occupied by another service, the CLI
+automatically tries the next port and opens the address it
+actually selected (`8742`, `8743`, and so on).
 
 To explore a populated control plane without spending model tokens:
 
