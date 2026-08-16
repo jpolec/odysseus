@@ -265,6 +265,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("Ask agent to resolve", app_js)
                 self.assertIn('sessionScope: "repositories"', app_js)
                 self.assertIn("repositoryScopedSessions", app_js)
+                self.assertIn('$("#sessionNavCount").textContent = count || "";', app_js)
+                self.assertNotIn('$("#sessionNavCount").textContent = state.sessions.length || "";', app_js)
                 self.assertIn("runTitle(run)", app_js)
                 self.assertIn('dataset.theme = savedTheme === "dark" ? "dark" : "light"', app_js)
                 self.assertIn('const section = ["diff", "integration"].includes(name) ? "changes" : "evidence";', app_js)

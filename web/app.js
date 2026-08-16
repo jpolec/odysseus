@@ -197,6 +197,10 @@ function repositoryScopedSessions() {
   const projectPaths = new Set(state.projects.map((project) => project.path));
   return state.sessions.filter((session) => projectPaths.has(session.project_path));
 }
+function updateSessionNavCount() {
+  const count = repositoryScopedSessions().length;
+  $("#sessionNavCount").textContent = count || "";
+}
 
 function environmentFromForm(data) {
   const profile = String(data.get("environment_profile") || "");
@@ -225,6 +229,7 @@ function renderProjectTree() {
   $("#projectCount").textContent = state.projects.length;
   $("#allWorkCount").textContent = state.projects.length;
   $("#sidebarAttentionCount").textContent = state.attention.length;
+  updateSessionNavCount();
   const currentProject = activeProject();
   $(".task-section").classList.toggle("hidden", !currentProject);
   $("#taskSectionTitle").textContent = "TASKS";
@@ -1534,7 +1539,7 @@ function updateGitHubLink() {
 }
 
 async function refreshSessions() {
-  try { state.sessions = (await api("/api/tmux/sessions")).sessions; renderSessions(); $("#sessionNavCount").textContent = state.sessions.length || ""; renderProjectTree(); renderWork(); }
+  try { state.sessions = (await api("/api/tmux/sessions")).sessions; renderSessions(); renderProjectTree(); renderWork(); }
   catch (error) { $("#sessionList").innerHTML = `<div class="empty-card">${escapeHtml(error.message)}</div>`; }
 }
 
