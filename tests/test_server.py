@@ -174,6 +174,9 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('["review", "failed", "attention"]', app_js)
                 self.assertIn('["review", "failed", "attention", "accepted", "pr_created"]', app_js)
                 self.assertIn("feedbackDialog", app_js)
+                self.assertIn("function truncateText", app_js)
+                self.assertIn("Open Changes to load the diff.", app_js)
+                self.assertNotIn("const [run, diff] = await Promise.all", app_js)
 
                 assist_request = urllib.request.Request(
                     f"{base}/api/assist",

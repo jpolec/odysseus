@@ -2,7 +2,7 @@
 
 const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
-  selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
+  selected: null, selectedDiff: null, selectedDiffRunId: "", selectedDiffLoadingRunId: "", events: [], filter: "all", projectFilter: "all", view: "work",
   stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
   assistantConversations: {},
@@ -12,6 +12,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[char]);
 const activeStatuses = new Set(["queued", "starting", "running", "checking", "reviewing", "cancelling", "publishing"]);
+const HEAVY_TEXT_LIMIT = 16000;
 
 async function api(path, options = {}) {
   const headers = {"Content-Type": "application/json", ...(options.headers || {})};
@@ -42,6 +43,11 @@ function relativeTime(iso) {
 function compactNumber(value) { return new Intl.NumberFormat("en", {notation: "compact", maximumFractionDigits: 1}).format(Number(value || 0)); }
 function statusClass(status) { return `status-${String(status || "unknown").replace(/[^a-z_]/g, "")}`; }
 function statusLabel(status) { return String(status || "unknown").replaceAll("_", " "); }
+function truncateText(value, limit = HEAVY_TEXT_LIMIT) {
+  const text = String(value || "");
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n\n[truncated in browser: ${compactNumber(text.length - limit)} more characters]`;
+}
 function projectById(id) { return state.projects.find((project) => project.id === id); }
 function projectName(project) { return project?.display_name || project?.name || project?.folder_name || "Repository"; }
 function projectRepository(project) { return project?.repository || project?.folder_name || "Local repository"; }
@@ -111,12 +117,14 @@ function activateTab(name) {
   const inspector = selectedTab.closest(".inspector-panel");
   [...inspector.querySelectorAll(".tab")].forEach((item) => item.classList.toggle("active", item.dataset.tab === name));
   [...inspector.querySelectorAll(".tab-pane")].forEach((pane) => pane.classList.toggle("active", pane.id === `tab-${name}`));
+  renderVisibleHeavyPanels();
 }
 
 function activateTaskSection(name) {
   state.taskSection = name;
   $$(".task-section-tab").forEach((item) => item.classList.toggle("active", item.dataset.section === name));
   $$(".task-section-pane").forEach((pane) => pane.classList.toggle("active", pane.id === `task-section-${name}`));
+  renderVisibleHeavyPanels();
 }
 
 function filteredRuns() {
@@ -584,14 +592,46 @@ async function selectRun(runId) {
 
 async function refreshSelected(loadEvents = false) {
   if (!state.selectedId) return;
-  const [run, diff] = await Promise.all([api(`/api/runs/${encodeURIComponent(state.selectedId)}`), api(`/api/runs/${encodeURIComponent(state.selectedId)}/diff`)]);
+  const requestedId = state.selectedId;
+  const run = await api(`/api/runs/${encodeURIComponent(requestedId)}`);
+  if (state.selectedId !== requestedId) return;
+  if (state.selectedDiffRunId !== run.id || state.selected?.updated_at !== run.updated_at) {
+    state.selectedDiff = null;
+    state.selectedDiffRunId = "";
+    state.selectedDiffLoadingRunId = "";
+  }
   state.selected = run;
-  if (loadEvents) state.events = (await api(`/api/runs/${encodeURIComponent(state.selectedId)}/events`)).events;
-  renderDetail(run, diff);
+  if (loadEvents) {
+    const events = (await api(`/api/runs/${encodeURIComponent(requestedId)}/events`)).events;
+    if (state.selectedId !== requestedId) return;
+    state.events = events;
+  }
+  renderDetail(run);
   updateGitHubLink();
 }
 
-function renderDetail(run, diff) {
+function activeInspectorTab(section) {
+  return $(`#task-section-${section} .tab.active`)?.dataset.tab || "";
+}
+
+function renderVisibleHeavyPanels() {
+  if (!state.selected) return;
+  if (state.taskSection === "changes") {
+    const tab = activeInspectorTab("changes");
+    if (tab === "diff") renderDiff();
+    if (tab === "integration") renderIntegration(state.selected);
+  }
+  if (state.taskSection === "evidence") {
+    const tab = activeInspectorTab("evidence");
+    if (tab === "checks") renderChecks(state.selected.check_results || []);
+    if (tab === "context") renderContextReceipt(state.selected);
+    if (tab === "review") $("#reviewSummary").textContent = truncateText(state.selected.review_summary || state.selected.last_error || "Review has not run yet.");
+    if (tab === "evaluation") renderEvaluation(state.selected.evaluation || {});
+    if (tab === "ci") renderCI(state.selected);
+  }
+}
+
+function renderDetail(run) {
   $("#emptyState").classList.add("hidden");
   $("#runDetail").classList.remove("hidden");
   const interactive = run.kind === "tmux";
@@ -642,8 +682,15 @@ function renderDetail(run, diff) {
   if ($("#runDetail").dataset.runId !== run.id) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
   $("#workflowStrip").classList.toggle("hidden", interactive);
   renderActions(run); renderNarrative(run); renderRecoveryCard(run); renderWorkflow(run); renderEvents();
-  $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
-  renderIntegration(run); renderChecks(run.check_results || []); renderContextReceipt(run); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
+  $("#diffStat").textContent = "Open Changes to load the diff.";
+  $("#diffPatch").textContent = "The diff is loaded only when this tab is open.";
+  $("#integrationResults").innerHTML = `<div class="empty-card">Open Integration to inspect predecessor artifacts.</div>`;
+  $("#checkResults").innerHTML = `<div class="empty-card">Open Evidence to inspect checks.</div>`;
+  $("#contextReceipt").innerHTML = `<div class="empty-card">Open Context to inspect attached snapshots.</div>`;
+  $("#reviewSummary").textContent = "Open Review to inspect reviewer output.";
+  $("#evaluationResults").innerHTML = `<div class="empty-card">Open Evaluation to inspect confidence signals.</div>`;
+  $("#ciResults").innerHTML = `<div class="empty-card">Open CI to inspect GitHub checks.</div>`;
+  renderVisibleHeavyPanels();
 }
 
 function renderEnvironment(run) {
@@ -738,7 +785,7 @@ function renderEvents() {
 }
 
 function renderChecks(checks) {
-  $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${escapeHtml(check.output || "No output.")}</pre></div>`; }).join("") : `<div class="check-output">Checks have not run yet.</div>`;
+  $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${escapeHtml(truncateText(check.output || "No output."))}</pre></div>`; }).join("") : `<div class="check-output">Checks have not run yet.</div>`;
 }
 
 function renderContextReceipt(run) {
@@ -752,7 +799,7 @@ function renderContextReceipt(run) {
     const snapshot = source.kind === "skill"
       ? (run.skill_context || []).find((item) => item.name === source.title)
       : (run.context_bundle || []).find((item) => item.path === source.path && item.kind === source.kind);
-    const content = source.kind === "skill" ? String(snapshot?.content || "").slice(0, 16000) : String(snapshot?.content || "");
+    const content = truncateText(snapshot?.content || "");
     return `<details class="receipt-source"><summary><span class="receipt-kind">${escapeHtml(source.kind)}</span><span><strong>${escapeHtml(source.title)}</strong><small>${escapeHtml(source.reason)}</small></span><code>${escapeHtml(String(source.sha256 || "").slice(0, 10))}</code></summary><div><span>${escapeHtml(source.path)}</span><span>${compactNumber(source.bytes)} bytes</span></div><pre>${escapeHtml(content || "Snapshot content is unavailable.")}</pre></details>`;
   }).join("");
   $("#contextReceipt").innerHTML = `<section class="receipt-head"><div><small>CONTEXT RECEIPT</small><strong>${escapeHtml(receipt.version)}</strong><p>These immutable snapshots are exactly what Odysseus attached when the task was queued.</p></div><code title="Complete bundle digest">${escapeHtml(receipt.bundle_sha256 || "")}</code></section><div class="receipt-source-list">${sourceRows || `<div class="empty-card">No repository or skill context was attached.</div>`}</div>`;
@@ -778,13 +825,39 @@ function renderIntegration(run) {
     ${(analysis.files || []).length ? `<details class="file-surface"><summary>${analysis.files.length} files in the integrated surface</summary><pre>${escapeHtml(analysis.files.join("\n"))}</pre></details>` : ""}`;
 }
 
+async function renderDiff() {
+  if (!state.selectedId) return;
+  const runId = state.selectedId;
+  if (!state.selectedDiff || state.selectedDiffRunId !== runId) {
+    $("#diffStat").textContent = "Loading diff...";
+    $("#diffPatch").textContent = "Reading the task worktree...";
+    if (state.selectedDiffLoadingRunId === runId) return;
+    state.selectedDiffLoadingRunId = runId;
+    try {
+      const diff = await api(`/api/runs/${encodeURIComponent(runId)}/diff`);
+      if (state.selectedId !== runId) return;
+      state.selectedDiff = diff;
+      state.selectedDiffRunId = runId;
+    } catch (error) {
+      if (state.selectedId !== runId) return;
+      $("#diffStat").textContent = "Diff unavailable.";
+      $("#diffPatch").textContent = error.message;
+      return;
+    } finally {
+      if (state.selectedDiffLoadingRunId === runId) state.selectedDiffLoadingRunId = "";
+    }
+  }
+  $("#diffStat").textContent = truncateText(state.selectedDiff.stat || "No changed files yet.");
+  $("#diffPatch").textContent = truncateText(state.selectedDiff.patch || "No diff yet.", 120000);
+}
+
 function renderCI(run) {
   const ci = run.ci || {status: "not_started", checks: []};
   const checks = ci.checks || [];
   $("#ciResults").innerHTML = `
     <div class="ci-hero ci-${escapeHtml(ci.status || "not_started")}"><div><small>GITHUB CHECKS</small><strong>${escapeHtml(statusLabel(ci.status || "not_started"))}</strong></div><span>${escapeHtml(ci.summary || "Publish a draft PR to start the feedback loop.")}</span></div>
     ${checks.length ? checks.map((check) => `<div class="ci-check"><span>${escapeHtml(check.workflow || "workflow")}</span><strong>${escapeHtml(check.name || "check")}</strong><em>${escapeHtml(check.bucket || check.state || "unknown")}</em></div>`).join("") : `<div class="empty-card">No GitHub check runs recorded.</div>`}
-    ${ci.logs ? `<details class="ci-logs"><summary>Failed log captured for agent resume</summary><pre>${escapeHtml(ci.logs)}</pre></details>` : ""}
+    ${ci.logs ? `<details class="ci-logs"><summary>Failed log captured for agent resume</summary><pre>${escapeHtml(truncateText(ci.logs, 120000))}</pre></details>` : ""}
     <div class="ci-foot"><span>Automatic repairs: ${escapeHtml(ci.attempt || 0)}</span><span>${ci.updated_at ? `Updated ${relativeTime(ci.updated_at)} ago` : "Not polled"}</span></div>`;
 }
 
