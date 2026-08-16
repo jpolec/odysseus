@@ -121,7 +121,7 @@ The default origin is `http://127.0.0.1:8741`.
 | `GET` | `/api/projects` | Registered projects and Git/GitHub metadata |
 | `POST` | `/api/projects` | Register or refresh a project |
 | `DELETE` | `/api/projects/:id` | Remove a registry entry (does not delete files) |
-| `GET` | `/api/projects/:id/overview` | README/instruction/stack/commit/activity Project Overview |
+| `GET` | `/api/projects/:id/overview` | README/instruction/ADR/stack/commit/activity Project Overview |
 | `GET/POST` | `/api/projects/:id/profile` | Read or update the private Project Brief |
 | `GET/POST` | `/api/projects/:id/skills` | Inspect catalog/effectiveness or update skill policies |
 | `POST` | `/api/projects/:id/skills/recommend` | Explain automatic skill ranking for `{ "task": "..." }` |
@@ -138,7 +138,7 @@ The default origin is `http://127.0.0.1:8741`.
 | `POST` | `/api/attention/:id/resolve` | Close a notification without inventing an answer |
 | `GET` | `/api/epics` | List Epic proposals and active graphs |
 | `GET` | `/api/epics/:id` | Epic snapshot plus materialized runs |
-| `POST` | `/api/epics/plan` | Run a read-only Planner and create a proposal |
+| `POST` | `/api/epics/plan` | Run a read-only Planner; optional `project_id` + `source_paths` freeze selected ADRs into the proposal |
 | `POST` | `/api/epics/:id/approve` | Validate and materialize a proposed task DAG |
 | `GET` | `/api/github/issues?project_id=:id` | Open GitHub issues through authenticated `gh` |
 | `POST` | `/api/github/import` | Turn the supplied issue into a queued run |

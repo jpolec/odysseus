@@ -9,6 +9,81 @@ from odysseus.store import RunStore
 
 
 class ProjectKnowledgeTests(unittest.TestCase):
+    def test_project_decisions_link_adr_to_epic_tasks_context_and_economics(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "service"
+            decisions = project / "_ADR"
+            decisions.mkdir(parents=True)
+            (decisions / "README.md").write_text("# ADR catalog\n", encoding="utf-8")
+            adr = decisions / "0001-passkeys.md"
+            adr.write_text(
+                "---\nstatus: Accepted\ndate: 2026-08-16\n---\n"
+                "# ADR-0001: Use passkeys\n\nAdopt WebAuthn while preserving password login.\n",
+                encoding="utf-8",
+            )
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+
+            discovered = store.knowledge.overview(registered["id"])["decisions"]
+            self.assertEqual(len(discovered), 1)
+            self.assertEqual(discovered[0]["path"], "_ADR/0001-passkeys.md")
+            self.assertEqual(discovered[0]["title"], "Use passkeys")
+            self.assertEqual(discovered[0]["status"], "accepted")
+            self.assertEqual(discovered[0]["implementation"]["state"], "unplanned")
+
+            sources = store.knowledge.decision_sources(registered["id"], [discovered[0]["path"]])
+            epic = store.epics.create(
+                {
+                    "title": "Implement passkeys",
+                    "project_path": str(project),
+                    "status": "proposed",
+                    "source_documents": sources,
+                }
+            )
+            mapping = store.epics.create_task_batch(
+                epic["id"],
+                [{"task_key": "passkeys", "title": "Passkeys", "task": "Implement passkeys"}],
+            )
+            run_id = mapping["passkeys"]
+            run = store.get(run_id)
+            self.assertEqual(run["source_documents"][0]["sha256"], discovered[0]["sha256"])
+            self.assertIn("architecture_decision", {item["kind"] for item in run["context_bundle"]})
+            store.update(
+                run_id,
+                status="accepted",
+                metrics={
+                    **run["metrics"],
+                    "input_tokens": 1200,
+                    "output_tokens": 300,
+                    "cost_usd": 1.25,
+                    "cost_observed": True,
+                },
+            )
+            store.epics.update(epic["id"], status="completed")
+
+            linked = store.knowledge.overview(registered["id"])["decisions"][0]
+            self.assertEqual(linked["implementation"]["state"], "completed")
+            self.assertEqual(linked["implementation"]["completed_tasks"], 1)
+            self.assertEqual(linked["implementation"]["tokens"], 1500)
+            self.assertEqual(linked["implementation"]["cost_usd"], 1.25)
+            self.assertEqual(linked["epic_ids"], [epic["id"]])
+            summary = store.knowledge.overview(registered["id"])["decision_summary"]
+            self.assertEqual(summary["tasks"], 1)
+            self.assertEqual(summary["tokens"], 1500)
+            self.assertEqual(summary["cost_usd"], 1.25)
+
+    def test_decision_source_rejects_paths_outside_supported_catalogs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "service"
+            project.mkdir()
+            (project / "random.md").write_text("# Not an ADR\n", encoding="utf-8")
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            with self.assertRaisesRegex(ValueError, "supported ADR directory"):
+                store.knowledge.decision_sources(registered["id"], ["random.md"])
+
     def test_overview_discovers_docs_stack_commits_and_project_activity(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

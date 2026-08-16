@@ -62,7 +62,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 11
+RUN_SCHEMA_VERSION = 12
 
 
 def _safe_int(value: Any) -> int:
@@ -134,6 +134,7 @@ def _run_defaults() -> dict[str, Any]:
         "skill_context": [],
         "context_bundle": [],
         "context_receipt": {},
+        "source_documents": [],
         "knowledge_selected": [],
         "skill_routing": {},
         "environment_request": {},
@@ -443,7 +444,16 @@ class RunStore:
         ) if kind != "tmux" else []
         selected_memory = self.knowledge.select_items(str(project_record["id"]), task) if kind != "tmux" else []
         skill_routing = self.skills.recommend(str(project_record["id"]), task) if kind != "tmux" and skill_mode == "auto" else {"algorithm": skill_mode, "recommendations": []}
-        context_bundle, context_receipt = self.knowledge.snapshot(project_record, task, selected_skills, selected_memory) if kind != "tmux" else ([], {})
+        source_documents = request.get("source_documents") or []
+        if not isinstance(source_documents, list) or not all(isinstance(item, dict) for item in source_documents):
+            raise ValueError("source_documents must be a list of objects")
+        context_bundle, context_receipt = self.knowledge.snapshot(
+            project_record,
+            task,
+            selected_skills,
+            selected_memory,
+            source_documents,
+        ) if kind != "tmux" else ([], {})
         run: dict[str, Any] = {
             "schema_version": RUN_SCHEMA_VERSION,
             "id": run_id,
@@ -516,6 +526,7 @@ class RunStore:
             ],
             "context_bundle": context_bundle,
             "context_receipt": context_receipt,
+            "source_documents": list(source_documents),
             "knowledge_selected": [
                 {key: item.get(key) for key in ("id", "title", "triggers", "folders", "source", "reason")}
                 for item in selected_memory

@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.12](https://img.shields.io/badge/version-0.6.12-171a16)
+![Version: 0.7.0](https://img.shields.io/badge/version-0.7.0-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -29,6 +29,7 @@ entry without deleting its directory or files. Passive tmux discovery never
 adds repositories by itself.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
+[Project decisions](docs/PROJECT_DECISIONS.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
 [Version and capabilities](VERSION.md) · [Security](SECURITY.md) ·
 [Release proof](PROOF.md) · [Production proof](PRODUCTION_PROOF.md) ·
@@ -44,6 +45,10 @@ adds repositories by itself.
   original session, fixes are pushed, and retry budgets stop infinite loops.
 - **Plan before spending.** A read-only Planner proposes an acyclic task graph;
   the operator approves it before ready tasks can run.
+- **Turn decisions into work.** Each repository gets a visible ADR catalog.
+  Select records from `_ADR/` or a conventional ADR folder, generate one
+  approval-gated task graph, and track completion, tokens, and reported cost
+  back to the exact versioned decision snapshot.
 - **See only what needs you.** Questions, permissions, broken dependencies,
   failures, evaluation findings, and review gates share one attention queue.
 - **Continue, do not restart.** Feedback returns to the saved agent thread and

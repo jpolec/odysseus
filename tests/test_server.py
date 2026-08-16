@@ -107,6 +107,61 @@ class ServerTests(unittest.TestCase):
             finally:
                 app.stop()
 
+    def test_plan_endpoint_freezes_only_discovered_adr_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            decisions = project / "_ADR"
+            decisions.mkdir()
+            (decisions / "0001-runtime.md").write_text(
+                "# ADR-0001: Runtime isolation\n\nStatus: Accepted\n\nUse a separate runtime per task.\n",
+                encoding="utf-8",
+            )
+            (project / "outside.md").write_text("# Outside\n", encoding="utf-8")
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                payload = {
+                    "project_id": registered["id"],
+                    "source_paths": ["_ADR/0001-runtime.md"],
+                    "requirement": "Implement the selected decision.",
+                }
+                request = urllib.request.Request(
+                    f"{base}/api/epics/plan",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan", return_value={"id": "epic-test"}) as planner:
+                    with urllib.request.urlopen(request) as response:
+                        planned = json.load(response)
+                self.assertEqual(planned["id"], "epic-test")
+                source = planner.call_args.kwargs["source_documents"][0]
+                self.assertEqual(source["path"], "_ADR/0001-runtime.md")
+                self.assertIn("separate runtime", source["content"])
+                self.assertEqual(Path(planner.call_args.args[1]).resolve(), project.resolve())
+
+                invalid = urllib.request.Request(
+                    f"{base}/api/epics/plan",
+                    data=json.dumps({**payload, "source_paths": ["outside.md"]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan") as planner:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(invalid)
+                self.assertEqual(caught.exception.code, 400)
+                caught.exception.close()
+                planner.assert_not_called()
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_run_summary_endpoint_omits_heavy_task_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -156,7 +211,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.12")
+                self.assertEqual(bootstrap["version"], "0.7.0")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -245,6 +300,9 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="taskSkillMode"', html)
                 self.assertIn('id="contextReceipt"', html)
                 self.assertIn('id="projectMemoryList"', html)
+                self.assertIn('id="projectDecisionList"', html)
+                self.assertIn('id="planSelectedDecisions"', html)
+                self.assertIn('id="epicDecisionSources"', html)
                 self.assertIn('id="taskSkillRecommendations"', html)
                 self.assertIn('id="environmentProfile"', html)
                 self.assertIn('id="environmentCard"', html)
@@ -287,6 +345,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("Ask integration agent", app_js)
                 self.assertIn("Delivered in integration PR", app_js)
                 self.assertIn("Open integration PR", app_js)
+                self.assertIn("Plan selected", app_js)
+                self.assertIn("source_paths", app_js)
                 self.assertIn('sessionScope: "repositories"', app_js)
                 self.assertIn("repositoryScopedSessions", app_js)
                 self.assertIn('$("#sessionNavCount").textContent = count || "";', app_js)

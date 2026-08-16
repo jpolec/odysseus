@@ -17,6 +17,7 @@ const state = {
   stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
+  selectedDecisionPaths: [],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -376,6 +377,7 @@ function selectProject(projectId = "all") {
   state.projectFilter = projectId && projectById(projectId) ? projectId : "all";
   state.selectedId = null;
   state.selected = null;
+  state.selectedDecisionPaths = [];
   resetHeavyTaskState();
   $("#projectFilter").value = state.projectFilter;
   location.hash = state.projectFilter === "all" ? "" : `project/${encodeURIComponent(state.projectFilter)}`;
@@ -499,6 +501,61 @@ function renderProjectMemory() {
   }));
 }
 
+function decisionStateLabel(value) {
+  return ({unplanned: "Not planned", proposed: "Plan ready", planned: "Planned", in_progress: "In progress", completed: "Completed", blocked: "Blocked"})[value] || statusLabel(value);
+}
+
+function renderProjectDecisions() {
+  const decisions = state.projectOverview?.decisions || [];
+  const catalog = state.projectOverview?.decision_summary || {};
+  const knownPaths = new Set(decisions.map((item) => item.path));
+  state.selectedDecisionPaths = state.selectedDecisionPaths.filter((path) => knownPaths.has(path));
+  const completed = decisions.filter((item) => item.implementation?.state === "completed").length;
+  const active = decisions.filter((item) => ["proposed", "planned", "in_progress"].includes(item.implementation?.state)).length;
+  const unplanned = decisions.filter((item) => item.implementation?.state === "unplanned").length;
+  const tokens = Number(catalog.tokens || 0);
+  $("#projectDecisionCount").textContent = `${decisions.length} ADR${decisions.length === 1 ? "" : "s"}`;
+  $("#projectDecisionSummary").innerHTML = [
+    [completed, "completed"], [active, "active plans"], [unplanned, "not planned"], [compactNumber(tokens), "tokens"], [catalog.cost_usd === null || catalog.cost_usd === undefined ? "Unknown" : `$${Number(catalog.cost_usd).toFixed(2)}`, "reported cost"],
+  ].map(([value, label]) => `<div><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`).join("");
+  $("#projectDecisionList").innerHTML = decisions.length ? decisions.map((item) => {
+    const implementation = item.implementation || {};
+    const selected = state.selectedDecisionPaths.includes(item.path);
+    const progress = implementation.tasks ? `${implementation.completed_tasks || 0}/${implementation.tasks} tasks` : "No task graph";
+    const economics = implementation.tokens ? `${compactNumber(implementation.tokens)} tokens${implementation.cost_usd === null || implementation.cost_usd === undefined ? " · cost unknown" : ` · $${Number(implementation.cost_usd).toFixed(2)}`}` : "No usage yet";
+    return `<article class="project-decision ${selected ? "selected" : ""}">
+      <label class="project-decision-select"><input type="checkbox" data-decision-path="${escapeHtml(item.path)}" ${selected ? "checked" : ""}><span class="sr-only">Select ${escapeHtml(item.title)}</span></label>
+      <div class="project-decision-copy"><div class="project-decision-title"><strong>${escapeHtml(item.title)}</strong><span class="decision-record-status decision-record-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></div><p>${escapeHtml(item.summary || "No decision summary found.")}</p><code>${escapeHtml(item.path)} · ${escapeHtml(String(item.sha256 || "").slice(0, 8))}</code></div>
+      <div class="project-decision-progress"><strong class="decision-progress-${escapeHtml(implementation.state || "unplanned")}">${escapeHtml(decisionStateLabel(implementation.state))}</strong><span>${escapeHtml(progress)}</span><small>${escapeHtml(economics)}</small>${(item.epic_ids || []).length ? `<button class="text-button" data-open-decision-plan type="button">View plan history</button>` : ""}</div>
+    </article>`;
+  }).join("") : `<div class="decision-empty"><strong>No ADRs found.</strong><p>Add Markdown files such as <code>_ADR/0001-short-title.md</code>. Include <code>Status: Proposed</code> or <code>Status: Accepted</code>; Odysseus will discover them without changing the repository.</p></div>`;
+  const button = $("#planSelectedDecisions");
+  button.disabled = !state.selectedDecisionPaths.length;
+  button.textContent = state.selectedDecisionPaths.length ? `Plan selected (${state.selectedDecisionPaths.length})` : "Plan selected";
+  $$('[data-decision-path]').forEach((input) => input.addEventListener("change", () => {
+    const paths = new Set(state.selectedDecisionPaths);
+    if (input.checked) paths.add(input.dataset.decisionPath); else paths.delete(input.dataset.decisionPath);
+    state.selectedDecisionPaths = [...paths];
+    renderProjectDecisions();
+  }));
+  $$('[data-open-decision-plan]').forEach((button) => button.addEventListener("click", () => setView("epics")));
+}
+
+function openEpicDialog(sourcePaths = []) {
+  const form = $("#epicForm");
+  form.reset();
+  prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject"));
+  state.selectedDecisionPaths = [...sourcePaths];
+  const decisions = state.projectOverview?.decisions || [];
+  const selected = decisions.filter((item) => state.selectedDecisionPaths.includes(item.path));
+  $("#epicProjectSelect").disabled = Boolean(selected.length);
+  const sourcePanel = $("#epicDecisionSources");
+  sourcePanel.classList.toggle("hidden", !selected.length);
+  sourcePanel.innerHTML = selected.length ? `<small>SELECTED DECISIONS</small><strong>${selected.length} ADR${selected.length === 1 ? "" : "s"} will be frozen into this plan</strong><div>${selected.map((item) => `<span>${escapeHtml(item.path)} <code>${escapeHtml(String(item.sha256 || "").slice(0, 8))}</code></span>`).join("")}</div>` : "";
+  if (selected.length) form.elements.requirement.value = `Implement the selected architecture decision${selected.length === 1 ? "" : "s"} as one coherent, verified change. Preserve the recorded constraints and show any ambiguity before implementation.`;
+  $("#epicDialog").showModal();
+}
+
 function renderProjectKnowledge() {
   const project = activeProject();
   const overview = state.projectOverview;
@@ -511,6 +568,7 @@ function renderProjectKnowledge() {
     $("#projectContextSources").innerHTML = `<div class="empty-list">Discovering repository context…</div>`;
     $("#projectSkillList").innerHTML = `<div class="empty-list">Loading repository skills…</div>`;
     $("#projectMemoryList").innerHTML = `<div class="empty-list">Loading repository memory…</div>`;
+    $("#projectDecisionList").innerHTML = `<div class="empty-list">Discovering architecture decisions…</div>`;
     $("#projectCommitList").innerHTML = `<div class="empty-list">Loading Git history…</div>`;
     $("#projectTimeline").innerHTML = `<div class="empty-list">Building repository timeline…</div>`;
     return;
@@ -525,6 +583,7 @@ function renderProjectKnowledge() {
   $("#projectContextSources").innerHTML = sources.length ? sources.map((source) => `<div class="context-source"><span>${escapeHtml(source.kind)}</span><div><strong>${escapeHtml(source.path)}</strong><small>${escapeHtml(source.summary || "Detected repository context")}</small></div><code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></div>`).join("") : `<div class="empty-list">No README or agent instruction files detected.</div>`;
   $("#projectCommitList").innerHTML = (overview.commits || []).length ? overview.commits.map((commit) => `<div class="project-commit"><code>${escapeHtml(commit.short_sha)}</code><div><strong>${escapeHtml(commit.subject)}</strong><small>${escapeHtml(commit.author)} · ${relativeTime(commit.ts)} ago</small></div></div>`).join("") : `<div class="empty-list">No Git commits found.</div>`;
   $("#projectTimeline").innerHTML = (overview.activity || []).length ? overview.activity.slice(0, 12).map((item) => `<button class="timeline-entry" data-timeline-run="${escapeHtml(item.run_id)}" type="button"><span class="timeline-dot"></span><div><small>${escapeHtml(statusLabel(item.type))} · ${relativeTime(item.ts)} ago</small><strong>${escapeHtml(item.run_title)}</strong><p>${escapeHtml(item.summary)}</p></div></button>`).join("") : `<div class="empty-list">Activity appears after the first task.</div>`;
+  renderProjectDecisions();
   renderProjectSkills();
   renderProjectMemory();
   $$('[data-timeline-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.timelineRun)));
@@ -1875,8 +1934,11 @@ async function refreshEpics() {
   $("#epicList").innerHTML = visibleEpics.length ? visibleEpics.map((epic) => {
     const graph = renderEpicGraph(epic);
     const epicProject = projectById(epic.project_id);
+    const sources = epic.source_documents || [];
+    const linkedRuns = (epic.run_ids || []).map((runId) => state.runs.find((run) => run.id === runId)).filter(Boolean);
+    const sourceLine = sources.length ? `<div class="epic-source-line"><strong>Source decision${sources.length === 1 ? "" : "s"}</strong>${sources.map((source) => `<span title="${escapeHtml(source.sha256 || "")}">${escapeHtml(source.path)} <code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></span>`).join("")}</div>` : "";
     const runButtons = (epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("");
-    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.status === "proposed" ? "Review graph, then approve." : epic.status === "active" ? "Tasks are running or waiting." : epic.plan?.summary || epic.description || "Planning...")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${runButtons ? `<details class="card-more-actions"><summary>Tasks</summary><div>${runButtons}</div></details>` : ""}</div></article>`;
+    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.status === "proposed" ? "Review graph, then approve." : epic.status === "active" ? "Tasks are running or waiting." : epic.plan?.summary || epic.description || "Planning...")}</p>${sourceLine}${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${runButtons ? `<details class="card-more-actions"><summary>${linkedRuns.length} task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div></article>`;
   }).join("") : `<div class="empty-card">No plans yet.</div>`;
   $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => {
     const approved = await confirmChoice({eyebrow: "START A TASK PLAN", title: "Approve this plan?", lead: "Every dependency-ready root task will start.", message: "Review the task graph first. Dependent tasks remain blocked until their predecessors produce accepted artifacts.", confirmLabel: "Approve and start"});
@@ -2168,8 +2230,9 @@ function bindDialogs() {
       if (!addAnother || !taskDialog.open) status.classList.add("hidden");
     }
   });
-  [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
-  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_path: project.path, planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
+  [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => openEpicDialog()));
+  $("#planSelectedDecisions").addEventListener("click", () => openEpicDialog(state.selectedDecisionPaths));
+  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById($("#epicProjectSelect").value); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_id: project.id, project_path: project.path, source_paths: [...state.selectedDecisionPaths], planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); state.selectedDecisionPaths = []; toast("Task graph proposed. Review it before approving any work."); await Promise.all([refreshEpics(), refreshProjectOverview()]); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session is waiting to continue." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt is waiting on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
   $("#integrationForm").addEventListener("submit", submitIntegrationDisposition);
   $("#attentionResponseForm").addEventListener("submit", async (event) => {

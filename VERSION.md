@@ -2,20 +2,37 @@
 
 ## Unreleased
 
+- Nothing yet.
+
+## Current version
+
+**0.7.0 — 2026-08-16**
+
+Version 0.7.0 adds auditable Project Decisions: repository ADR discovery,
+multi-select planning, durable source snapshots, and decision-level execution
+and economics history.
+
+## What is available in 0.7.0
+
+### 0.7.0 Project Decisions
+
+- `_ADR/` is the recommended project decision catalog. Odysseus also discovers
+  common `ADR/` and `docs/adr/` layouts without modifying the repository.
+- Repository Overview separates the ADR's recorded status from implementation
+  state and shows completed/active/unplanned counts, linked tasks, observed
+  tokens, and provider-reported cost. Missing cost remains Unknown.
+- Select one or more decisions and choose **Plan selected** to create one
+  read-only Planner proposal. Nothing runs until the operator approves its DAG.
+- Each selected document is frozen into the Epic with path, content, status,
+  byte count, and SHA-256 digest. Materialized tasks receive the same snapshot
+  in their Context Receipt.
+- Traversal, unsupported folders, oversized selections, and more than twenty
+  source documents are rejected before the Planner runs.
 - The web UI now uses shorter decision labels: **1 Choose repository -> 2 New
   task -> 3 Review**, **Ask integration agent**, and one visible primary action
   on review and delivery states.
 
-## Current version
-
-**0.6.12 — 2026-08-16**
-
-Version 0.6.12 tightens the credential boundary for host-mode, Docker, and
-devcontainer process launches. Agents and repository commands receive a scoped
-process environment; server-only Context Assistant credentials remain available
-to Odysseus itself and reach a run only through explicit `allow_env`.
-
-## What is available in 0.6.12
+## Earlier 0.6 releases
 
 ### 0.6.12 Credential Boundary
 
@@ -39,8 +56,6 @@ to Odysseus itself and reach a run only through explicit `allow_env`.
 - `odysseus resources --json` remains the non-destructive resource inventory
   dry-run. Reclamation still requires the explicit `--reclaim` flag and keeps
   failed worktrees available for recovery.
-
-## Earlier 0.6 releases
 
 ### 0.6.11 Composed Operator Polish
 
@@ -481,8 +496,8 @@ to Odysseus itself and reach a run only through explicit `allow_env`.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.12` |
-| Run snapshot schema | `10` |
+| Application version | `0.7.0` |
+| Run snapshot schema | `12` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
 | Export format | `odysseus-state-v1` |

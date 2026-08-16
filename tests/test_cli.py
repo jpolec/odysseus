@@ -37,7 +37,7 @@ class CLITests(unittest.TestCase):
         args = parser().parse_args(["start", "--port", "9911"])
         self.assertEqual(args.port, 9911)
         self.assertEqual(args.func.__name__, "cmd_serve")
-        self.assertEqual(__version__, "0.6.12")
+        self.assertEqual(__version__, "0.7.0")
 
     def test_start_chooses_the_next_port_when_the_requested_port_is_busy(self) -> None:
         class FakeHTTPD:
@@ -95,7 +95,7 @@ class CLITests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 result = cmd_doctor(human_args)
-            self.assertIn("Odysseus 0.6.12", output.getvalue())
+            self.assertIn("Odysseus 0.7.0", output.getvalue())
             self.assertIn("Git", output.getvalue())
             self.assertIn(result, {0, 1})
 

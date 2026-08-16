@@ -10,7 +10,13 @@ what we are building next.
 
 ## Now
 
-Operational hardening for the current 0.6 line:
+Change Proposal intake and operational hardening:
+
+- Extend the shipped Project Decisions catalog into one **New change** intake
+  for ADR/PRD files, GitHub Issues, existing PRs, and pasted requirements.
+- Show the proposed Epic/DAG, scope, risk, estimated economics, and source
+  receipts before approval; keep proposal -> tasks -> artifacts -> PR -> outcome
+  as one searchable history.
 
 - Long-lived per-task preview processes with explicit start, health, stop, and
   cleanup controls instead of relying on one disposable command lifetime.
@@ -37,7 +43,7 @@ Evidence-based agent routing and context:
   CI failures, cost, tokens, and human interventions by task class and lane.
 - A router that chooses an agent from empirical project history, expected
   quality, latency, and cost while keeping every automatic choice explainable.
-- Semantic project context for architecture, code maps, ADRs, schemas, API
+- Semantic project context for architecture, code maps, schemas, API
   contracts, recent changes, and known issues, retrieved as a cited subset.
 - Analytics for cost per accepted task or merged PR, retry rate, human minutes,
   and **Human Attention per Successful Change**.

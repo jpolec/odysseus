@@ -42,10 +42,24 @@ class PlannerTests(unittest.TestCase):
                 default_task_lane="codex",
                 default_review_lane="claude",
                 checks=["python3 -m unittest"],
+                source_documents=[
+                    {
+                        "kind": "adr",
+                        "path": "_ADR/0001-auth.md",
+                        "title": "Authentication",
+                        "status": "accepted",
+                        "sha256": "abc123",
+                        "bytes": 42,
+                        "content": "# Authentication\n\nUse passkeys.",
+                    }
+                ],
             )
 
             self.assertEqual(proposal["status"], "proposed")
             self.assertIn("read-only Planner role", runner.prompt)
+            self.assertIn("_ADR/0001-auth.md", runner.prompt)
+            self.assertIn("Use passkeys", runner.prompt)
+            self.assertEqual(proposal["source_documents"][0]["sha256"], "abc123")
             approved = planner.approve(proposal["id"])
             runs = {run["task_key"]: run for run in store.list()}
             self.assertEqual(approved["status"], "active")
@@ -54,6 +68,7 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(runs["api"]["depends_on"], [runs["schema"]["id"]])
             self.assertEqual(runs["schema"]["lane"], "codex")
             self.assertEqual(runs["schema"]["review_lane"], "claude")
+            self.assertIn("architecture_decision", {item["kind"] for item in runs["schema"]["context_bundle"]})
 
     def test_invalid_or_unmarked_plan_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "ODYSSEUS_PLAN"):

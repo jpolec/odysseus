@@ -14,6 +14,16 @@ from .events import now_iso
 
 
 README_CANDIDATES = ("README.md", "README.rst", "README.txt", "README")
+DECISION_DIRECTORY_CANDIDATES = (
+    "_ADR",
+    "ADR",
+    "adr",
+    "docs/adr",
+    "docs/adrs",
+    "docs/architecture/decisions",
+)
+DECISION_FILE_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".rst", ".txt"})
+DECISION_IGNORED_STEMS = frozenset({"readme", "index", "template", "adr-template"})
 INSTRUCTION_CANDIDATES = (
     "AGENTS.md",
     "CLAUDE.md",
@@ -120,6 +130,54 @@ def _git_log(path: Path, limit: int = 6) -> list[dict[str, str]]:
                 {"sha": parts[0], "short_sha": parts[1], "ts": parts[2], "author": parts[3], "subject": parts[4]}
             )
     return commits
+
+
+def _decision_field(content: str, field: str) -> str:
+    escaped = re.escape(field)
+    patterns = (
+        rf"(?im)^\s*{escaped}\s*:\s*[\"']?([^\n\"']+)",
+        rf"(?im)^\s*\|\s*{escaped}\s*\|\s*([^|\n]+)\|?",
+        rf"(?im)^\s*\*\*{escaped}\*\*\s*:?\s*([^\n]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, content)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _decision_status(content: str) -> str:
+    raw = _decision_field(content, "status").lower().replace("_", " ").replace("-", " ")
+    if "supersed" in raw:
+        return "superseded"
+    if "deprecat" in raw:
+        return "deprecated"
+    if any(value in raw for value in ("reject", "declin")):
+        return "rejected"
+    if any(value in raw for value in ("accept", "adopt", "decided")):
+        return "accepted"
+    if any(value in raw for value in ("propos", "draft", "pending", "review")):
+        return "proposed"
+    return "unknown"
+
+
+def _decision_title(content: str, path: Path) -> str:
+    for line in content.splitlines():
+        match = re.match(r"^\s*#\s+(.+?)\s*$", line)
+        if match:
+            return re.sub(r"^ADR[- ]?\d+\s*[:.-]?\s*", "", match.group(1), flags=re.IGNORECASE).strip()
+    stem = re.sub(r"^\d+[-_. ]*", "", path.stem)
+    return re.sub(r"[-_]+", " ", stem).strip().title() or path.name
+
+
+def _decision_summary(content: str) -> str:
+    without_frontmatter = re.sub(r"\A\s*---\s*\n.*?\n---\s*\n", "", content, flags=re.DOTALL)
+    lines = []
+    for line in without_frontmatter.splitlines():
+        if re.match(r"^\s*#", line) or re.match(r"^\s*(status|date|deciders?)\s*:", line, flags=re.IGNORECASE):
+            continue
+        lines.append(line)
+    return _summary("\n".join(lines), limit=420)
 
 
 class ProjectKnowledge:
@@ -339,8 +397,166 @@ class ProjectKnowledge:
         return {
             "readme": readme,
             "instructions": instructions,
+            "decisions": self.decisions(str(project["id"])),
             "stack": stack,
             "commits": _git_log(root),
+        }
+
+    def _discover_decision_files(self, project: Mapping[str, Any]) -> list[Path]:
+        root = Path(str(project["path"])).resolve()
+        files: dict[str, Path] = {}
+        for relative in DECISION_DIRECTORY_CANDIDATES:
+            directory = root / relative
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.rglob("*")):
+                if not path.is_file() or path.suffix.lower() not in DECISION_FILE_SUFFIXES:
+                    continue
+                if path.stem.lower() in DECISION_IGNORED_STEMS:
+                    continue
+                try:
+                    resolved = path.resolve(strict=True)
+                    resolved.relative_to(root)
+                except (OSError, ValueError):
+                    continue
+                key = str(path.relative_to(root))
+                files.setdefault(key, path)
+                if len(files) >= 200:
+                    return list(files.values())
+        return list(files.values())
+
+    @staticmethod
+    def _decision_progress(epics: list[Mapping[str, Any]], runs: list[Mapping[str, Any]]) -> dict[str, Any]:
+        statuses = [str(epic.get("status") or "") for epic in epics]
+        if not epics:
+            state = "unplanned"
+        elif any(status in {"planning", "proposed"} for status in statuses):
+            state = "proposed"
+        elif any(status == "active" for status in statuses):
+            state = "in_progress"
+        elif any(status in {"planning_failed", "materialization_failed", "failed"} for status in statuses):
+            state = "blocked"
+        elif statuses and all(status == "completed" for status in statuses):
+            state = "completed"
+        else:
+            state = "planned"
+        completed = sum(1 for run in runs if str(run.get("status") or "") in {"accepted", "pr_created"})
+        active = sum(1 for run in runs if str(run.get("status") or "") in {"queued", "starting", "running", "checking", "reviewing", "review", "attention", "publishing"})
+        failed = sum(1 for run in runs if str(run.get("status") or "") in {"failed", "cancelled"})
+        tokens = sum(
+            int((run.get("metrics") or {}).get("input_tokens") or 0)
+            + int((run.get("metrics") or {}).get("output_tokens") or 0)
+            for run in runs
+        )
+        observed_costs = [
+            float((run.get("metrics") or {}).get("cost_usd") or 0.0)
+            for run in runs
+            if bool((run.get("metrics") or {}).get("cost_observed"))
+        ]
+        return {
+            "state": state,
+            "epics": len(epics),
+            "tasks": len(runs),
+            "completed_tasks": completed,
+            "active_tasks": active,
+            "failed_tasks": failed,
+            "tokens": tokens,
+            "cost_usd": round(sum(observed_costs), 8) if observed_costs else None,
+        }
+
+    def decisions(self, project_id: str) -> list[dict[str, Any]]:
+        project = self.store.projects.get(project_id)
+        root = Path(str(project["path"])).resolve()
+        project_epics = [epic for epic in self.store.epics.list() if str(epic.get("project_id") or "") == project_id]
+        runs_by_epic: dict[str, list[dict[str, Any]]] = {
+            str(epic["id"]): self.store.epics.runs(str(epic["id"])) for epic in project_epics
+        }
+        values: list[dict[str, Any]] = []
+        for path in self._discover_decision_files(project):
+            content = _read_text(path, limit=80_000)
+            if not content.strip():
+                continue
+            relative = str(path.relative_to(root))
+            linked = [
+                epic
+                for epic in project_epics
+                if relative in {
+                    str(source.get("path") or "")
+                    for source in epic.get("source_documents") or []
+                    if isinstance(source, dict)
+                }
+            ]
+            linked_runs = [run for epic in linked for run in runs_by_epic.get(str(epic["id"]), [])]
+            values.append(
+                {
+                    "id": f"decision-{_digest(relative)[:12]}",
+                    "kind": "adr",
+                    "path": relative,
+                    "title": _decision_title(content, path),
+                    "status": _decision_status(content),
+                    "date": _decision_field(content, "date"),
+                    "summary": _decision_summary(content),
+                    "sha256": _digest(content),
+                    "bytes": len(content.encode("utf-8")),
+                    "implementation": self._decision_progress(linked, linked_runs),
+                    "epic_ids": [str(epic["id"]) for epic in linked],
+                }
+            )
+        return sorted(values, key=lambda item: (item["status"] != "proposed", item["path"]))
+
+    def decision_sources(self, project_id: str, paths: list[str]) -> list[dict[str, Any]]:
+        if not paths or len(paths) > 20:
+            raise ValueError("select between 1 and 20 decision documents")
+        project = self.store.projects.get(project_id)
+        root = Path(str(project["path"])).resolve()
+        discovered = {item["path"]: item for item in self.decisions(project_id)}
+        selected: list[dict[str, Any]] = []
+        total_bytes = 0
+        for relative in dict.fromkeys(str(value) for value in paths):
+            item = discovered.get(relative)
+            if not item:
+                raise ValueError(f"decision document is not in a supported ADR directory: {relative}")
+            path = (root / relative).resolve(strict=True)
+            path.relative_to(root)
+            content = _read_text(path, limit=80_000)
+            total_bytes += len(content.encode("utf-8"))
+            if total_bytes > 320_000:
+                raise ValueError("selected decision documents exceed the 320000 byte planning limit")
+            selected.append(
+                {
+                    "kind": "adr",
+                    "path": relative,
+                    "title": item["title"],
+                    "status": item["status"],
+                    "sha256": _digest(content),
+                    "bytes": len(content.encode("utf-8")),
+                    "content": content,
+                }
+            )
+        return selected
+
+    def decision_summary(self, project_id: str, decisions: list[Mapping[str, Any]]) -> dict[str, Any]:
+        linked_ids = {
+            str(epic_id)
+            for decision in decisions
+            for epic_id in decision.get("epic_ids") or []
+        }
+        epics = [epic for epic in self.store.epics.list() if str(epic.get("id") or "") in linked_ids]
+        runs_by_id = {
+            str(run["id"]): run
+            for epic in epics
+            for run in self.store.epics.runs(str(epic["id"]))
+        }
+        progress = self._decision_progress(epics, list(runs_by_id.values()))
+        return {
+            "total": len(decisions),
+            "completed": sum(1 for item in decisions if (item.get("implementation") or {}).get("state") == "completed"),
+            "active": sum(1 for item in decisions if (item.get("implementation") or {}).get("state") in {"proposed", "planned", "in_progress"}),
+            "unplanned": sum(1 for item in decisions if (item.get("implementation") or {}).get("state") == "unplanned"),
+            "blocked": sum(1 for item in decisions if (item.get("implementation") or {}).get("state") == "blocked"),
+            "tasks": progress["tasks"],
+            "tokens": progress["tokens"],
+            "cost_usd": progress["cost_usd"],
         }
 
     def snapshot(
@@ -349,6 +565,7 @@ class ProjectKnowledge:
         task: str,
         selected_skills: list[Mapping[str, Any]],
         selected_memory: list[Mapping[str, Any]],
+        selected_documents: list[Mapping[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Freeze the exact project context and provenance sent to one run."""
 
@@ -397,6 +614,15 @@ class ProjectKnowledge:
                 str(item.get("reason") or "matched task context"),
                 str(item.get("content") or ""),
                 6_000,
+            )
+        for document in selected_documents or []:
+            capture(
+                "architecture_decision",
+                str(document.get("title") or document.get("path") or "Architecture decision"),
+                str(document.get("path") or ""),
+                "selected source document for this Epic",
+                str(document.get("content") or ""),
+                24_000,
             )
         for relative in README_CANDIDATES:
             path = root / relative
@@ -496,10 +722,12 @@ class ProjectKnowledge:
         discovered = self.discover(project)
         profile = self.profile(project_id)
         about = profile["summary"] or (discovered.get("readme") or {}).get("summary") or "No project brief or README was found."
+        decision_summary = self.decision_summary(project_id, discovered.get("decisions") or [])
         return {
             "project": project,
             "about": about,
             "profile": profile,
             **discovered,
+            "decision_summary": decision_summary,
             "activity": self.activity(project_id, limit=30),
         }

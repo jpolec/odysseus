@@ -21,6 +21,7 @@
   --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --sidebar-width: 340px;
 }
+.sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; color: var(--ink); background: radial-gradient(circle at 15% 0, rgba(197,239,76,.09), transparent 26rem), linear-gradient(180deg, #f8faf6 0, var(--base) 34rem); font: 14px var(--sans); -webkit-font-smoothing: antialiased; }
@@ -541,9 +542,42 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 .journey-context { display: flex; align-items: center; gap: 7px; margin: 10px 0 12px; color: var(--muted); font-size: 10px; }.journey-context > span { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: white; background: var(--accent); font: 700 9px var(--mono); }.journey-context strong { color: var(--ink); font-size: 11px; }.journey-context small { color: var(--faint); }
 .project-home { margin: 32px 0 0; padding-top: 24px; border-top: 1px solid var(--line); }.project-deep-section { overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: white; }.project-deep-section > summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 60px; padding: 12px 16px; cursor: pointer; list-style: none; }.project-deep-section > summary::-webkit-details-marker { display: none; }.project-deep-section > summary:hover { background: #fafafa; }.project-deep-section > summary strong, .project-deep-section > summary small { display: block; }.project-deep-section > summary strong { font-size: 13px; font-weight: 600; }.project-deep-section > summary small { margin-top: 4px; color: var(--muted); font-size: 11px; }.project-deep-section > summary > span:last-child { color: var(--accent); font-size: 11px; }.project-deep-section[open] > summary { border-bottom: 1px solid var(--line); }.project-deep-section[open] > summary > span:last-child { font-size: 0; }.project-deep-section[open] > summary > span:last-child::after { font-size: 11px; content: "Close details"; }.project-deep-content { display: grid; gap: 10px; padding: 10px; background: #f7f7f7; }.project-deep-content > .project-knowledge-card { border-radius: 5px; }
 
+.project-decisions-card { margin: 10px 0; }
+.decision-head-actions { display: flex; align-items: center; gap: 8px; }
+.project-decisions-intro { margin: -3px 0 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.project-decisions-intro code { color: var(--accent-strong); font: 10px var(--mono); }
+.project-decision-summary { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 1px; margin-bottom: 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 5px; background: var(--line); }
+.project-decision-summary div { padding: 10px 11px; background: var(--surface); }
+.project-decision-summary strong, .project-decision-summary span { display: block; }
+.project-decision-summary strong { font: 650 16px var(--mono); }
+.project-decision-summary span { margin-top: 3px; color: var(--faint); font: 9px var(--mono); text-transform: uppercase; }
+.project-decision-list { display: grid; gap: 4px; }
+.project-decision { display: grid; grid-template-columns: 28px minmax(0,1fr) minmax(170px,.34fr); align-items: start; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+.project-decision.selected { border-color: #8ebcdf; background: #f7fbff; box-shadow: inset 3px 0 var(--accent); }
+.project-decision-select { display: grid; width: 28px; min-height: 28px; margin: 0; place-items: center; }
+.project-decision-select input { width: 15px; min-height: 15px; margin: 0; }
+.project-decision-copy { min-width: 0; }
+.project-decision-title { display: flex; align-items: center; gap: 8px; }
+.project-decision-title strong { overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.decision-record-status { padding: 3px 6px; border-radius: 10px; color: var(--muted); background: var(--surface-2); font: 8px var(--mono); text-transform: uppercase; }
+.decision-record-accepted { color: #107c10; background: #e8f5e8; }
+.decision-record-proposed { color: #805600; background: #fff4ce; }
+.decision-record-rejected, .decision-record-superseded, .decision-record-deprecated { color: var(--faint); text-decoration: line-through; }
+.project-decision-copy p { display: -webkit-box; margin: 6px 0; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.project-decision-copy code { display: block; overflow: hidden; color: var(--faint); font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.project-decision-progress { display: grid; justify-items: start; gap: 4px; padding-top: 1px; }
+.project-decision-progress > strong { font-size: 11px; }
+.project-decision-progress > span, .project-decision-progress > small { color: var(--muted); font-size: 9px; }
+.decision-progress-completed { color: #107c10; }.decision-progress-in_progress, .decision-progress-proposed { color: var(--accent); }.decision-progress-blocked { color: var(--red); }.decision-progress-unplanned { color: var(--faint); }
+.decision-empty { padding: 18px; border: 1px dashed var(--line-bright); border-radius: 5px; background: var(--surface-2); }
+.decision-empty strong { font-size: 12px; }.decision-empty p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }.decision-empty code { font-family: var(--mono); }
+.selected-decision-sources { margin-bottom: 13px; padding: 11px 12px; border: 1px solid #b8d6ec; border-left: 3px solid var(--accent); border-radius: 5px; background: #f7fbff; }
+.selected-decision-sources > small, .selected-decision-sources > strong { display: block; }.selected-decision-sources > small { color: var(--accent); font: 8px var(--mono); letter-spacing: .08em; }.selected-decision-sources > strong { margin-top: 4px; font-size: 11px; }.selected-decision-sources > div { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }.selected-decision-sources span { padding: 4px 6px; border-radius: 4px; background: white; font: 9px var(--mono); }.selected-decision-sources code { color: var(--faint); }
+.epic-source-line { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 10px 0; }.epic-source-line > strong { margin-right: 3px; color: var(--faint); font-size: 9px; font-weight: 600; text-transform: uppercase; }.epic-source-line > span { padding: 4px 6px; border: 1px solid #cfe2f3; border-radius: 4px; color: var(--accent-strong); background: #f4f9fd; font: 9px var(--mono); }.epic-source-line code { color: var(--faint); }
+
 @media (max-width: 760px) {
   .journey-stepper { grid-template-columns: 1fr; }.journey-stepper button { min-height: 58px; border-right: 0; border-bottom: 1px solid var(--line); }.journey-stepper button:last-child { border-bottom: 0; }.journey-stepper strong, .journey-stepper small { white-space: normal; }
-  .current-repository-hint { align-items: stretch; flex-direction: column; gap: 14px; }.current-repository-hint button { width: 100%; }.quick-start { margin: 20px 0 24px; }.first-run-card { grid-template-columns: 1fr; gap: 18px; padding: 20px; }.quick-project-form > div { grid-template-columns: 1fr; }.quick-task-card { padding: 17px; }.quick-task-heading { display: block; }.safety-note { display: inline-block; margin-top: 10px; }.quick-task-actions { align-items: stretch; flex-direction: column; }.quick-task-actions button { width: 100%; text-align: center; }.quick-task-actions .text-button { margin-left: 0; }.project-deep-content { padding: 6px; }.journey-context small { display: none; }
+  .current-repository-hint { align-items: stretch; flex-direction: column; gap: 14px; }.current-repository-hint button { width: 100%; }.quick-start { margin: 20px 0 24px; }.first-run-card { grid-template-columns: 1fr; gap: 18px; padding: 20px; }.quick-project-form > div { grid-template-columns: 1fr; }.quick-task-card { padding: 17px; }.quick-task-heading { display: block; }.safety-note { display: inline-block; margin-top: 10px; }.quick-task-actions { align-items: stretch; flex-direction: column; }.quick-task-actions button { width: 100%; text-align: center; }.quick-task-actions .text-button { margin-left: 0; }.project-deep-content { padding: 6px; }.journey-context small { display: none; }.project-decision-summary { grid-template-columns: repeat(2,1fr); }.project-decision { grid-template-columns: 28px minmax(0,1fr); }.project-decision-progress { grid-column: 2; padding-top: 5px; }.decision-head-actions { align-items: flex-end; flex-direction: column; }
 }
 
 /* Fast multi-task entry and direct repository-list maintenance. */

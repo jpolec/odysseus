@@ -160,8 +160,8 @@ The last command writes a public aggregate Markdown file and a locally ignored
 JSON receipt. For another project, use the underlying command directly:
 
 ```sh
-odysseus --state-dir ~/.odysseus proof --release 0.6.12
-odysseus --state-dir ~/.odysseus proof --release 0.6.12 --json --output proof.json
+odysseus --state-dir ~/.odysseus proof --release 0.7.0
+odysseus --state-dir ~/.odysseus proof --release 0.7.0 --json --output proof.json
 ```
 
 Classification as `observed` is necessary but not sufficient. A counted outcome
@@ -548,6 +548,13 @@ Select a repository in the Explorer:
   an optional private summary and notes in Odysseus; it never rewrites README.
 - **Repository context** lists detected agent instructions and stack markers.
   Recent commits and Task History explain what happened across runs.
+- **Project Decisions** discovers versioned ADRs in `_ADR/` and conventional
+  ADR folders. Select one or more and choose **Plan selected**. The Planner
+  proposes a DAG for approval and freezes the exact documents into the Epic
+  and every task Context Receipt. The catalog then reports what is unplanned,
+  proposed, active, blocked, or completed, including task counts, observed
+  tokens, and provider-reported cost. See
+  [Project decisions and ADRs](PROJECT_DECISIONS.md).
 - **Skills** are generic engineering playbooks. Expand one to inspect
   it, then choose Auto, Required, or Disabled for this repository. Bundled
   skills cover common security, database, API, test, accessibility,

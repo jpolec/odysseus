@@ -89,6 +89,15 @@
                 <div class="context-source-list" id="projectContextSources"></div>
               </article>
             </div>
+            <article class="project-knowledge-card project-decisions-card">
+              <header>
+                <div><p class="eyebrow">PROJECT DECISIONS</p><h2>Architecture decisions</h2></div>
+                <div class="decision-head-actions"><span class="quiet-badge" id="projectDecisionCount">0 ADRs</span><button class="primary compact" id="planSelectedDecisions" type="button" disabled>Plan selected</button></div>
+              </header>
+              <p class="project-decisions-intro">Odysseus reads ADRs from <code>_ADR/</code> and common ADR folders. Select accepted or proposed decisions to turn them into one reviewable task graph.</p>
+              <div class="project-decision-summary" id="projectDecisionSummary"></div>
+              <div class="project-decision-list" id="projectDecisionList"><div class="empty-list">Discovering architecture decisions…</div></div>
+            </article>
             <details class="project-deep-section">
               <summary><span><strong>Knowledge and history</strong><small>Skills, memory, commits, timeline</small></span><span>Open</span></summary>
               <div class="project-deep-content">
@@ -440,6 +449,7 @@
       <div class="dialog-head"><div><p class="eyebrow">PLAN ONLY · NOTHING RUNS YET</p><h2>Break work into agent tasks</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="dialog-intro"><strong>Planner proposes a task graph.</strong><p>Nothing runs before approval.</p></div>
       <div class="flow-preview" aria-label="Feature planning flow"><span><b>1</b> Requirement</span><i>→</i><span><b>2</b> Proposed task graph</span><i>→</i><span><b>3</b> Your approval</span><i>→</i><span><b>4</b> Agents run</span></div>
+      <section class="selected-decision-sources hidden" id="epicDecisionSources" aria-label="Selected architecture decisions"></section>
       <label>What should the finished feature do?
         <span class="field-help">End state and constraints.</span>
         <textarea name="requirement" rows="6" required placeholder="Add passkey sign-in end to end. Keep password login working, include the schema migration, browser flow, integration tests, and a security review."></textarea>

@@ -36,6 +36,7 @@ class EpicPlanner:
         default_task_lane: str = "",
         default_review_lane: str = "",
         checks: list[str] | None = None,
+        source_documents: list[Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         requirement = requirement.strip()
         if not requirement:
@@ -54,6 +55,7 @@ class EpicPlanner:
                 "project_path": str(project),
                 "planner_lane": planner_lane,
                 "status": "planning",
+                "source_documents": list(source_documents or []),
             }
         )
         planner_events: list[dict[str, Any]] = []
@@ -67,7 +69,7 @@ class EpicPlanner:
         result = self.agent_runner.run(
             planner_lane,
             project,
-            self._prompt(requirement, implementation_lane, reviewer_lane, checks or []),
+            self._prompt(requirement, implementation_lane, reviewer_lane, checks or [], source_documents or []),
             review=True,
             emit=emit,
             cancelled=lambda: False,
@@ -187,7 +189,18 @@ class EpicPlanner:
         default_lane: str,
         default_review_lane: str,
         checks: list[str],
+        source_documents: list[Mapping[str, Any]] | None = None,
     ) -> str:
+        source_context = ""
+        if source_documents:
+            documents = []
+            for source in source_documents:
+                documents.append(
+                    f"SOURCE {source.get('path') or source.get('title') or 'decision'}\n"
+                    f"SHA256: {source.get('sha256') or ''}\n"
+                    f"{str(source.get('content') or '')[:80_000]}"
+                )
+            source_context = "\n\nSelected architecture decisions (treat as auditable requirements):\n\n" + "\n\n".join(documents)
         return (
             "You are the read-only Planner role in an Odysseus engineering workflow. "
             "Inspect the repository architecture but do not edit files and do not implement the requirement. "
@@ -204,4 +217,5 @@ class EpicPlanner:
             f"Default independent review lane: {default_review_lane}\n"
             f"Default checks: {json.dumps(checks)}\n\n"
             f"Requirement:\n{requirement}\n"
+            f"{source_context}\n"
         )

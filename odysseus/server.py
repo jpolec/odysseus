@@ -75,6 +75,18 @@ def _run_summary(run: Mapping[str, Any]) -> dict[str, Any]:
     return summary
 
 
+def _epic_summary(epic: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep exact source snapshots private to the explicit Epic detail route."""
+
+    value = dict(epic)
+    value["source_documents"] = [
+        {key: source.get(key) for key in ("kind", "path", "title", "status", "sha256", "bytes")}
+        for source in epic.get("source_documents") or []
+        if isinstance(source, dict)
+    ]
+    return value
+
+
 class OdysseusApp:
     def __init__(
         self,
@@ -310,7 +322,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             self._json({"items": self.server.app.store.attention.list(status=query.get("status", [None])[0])})
             return
         if parsed.path == "/api/epics":
-            self._json({"epics": self.server.app.store.epics.list()})
+            self._json({"epics": [_epic_summary(epic) for epic in self.server.app.store.epics.list()]})
             return
         if parsed.path == "/api/github/issues":
             query = parse_qs(parsed.query)
@@ -436,6 +448,18 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/epics/plan":
                 requirement = str(body.get("requirement") or "")
                 project_path = str(body.get("project_path") or ".")
+                source_paths = body.get("source_paths") or []
+                if not isinstance(source_paths, list) or not all(isinstance(item, str) for item in source_paths):
+                    raise ValueError("source_paths must be a list of decision paths")
+                source_documents = []
+                if source_paths:
+                    project_id = str(body.get("project_id") or "")
+                    project = self.server.app.store.projects.get(project_id)
+                    project_path = str(project["path"])
+                    source_documents = self.server.app.store.knowledge.decision_sources(project_id, source_paths)
+                    if not requirement.strip():
+                        titles = ", ".join(str(item.get("title") or item.get("path")) for item in source_documents)
+                        requirement = f"Implement the selected architecture decisions as one coherent, verified change: {titles}."
                 checks = body.get("checks") or []
                 if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
                     raise ValueError("checks must be a list of commands")
@@ -447,6 +471,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     default_task_lane=str(body.get("lane") or ""),
                     default_review_lane=str(body.get("review_lane") or ""),
                     checks=checks,
+                    source_documents=source_documents,
                 )
                 self._json(epic, HTTPStatus.CREATED)
                 return

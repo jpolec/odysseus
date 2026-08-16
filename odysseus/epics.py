@@ -21,7 +21,7 @@ EPIC_FINAL_STATUSES = DEPENDENCY_MET_STATUSES | DEPENDENCY_FAILED_STATUSES
 ACTIVE_RUN_STATUSES = frozenset(
     {"starting", "running", "checking", "reviewing", "cancelling", "publishing"}
 )
-EPIC_SCHEMA_VERSION = 2
+EPIC_SCHEMA_VERSION = 3
 
 
 class CycleError(ValueError):
@@ -55,6 +55,17 @@ class EpicStore:
         stamp = now_iso()
         compact = stamp.replace("-", "").replace(":", "").replace("T", "-")[:15]
         epic_id = f"epic-{compact}-{secrets.token_hex(2)}"
+        raw_sources = request.get("source_documents") or []
+        if not isinstance(raw_sources, list) or not all(isinstance(item, dict) for item in raw_sources):
+            raise ValueError("source_documents must be a list of objects")
+        source_documents = [
+            {
+                key: source.get(key)
+                for key in ("kind", "path", "title", "status", "sha256", "bytes", "content")
+                if source.get(key) is not None
+            }
+            for source in raw_sources[:20]
+        ]
         epic = {
             "schema_version": EPIC_SCHEMA_VERSION,
             "id": epic_id,
@@ -68,6 +79,7 @@ class EpicStore:
             "planner_events": [],
             "planner_error": "",
             "plan": request.get("plan") if isinstance(request.get("plan"), dict) else None,
+            "source_documents": source_documents,
             "approved": False,
             "task_keys": [],
             "run_ids": [],
@@ -100,6 +112,7 @@ class EpicStore:
         if schema_version < EPIC_SCHEMA_VERSION:
             value.setdefault("evidence_class", "unclassified")
             value.setdefault("release", "")
+            value.setdefault("source_documents", [])
         return value
 
     def list(self) -> list[dict[str, Any]]:
@@ -114,6 +127,7 @@ class EpicStore:
                 if schema_version < EPIC_SCHEMA_VERSION:
                     value.setdefault("evidence_class", "unclassified")
                     value.setdefault("release", "")
+                    value.setdefault("source_documents", [])
                 values.append(value)
         return sorted(values, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
@@ -192,6 +206,7 @@ class EpicStore:
                     "status": "blocked",
                     "blocked_reason": "materializing approved task graph",
                     "origin": "planner",
+                    "source_documents": list(epic.get("source_documents") or []),
                     "evidence_class": str(epic.get("evidence_class") or "unclassified"),
                     "release": str(epic.get("release") or ""),
                 }
