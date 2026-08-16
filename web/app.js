@@ -9,7 +9,7 @@ const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, selectedDiff: null, selectedDiffRunId: "", selectedDiffLoadingRunId: "",
   events: [], eventsLoadedRunId: "", eventsLoadingRunId: "", eventVisibleLimit: 150,
-  selectionGeneration: 0, filter: "all", projectFilter: "all", view: "work",
+  selectionGeneration: 0, filter: "active", projectFilter: "all", view: "work",
   stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
   assistantConversations: {}, config: null,
