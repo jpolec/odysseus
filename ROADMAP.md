@@ -6,6 +6,27 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.7: review and delivery clarity
+
+- Review now says explicitly that the agent is finished while nothing has been
+  applied, then presents one numbered **Review -> Test -> Deliver** checklist.
+- Accepting and delivering are separate states. The UI distinguishes a durable
+  artifact, a locally applied change, and a draft pull request.
+- Explicit local Apply refuses dirty or detached checkouts, the wrong branch,
+  unavailable artifacts, and incompatible base history; conflicting merges are
+  aborted and routed to Needs You.
+- Review feedback is named **Request changes** rather than Recovery. Failed and
+  attention states retain focused recovery in the same thread and worktree.
+- Browser confirmations use one Odysseus dialog with X and Escape behavior;
+  empty or null notices receive readable fallback text.
+
+## Shipped — 0.6.6: guided browser recovery
+
+- Failed and attention states place same-thread feedback directly beside the
+  status, with tmux retained as an optional expert handoff.
+- A context-controlled Codex/Claude assistant drafts, inserts, submits, copies,
+  or queues the next instruction without requiring another local CLI API key.
+
 ## Shipped — 0.6.5: repository clarity
 
 - The visible product model now has three explicit nouns: Odysseus is the

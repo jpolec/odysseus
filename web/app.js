@@ -24,10 +24,25 @@ async function api(path, options = {}) {
 
 function toast(message, isError = false) {
   const node = $("#toast");
-  node.textContent = message;
+  const readable = message === null || message === undefined || !String(message).trim()
+    ? (isError ? "Something went wrong. Open Activity for details." : "Done.")
+    : String(message);
+  node.textContent = readable;
   node.className = `toast visible${isError ? " error" : ""}`;
   window.clearTimeout(toast.timer);
   toast.timer = window.setTimeout(() => node.className = "toast", 4200);
+}
+
+function confirmChoice({eyebrow = "CONFIRM ACTION", title, lead, message, confirmLabel = "Continue"}) {
+  const dialog = $("#confirmDialog");
+  $("#confirmEyebrow").textContent = eyebrow;
+  $("#confirmTitle").textContent = title;
+  $("#confirmLead").textContent = lead;
+  $("#confirmMessage").textContent = message;
+  $("#confirmProceed").textContent = confirmLabel;
+  dialog.returnValue = "cancel";
+  dialog.showModal();
+  return new Promise((resolve) => dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), {once: true}));
 }
 
 function relativeTime(iso) {
@@ -598,7 +613,12 @@ function renderDetail(run, diff) {
   $(".journey-context").classList.toggle("hidden", interactive);
   const discovered = interactive ? discoveredSessionForRun(run) : null;
   const status = $("#detailStatus");
-  status.textContent = interactive ? "tracked tmux terminal" : statusLabel(run.status); status.className = `status-pill ${statusClass(run.status)}`;
+  const delivered = run.delivery?.status;
+  const visibleStatus = run.status === "review" ? "ready for review"
+    : run.status === "accepted" && delivered === "applied" ? "applied"
+    : run.status === "accepted" ? "accepted · not applied"
+    : statusLabel(run.status);
+  status.textContent = interactive ? "tracked tmux terminal" : visibleStatus; status.className = `status-pill ${statusClass(run.status)}`;
   $("#detailId").textContent = run.id;
   const project = projectById(run.project_id);
   $("#detailProjectName").textContent = projectName(project);
@@ -641,7 +661,7 @@ function renderDetail(run, diff) {
   if (technical.dataset.runId !== run.id) { technical.dataset.runId = run.id; technical.open = interactive; }
   if ($("#runDetail").dataset.runId !== run.id) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
   $("#workflowStrip").classList.toggle("hidden", interactive);
-  renderActions(run); renderNarrative(run); renderRecoveryCard(run); renderWorkflow(run); renderEvents();
+  renderActions(run); renderNarrative(run); renderReviewDecision(run); renderRecoveryCard(run); renderWorkflow(run); renderEvents();
   $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
   renderIntegration(run); renderChecks(run.check_results || []); renderContextReceipt(run); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
 }
@@ -679,29 +699,78 @@ function renderNarrative(run) {
     running: ["IMPLEMENTING", "The agent is working", "Tool calls, messages, and usage appear in Activity while the implementation changes the isolated worktree.", "No action needed", "active", "02"],
     checking: ["VERIFYING", "Running deterministic checks", "Configured tests and repository checks are evaluating the implementation independently of the agent.", "No action needed", "active", "03"],
     reviewing: ["REVIEWING", "Independent evidence review", "A separate reviewer is checking the diff and deterministic results before the human gate.", "No action needed", "active", "04"],
-    review: ["DECISION READY", "The change is ready for you", "Inspect the diff, checks, evaluation, and merge risk. Accept it or resume the agent with precise feedback.", "Your decision", "attention", "!"],
+    review: ["READY FOR REVIEW", "The agent finished. Nothing has been applied.", "Review the change and evidence, then accept it or send precise changes back to the agent.", "Your decision", "attention", "!"],
     attention: ["QUESTION", "The agent needs one decision", "Answer in Needs You; Odysseus will continue the same agent thread and preserve the current worktree.", "Needs you", "attention", "?"],
     failed: ["STOPPED SAFELY", "The workflow could not continue", "The branch and worktree are preserved. Inspect the failure, then resume, switch agent, or continue in a terminal.", "Needs you", "danger", "×"],
-    accepted: ["ACCEPTED", "A durable artifact is ready", "Downstream tasks can compose this exact Git artifact. Nothing was pushed or merged into the source checkout.", "Complete", "success", "✓"],
+    accepted: ["ACCEPTED · NOT APPLIED", "The result is saved as a durable artifact", "Choose Apply to repository, create a pull request, or leave the result safely stored as an artifact.", "Choose delivery", "attention", "✓"],
     publishing: ["PUBLISHING", "Preparing the draft pull request", "Odysseus is committing and pushing only this task branch before opening a draft PR.", "No action needed", "active", "↗"],
     pr_created: ["GITHUB FEEDBACK", ciStatus === "failed" ? "CI found a regression" : ciStatus === "passed" ? "CI is green" : "Draft PR is being checked", ciStatus === "failed" ? "Failure logs are captured and the bounded repair loop can resume the original agent." : "GitHub checks are tracked here until they pass or need your attention.", ciStatus === "failed" ? "Repair in progress" : ciStatus === "passed" ? "Complete" : "No action needed", ciStatus === "failed" ? "danger" : ciStatus === "passed" ? "success" : "active", ciStatus === "passed" ? "✓" : "↻"],
   };
   const environmentApproval = run.status === "attention" && run.environment?.trust_status === "pending";
-  const [label, title, copy, tail, tone, mark] = environmentApproval ? ["TRUST GATE", "Review repository execution commands", "No agent or repository command has run. Approve the container profile, setup, checks, and evaluators in Needs You, or reject the task.", "Needs you", "attention", "!"] : values[run.status] || ["WORKFLOW", "Odysseus is tracking this task", "Open Activity for the latest normalized events.", "No action needed", "calm", "→"];
+  let narrative = environmentApproval ? ["TRUST GATE", "Review repository execution commands", "No agent or repository command has run. Approve the container profile, setup, checks, and evaluators in Needs You, or reject the task.", "Needs you", "attention", "!"] : values[run.status] || ["WORKFLOW", "Odysseus is tracking this task", "Open Activity for the latest normalized events.", "No action needed", "calm", "→"];
+  if (run.status === "accepted" && run.delivery?.status === "applied") narrative = ["APPLIED", `The change is now on ${run.delivery.target_branch || run.base_ref}`, `Repository HEAD is ${String(run.delivery.target_after_sha || "").slice(0, 12)}. The accepted artifact remains auditable.`, "Delivered locally", "success", "✓"];
+  if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["ACCEPTED · APPLY BLOCKED", "The artifact is safe, but local delivery failed", run.delivery.error || "Resolve the repository state, then try Apply to repository again.", "Needs you", "danger", "!"];
+  const [label, title, copy, tail, tone, mark] = narrative;
   $("#narrativeLabel").textContent = label; $("#narrativeTitle").textContent = title; $("#narrativeCopy").textContent = copy; $("#narrativeTail").textContent = tail; $("#narrativeMark").textContent = mark; $("#runNarrative").dataset.tone = tone;
 }
 
 function renderActions(run) {
   const actions = [];
-  if (run.status === "review") actions.push(`<button class="action-button accept" data-action="accept" type="button">Approve</button>`);
   if (["accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Follow up with agent</button>`);
-  if (["review", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="draft-pr" type="button">Draft PR</button>`);
   if ((run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) && !canInlineResume(run)) actions.push(`<button class="action-button" data-action="takeover" type="button" title="Copies a command that opens this agent in your terminal">${run.kind === "tmux" ? "Copy tmux command" : "Continue in terminal"}</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
   if (run.pull_request_url) actions.push(`<a class="action-button accept" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open PR</a>`);
   if (run.pull_request_url) actions.push(`<button class="action-button" data-action="ci-poll" type="button">Poll CI</button>`);
   $("#runActions").innerHTML = actions.join("");
   $$("#runActions [data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
+}
+
+function renderReviewDecision(run) {
+  const node = $("#reviewDecisionCard");
+  const visible = ["review", "accepted", "pr_created"].includes(run.status);
+  node.classList.toggle("hidden", !visible);
+  if (!visible) { node.innerHTML = ""; return; }
+  const project = projectById(run.project_id);
+  const delivery = run.delivery || {};
+  const applied = delivery.status === "applied";
+  const failed = delivery.status === "failed";
+  const previewUrl = run.environment?.preview_url || "";
+  let deliveryCopy = "Accepting saves a durable artifact. It does not change your source checkout.";
+  let deliveryActions = `<button class="primary" data-review-action="accept" type="button">Accept result</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+  if (run.status === "accepted" && !applied) {
+    deliveryCopy = failed ? `Apply is blocked: ${delivery.error || "inspect the repository state and try again."}` : `Accepted, but not applied to ${run.base_ref || "the source branch"}. You may also keep it as an artifact and do nothing.`;
+    deliveryActions = `<button class="primary" data-review-action="apply" type="button">Apply to repository</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+  }
+  if (applied) {
+    deliveryCopy = `Applied to ${delivery.target_branch || run.base_ref} at ${String(delivery.target_after_sha || "").slice(0, 12)}.`;
+    deliveryActions = `<span class="delivery-complete">✓ Applied to repository</span>`;
+  }
+  if (run.status === "pr_created") {
+    deliveryCopy = "A draft pull request contains this change. GitHub CI is tracked separately.";
+    deliveryActions = run.pull_request_url ? `<a class="primary button-link" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open pull request</a>` : `<span class="delivery-complete">✓ Draft PR created</span>`;
+  }
+  node.innerHTML = `
+    <header class="review-decision-head"><div><small>${run.status === "review" ? "REVIEW CHECKLIST" : applied ? "DELIVERED LOCALLY" : run.status === "pr_created" ? "DELIVERED FOR REVIEW" : "DELIVERY OPTIONS"}</small><strong>${run.status === "review" ? "Review, test, then choose what happens to the result." : applied ? "The change is in your source checkout." : run.status === "pr_created" ? "The change is on GitHub." : "The result is safe, but your source checkout is unchanged."}</strong></div><span>${Math.round(Number(run.confidence || 0) * 100)}% confidence</span></header>
+    <ol class="delivery-steps">
+      <li><span>1</span><div><strong>Review the change</strong><p>See every changed file before deciding.</p><button class="ghost" data-review-action="view-changes" type="button">View changes</button></div></li>
+      <li><span>2</span><div><strong>Test the feature</strong><p>${previewUrl ? "A task preview is available." : "No visual preview is configured for this task. Use Changes and Evidence."}</p>${previewUrl ? `<a class="ghost button-link" href="${escapeHtml(previewUrl)}" target="_blank" rel="noreferrer">Open preview</a>` : `<button class="ghost" data-review-action="view-evidence" type="button">View checks and review</button>`}</div></li>
+      <li><span>3</span><div><strong>Deliver the result</strong><p>${escapeHtml(deliveryCopy)}</p><div class="delivery-actions">${deliveryActions}</div></div></li>
+    </ol>
+    ${run.status === "review" ? `<details class="review-request"><summary>Request changes instead</summary><p>Send precise feedback into the same agent thread and worktree.</p><textarea id="reviewFeedback" rows="4" placeholder="What should the agent change before you accept this result?"></textarea><div><button class="primary" data-review-action="send-back" type="button">Send changes back to agent</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
+    <footer class="delivery-target">Repository: <strong>${escapeHtml(projectName(project))}</strong> · Local branch: <code>${escapeHtml(run.base_ref || "unknown")}</code></footer>`;
+  $$('[data-review-action]').forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
+}
+
+async function reviewAction(action, button) {
+  if (action === "view-changes") { activateTaskSection("changes"); return; }
+  if (action === "view-evidence") { activateTaskSection("evidence"); activateTab("checks"); return; }
+  if (action === "send-back") {
+    const prompt = $("#reviewFeedback")?.value.trim() || "";
+    if (!prompt) { toast("Describe what the agent should change.", true); return; }
+    await submitReviewFeedback(prompt, button);
+    return;
+  }
+  await runAction(action);
 }
 
 function renderWorkflow(run) {
@@ -712,7 +781,8 @@ function renderWorkflow(run) {
   if (["reviewing", "review", "accepted", "publishing"].includes(status)) current = 4;
   if (status === "pr_created") current = 5;
   ["stageWorktree", "stageIntegrate", "stageAgent", "stageCheck", "stageReview", "stageCI"].forEach((id, index) => {
-    const node = $(`#${id}`); node.classList.toggle("done", index < current || (status === "pr_created" && index < 5) || run.ci?.status === "passed"); node.classList.toggle("current", index === current && (activeStatuses.has(status) || status === "pr_created"));
+    const reviewComplete = ["accepted", "publishing", "pr_created"].includes(status) && index === 4;
+    const node = $(`#${id}`); node.classList.toggle("done", index < current || reviewComplete || (status === "pr_created" && index < 5) || run.ci?.status === "passed"); node.classList.toggle("current", index === current && (activeStatuses.has(status) || ["review", "pr_created"].includes(status)));
   });
 }
 
@@ -898,7 +968,7 @@ function lastAssistantAnswer() {
 }
 
 function canInlineResume(run = state.selected) {
-  return Boolean(run && ["review", "failed", "attention"].includes(run.status));
+  return Boolean(run && ["failed", "attention"].includes(run.status));
 }
 
 function canAssistantFollowUp(run = state.selected) {
@@ -913,7 +983,24 @@ function renderRecoveryCard(run) {
   const visible = canInlineResume(run);
   $("#recoveryCard").classList.toggle("hidden", !visible);
   if (!visible) return;
+  const attention = run.status === "attention";
+  $("#recoveryLabel").textContent = attention ? "YOUR ANSWER" : "RECOVERY";
+  $("#recoveryTitle").textContent = attention ? "Answer and continue this task" : "Resume this task with feedback";
+  $("#recoveryCopy").textContent = attention ? "Your answer returns to the same agent thread and worktree." : "The branch and saved agent thread are preserved. Explain what to investigate or fix next.";
   $("#inlineTakeover").classList.toggle("hidden", !canTakeover(run));
+}
+
+async function submitReviewFeedback(prompt, button) {
+  const originalLabel = button.textContent;
+  try {
+    button.disabled = true;
+    button.textContent = "Sending...";
+    await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy: "resume", lane: ""})});
+    toast("Changes sent back to the same agent thread.");
+    await refreshRuns();
+    await refreshSelected();
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; button.textContent = originalLabel; }
 }
 
 async function sendAssistantMessage() {
@@ -960,6 +1047,12 @@ async function copyAssistantPrompt() {
 function insertAssistantFeedback() {
   const prompt = lastAssistantAnswer();
   if (!prompt) { toast("There is no assistant answer to insert.", true); return; }
+  if (state.selected?.status === "review" && $("#reviewFeedback")) {
+    $("#reviewFeedback").value = prompt;
+    $("#reviewFeedback").closest("details").open = true;
+    toast("Inserted assistant answer into requested changes.");
+    return;
+  }
   if (canInlineResume()) {
     $("#inlineFeedback").value = prompt;
     toast("Inserted assistant answer into feedback.");
@@ -1032,11 +1125,19 @@ async function queueAssistantTask() {
 async function runAction(action) {
   if (!state.selectedId) return;
   if (action === "resume") { $("#feedbackDialog").showModal(); return; }
-  if (action === "draft-pr" && !window.confirm("Commit all worktree changes, push the branch, and create a draft pull request?")) return;
+  if (action === "apply") {
+    const run = state.selected;
+    const approved = await confirmChoice({eyebrow: "APPLY LOCALLY", title: `Apply to ${run.base_ref || "the source branch"}?`, lead: "This changes your source checkout.", message: "Odysseus will proceed only if the checkout is clean, on the expected branch, and still descends from the task base. A conflicting merge is aborted automatically.", confirmLabel: "Apply to repository"});
+    if (!approved) return;
+  }
+  if (action === "draft-pr") {
+    const approved = await confirmChoice({eyebrow: "PUBLISH FOR REVIEW", title: "Create a draft pull request?", lead: "The task branch will be pushed to GitHub.", message: "Your local source checkout remains unchanged. GitHub CI will be watched after the pull request is created.", confirmLabel: "Create draft PR"});
+    if (!approved) return;
+  }
   try {
     const result = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/${action}`, {method: "POST", body: "{}"});
     if (action === "takeover") await copyCommand(result.command);
-    else toast(action === "draft-pr" ? "Draft pull request created." : action === "ci-poll" ? "GitHub checks refreshed." : `Action completed: ${action}`);
+    else toast(action === "accept" ? "Result accepted. It is saved, but not applied yet." : action === "apply" ? "Change applied to the source repository." : action === "draft-pr" ? "Draft pull request created." : action === "ci-poll" ? "GitHub checks refreshed." : `Action completed: ${action}`);
     await refreshRuns(); await refreshSelected();
   } catch (error) { toast(error.message, true); }
 }
@@ -1081,7 +1182,11 @@ async function refreshEpics() {
     const epicProject = projectById(epic.project_id);
     return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.plan?.summary || epic.description || "Planning…")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${(epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("")}</div></article>`;
   }).join("") : `<div class="empty-card">No plans yet. Describe a larger feature; review the proposed tasks before anything starts.</div>`;
-  $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => { if (!window.confirm("Approve this task graph and start every ready root task?")) return; try { await api(`/api/epics/${encodeURIComponent(button.dataset.approveEpic)}/approve`, {method: "POST", body: "{}"}); toast("Plan approved. Ready tasks are queued."); await Promise.all([refreshEpics(), refreshRuns()]); } catch (error) { toast(error.message, true); } }));
+  $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => {
+    const approved = await confirmChoice({eyebrow: "START A TASK PLAN", title: "Approve this plan?", lead: "Every dependency-ready root task will start.", message: "Review the task graph first. Dependent tasks remain blocked until their predecessors produce accepted artifacts.", confirmLabel: "Approve and start"});
+    if (!approved) return;
+    try { await api(`/api/epics/${encodeURIComponent(button.dataset.approveEpic)}/approve`, {method: "POST", body: "{}"}); toast("Plan approved. Ready tasks are queued."); await Promise.all([refreshEpics(), refreshRuns()]); } catch (error) { toast(error.message, true); }
+  }));
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
 }
 
@@ -1102,7 +1207,9 @@ async function refreshProjects() {
 
 async function forgetProject(identifier) {
   const project = projectById(identifier);
-  if (!project || !window.confirm(`Remove ${projectOptionLabel(project)} from Your repositories?\n\nThe repository and every file in ${project.path} stay untouched.`)) return;
+  if (!project) return;
+  const approved = await confirmChoice({eyebrow: "FORGET REPOSITORY", title: `Remove ${projectOptionLabel(project)}?`, lead: "Only the Odysseus shortcut will be removed.", message: `The repository and every file in ${project.path} stay untouched.`, confirmLabel: "Remove from Odysseus"});
+  if (!approved) return;
   try {
     await api(`/api/projects/${encodeURIComponent(project.id)}`, {method: "DELETE"});
     if (state.projectFilter === project.id) state.projectFilter = "all";

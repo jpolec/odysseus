@@ -69,7 +69,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.6")
+                self.assertEqual(bootstrap["version"], "0.6.7")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -162,6 +162,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="assistantComposer"', html)
                 self.assertIn('id="recoveryCard"', html)
                 self.assertIn('id="inlineFeedback"', html)
+                self.assertIn('id="reviewDecisionCard"', html)
+                self.assertIn('id="confirmDialog"', html)
                 self.assertIn("Direct API: ChatGPT", html)
                 self.assertIn("Share diff/code excerpt", html)
                 self.assertIn("blank scratch workspace", html)
@@ -171,9 +173,11 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/app.js") as response:
                     app_js = response.read().decode()
                 self.assertIn("Follow up with agent", app_js)
-                self.assertIn('["review", "failed", "attention"]', app_js)
+                self.assertIn('["failed", "attention"]', app_js)
                 self.assertIn('["review", "failed", "attention", "accepted", "pr_created"]', app_js)
                 self.assertIn("feedbackDialog", app_js)
+                self.assertIn("Apply to repository", app_js)
+                self.assertIn("accepted · not applied", app_js)
 
                 assist_request = urllib.request.Request(
                     f"{base}/api/assist",

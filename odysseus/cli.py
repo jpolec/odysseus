@@ -312,6 +312,12 @@ def cmd_accept(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_apply(args: argparse.Namespace) -> int:
+    _, actions = _actions(args)
+    _print_json(actions.apply(args.run_id))
+    return 0
+
+
 def cmd_send_back(args: argparse.Namespace) -> int:
     _, actions = _actions(args)
     feedback = args.feedback if args.feedback != "-" else sys.stdin.read()
@@ -719,6 +725,13 @@ def parser() -> argparse.ArgumentParser:
     accept = sub.add_parser("accept", help="accept a run at the review gate")
     accept.add_argument("run_id")
     accept.set_defaults(func=cmd_accept)
+
+    apply_result = sub.add_parser(
+        "apply",
+        help="merge an accepted artifact into its clean source checkout",
+    )
+    apply_result.add_argument("run_id")
+    apply_result.set_defaults(func=cmd_apply)
 
     send_back = sub.add_parser("send-back", help="return a run to the agent with feedback")
     send_back.add_argument("run_id")

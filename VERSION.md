@@ -6,15 +6,36 @@
 
 ## Current version
 
-**0.6.6 — 2026-08-16**
+**0.6.7 — 2026-08-16**
 
-Version 0.6.6 makes browser recovery the default path while keeping tmux as an
-optional expert escape hatch. Failed work now explains the next action at the
-point of failure, and a context-controlled assistant can draft or submit the
-next instruction through local Codex, local Claude Code, or an optional direct
-API provider.
+Version 0.6.7 makes completion and delivery explicit. A successful agent run is
+first ready for review, then optionally accepted as a durable artifact, and
+only a separate confirmed action applies it to the source checkout or publishes
+it as a draft pull request.
 
-## What is available in 0.6.6
+## What is available in 0.6.7
+
+### 0.6.7 Review and Delivery Clarity
+
+- Review Summary presents one numbered **Review -> Test -> Deliver** checklist
+  and says explicitly that the agent is finished while nothing has been
+  applied.
+- **Accept result** snapshots the artifact without touching the source checkout.
+  Accepted tasks then offer **Apply to repository**, **Create draft PR**, or the
+  safe default of keeping the artifact only.
+- Local Apply merges the complete artifact branch, including composed DAG
+  predecessors. It refuses a dirty checkout, detached HEAD, wrong branch,
+  missing artifact, or rewritten base history and aborts conflicts.
+- Delivery state records the method, target branch, before/after SHAs, timestamp,
+  and failure detail in JSON and append-only NDJSON events.
+- Successful review feedback is **Request changes**, while failed and attention
+  states retain the focused recovery editor.
+- Native confirmations were replaced with an Odysseus dialog that supports X,
+  Cancel, and Escape. Empty/null notifications now have readable fallback text.
+- The Review stage visibly remains current until acceptance and becomes complete
+  after acceptance instead of appearing inactive.
+
+## Earlier 0.6 releases
 
 ### 0.6.6 Guided Recovery and Context Assistant
 
@@ -37,8 +58,6 @@ API provider.
   shell that can silently fall back to an older system Python on macOS.
 - Codex continuation places execution options before the `resume` subcommand,
   matching the current Codex CLI and preserving the task worktree and sandbox.
-
-## Earlier 0.6 releases
 
 ### 0.6.5 Repository Clarity
 
@@ -384,8 +403,8 @@ API provider.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.6` |
-| Run snapshot schema | `9` |
+| Application version | `0.6.7` |
+| Run snapshot schema | `10` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |
 | Export format | `odysseus-state-v1` |

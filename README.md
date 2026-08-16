@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.6.6](https://img.shields.io/badge/version-0.6.6-171a16)
+![Version: 0.6.7](https://img.shields.io/badge/version-0.6.7-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -55,8 +55,9 @@ adds repositories by itself.
 - **See the work.** The UI exposes normalized messages, reasoning summaries,
   tool calls/results, token and cache usage, checks, independent evaluation,
   confidence, policy, and live activity.
-- **Keep control.** Accept creates a local artifact commit but does not push,
-  merge to the source branch, delete a worktree, or publish anything.
+- **Keep control.** Accept saves a local artifact without touching the source
+  checkout. A separate, confirmed **Apply to repository** action merges it only
+  when the checkout is clean, on the expected branch, and history is compatible.
 - **Choose the runtime boundary.** Keep host compatibility, use a repository
   devcontainer, or run agent/check/review commands in disposable Docker
   containers with scoped mounts, credentials, ports, network, CPU, and memory.
@@ -180,10 +181,20 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes nine real browser captures—First run, Repositories, Repository, Attention,
-Task Summary, Integration, CI repair, Context Receipt, and New task—to `docs/screenshots/` and
+The script writes ten real browser captures—First run, Repositories, Repository,
+Attention, Review, Delivery, Integration, CI repair, Context Receipt, and New task—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
+
+### Review, then deliver
+
+![Odysseus review checklist](docs/screenshots/web-task-review.png)
+
+The result cannot silently become source code. After acceptance, the next
+screen still says **not applied** and offers explicit local or pull-request
+delivery:
+
+![Odysseus accepted artifact delivery](docs/screenshots/web-task-delivery.png)
 
 ## Odysseus develops Odysseus
 
@@ -305,14 +316,18 @@ At the review gate:
 
 | Action | Result |
 | --- | --- |
-| **Approve** | Records approval and a durable local artifact commit; it does not push, merge to the source branch, or delete the worktree. |
-| **Give feedback** | Sends guidance to the saved implementation thread in the same worktree. |
+| **View changes** | Opens the complete diff before any delivery decision. |
+| **Accept result** | Records approval and a durable local artifact commit; the source checkout remains unchanged. |
+| **Apply to repository** | After acceptance, safely merges the complete artifact into the clean expected local branch and aborts conflicts. |
+| **Request changes instead** | Sends guidance to the saved implementation thread in the same worktree. |
 | **Continue in terminal** | Resumes the exact implementation thread in a managed tmux session and copies its open command. |
-| **Draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request. |
+| **Create draft PR** | Commits the task worktree, pushes its branch, and opens a draft pull request without changing the source checkout. |
 
-For `Failed`, `Review`, or `Needs You`, the normal recovery path is directly
-below the status message: enter the correction and choose **Resume with
-feedback**. The right-side **Context assistant** can draft that correction with
+`Ready for review`, `Accepted`, and `Applied` are deliberately different. The
+review checklist shows **1 Review**, **2 Test**, and **3 Deliver**; until Apply
+or a PR is chosen, the UI says that the source checkout is unchanged. For
+`Failed` or `Needs You`, the recovery path stays directly below the status
+message. The right-side **Context assistant** can draft feedback with
 the already authenticated local Codex CLI or Claude Code CLI; no separate API
 key is required for local mode. Task, failure, review, and check context are
 explicit toggles, while diff/code sharing is off by default. Direct ChatGPT or
@@ -325,7 +340,7 @@ saved agent thread. Odysseus preserves the same branch and worktree either way.
 
 **Continue in terminal** does not steal or recreate work. It prepares the exact
 saved agent thread in tmux, inside the existing task worktree, then copies the
-command you paste into a terminal. **Give feedback** continues that same thread
+command you paste into a terminal. **Request changes** continues that same thread
 autonomously.
 
 ## tmux controls

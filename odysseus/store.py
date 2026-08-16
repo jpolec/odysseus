@@ -60,7 +60,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 9
+RUN_SCHEMA_VERSION = 10
 
 
 def _safe_int(value: Any) -> int:
@@ -92,6 +92,15 @@ def _run_defaults() -> dict[str, Any]:
         "artifact_sha": "",
         "artifact_files": [],
         "artifact_created_at": None,
+        "delivery": {
+            "status": "not_ready",
+            "method": "",
+            "target_branch": "",
+            "target_before_sha": "",
+            "target_after_sha": "",
+            "delivered_at": None,
+            "error": "",
+        },
         "integration_sources": [],
         "integration_head": "",
         "merge_analysis": {"risk": "none", "source_count": 0, "overlaps": [], "files": []},
@@ -610,6 +619,7 @@ class RunStore:
             "agent.blocked": ("blocked", "high", "Agent blocked"),
             "agent.decision_required": ("decision_required", "medium", "Decision required"),
             "integration.conflict": ("merge_conflict", "high", "Integration conflict"),
+            "delivery.failed": ("delivery_failed", "high", "Local apply failed"),
             "ci.failed": ("ci_failed", "high", "CI failed"),
             "ci.retry_exhausted": ("ci_failed", "critical", "CI retry budget exhausted"),
             "run.stalled": ("stalled", "high", "Agent stalled"),

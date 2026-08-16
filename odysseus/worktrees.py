@@ -174,6 +174,112 @@ class WorktreeManager:
         return {"artifact_sha": sha, "artifact_files": WorktreeManager.changed_files(value)}
 
     @staticmethod
+    def apply_to_repository(run: Mapping[str, Any]) -> dict[str, Any]:
+        """Merge a durable task artifact into its clean source checkout.
+
+        The complete artifact branch is merged, rather than cherry-picking only
+        its final snapshot commit, because a DAG task may contain composed
+        predecessor artifacts. A failed merge is aborted before returning.
+        """
+
+        project_path = str(run.get("project_path") or "")
+        artifact_sha = str(run.get("artifact_sha") or "")
+        base_sha = str(run.get("base_sha") or "")
+        base_ref = str(run.get("base_ref") or "")
+        if not project_path or not artifact_sha or not base_sha or not base_ref:
+            raise GitError("the accepted task is missing repository or artifact metadata")
+
+        repo = WorktreeManager.repository(project_path)
+        dirty = _run(["git", "-C", str(repo), "status", "--porcelain"]).stdout.strip()
+        if dirty:
+            raise GitError(
+                "the source checkout has uncommitted or untracked changes; "
+                "commit or stash them before applying this task"
+            )
+
+        branch_result = _run(
+            ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            check=False,
+        )
+        target_branch = branch_result.stdout.strip()
+        if branch_result.returncode or not target_branch:
+            raise GitError("the source checkout is detached; check out the task base branch first")
+        expected_branch = base_ref.removeprefix("refs/heads/")
+        if expected_branch == "HEAD" or target_branch != expected_branch:
+            raise GitError(
+                f"the source checkout is on {target_branch}, but this task targets {expected_branch}"
+            )
+
+        if _run(
+            ["git", "-C", str(repo), "cat-file", "-e", f"{artifact_sha}^{{commit}}"],
+            check=False,
+        ).returncode:
+            raise GitError("the accepted artifact commit is no longer available in this repository")
+
+        before_sha = _run(["git", "-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
+        if _run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", artifact_sha, before_sha],
+            check=False,
+        ).returncode == 0:
+            return {
+                "status": "applied",
+                "method": "local_merge",
+                "target_branch": target_branch,
+                "target_before_sha": before_sha,
+                "target_after_sha": before_sha,
+                "delivered_at": None,
+                "error": "",
+                "already_applied": True,
+            }
+
+        if _run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", base_sha, before_sha],
+            check=False,
+        ).returncode:
+            raise GitError(
+                "the source branch no longer descends from the task base; "
+                "create a pull request or rebase the task before applying it"
+            )
+
+        merge = _run(
+            ["git", "-C", str(repo), "merge", "--no-edit", artifact_sha],
+            check=False,
+            timeout=300,
+        )
+        if merge.returncode:
+            conflicts = _run(
+                ["git", "-C", str(repo), "diff", "--name-only", "--diff-filter=U"],
+                check=False,
+            ).stdout.splitlines()
+            merge_head = _run(
+                ["git", "-C", str(repo), "rev-parse", "--verify", "-q", "MERGE_HEAD"],
+                check=False,
+            )
+            abort = None
+            if merge_head.returncode == 0:
+                abort = _run(["git", "-C", str(repo), "merge", "--abort"], check=False)
+            if abort is not None and abort.returncode:
+                raise GitError(
+                    "applying the artifact failed and Git could not abort the merge; "
+                    f"inspect {repo} before continuing"
+                )
+            detail = merge.stderr.strip() or merge.stdout.strip() or "Git merge failed"
+            conflict_note = f" Conflicts: {', '.join(conflicts)}." if conflicts else ""
+            raise GitError(f"the artifact could not be applied; the merge was aborted.{conflict_note} {detail}")
+
+        after_sha = _run(["git", "-C", str(repo), "rev-parse", "HEAD"]).stdout.strip()
+        return {
+            "status": "applied",
+            "method": "local_merge",
+            "target_branch": target_branch,
+            "target_before_sha": before_sha,
+            "target_after_sha": after_sha,
+            "delivered_at": None,
+            "error": "",
+            "already_applied": False,
+        }
+
+    @staticmethod
     def analyze_dependencies(dependencies: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         """Predict cross-task file overlap before attempting an integration merge."""
 

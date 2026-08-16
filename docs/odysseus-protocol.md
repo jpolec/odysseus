@@ -107,6 +107,7 @@ The default origin is `http://127.0.0.1:8741`.
 | `GET` | `/api/runs/:id/diff` | Unified patch, stat, and untracked file list |
 | `POST` | `/api/runs/:id/cancel` | Request cancellation |
 | `POST` | `/api/runs/:id/accept` | Accept and create a durable local artifact commit |
+| `POST` | `/api/runs/:id/apply` | Merge an accepted artifact into its clean expected source branch |
 | `POST` | `/api/runs/:id/send-back` | Requeue with `{ "feedback": "..." }` |
 | `POST` | `/api/runs/:id/resume` | Continue with `{ "prompt": "...", "strategy": "resume|switch|clean", "lane": "..." }` |
 | `POST` | `/api/runs/:id/takeover` | Create/return a managed interactive tmux continuation |
@@ -219,6 +220,8 @@ lanes; unknown or malformed markers never become implicit approval.
   between graph refresh and worker start.
 - `parallelizable: false` excludes overlap with active siblings in the Epic.
 - `accepted` records an `artifact_sha` and `artifact_files` surface.
+- `delivery.status` distinguishes `not_applied`, `applied`, `failed`, and
+  `pr_created`; Apply records the target branch and before/after commit SHAs.
 - Before a downstream agent starts, artifacts are merged in `depends_on` order
   into that run's worktree. Applied sources and resulting head are recorded.
 - Pairwise file overlap produces `merge_analysis`; a real Git conflict emits

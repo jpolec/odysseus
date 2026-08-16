@@ -168,11 +168,12 @@
                     <div><small id="narrativeLabel">CURRENT STEP</small><strong id="narrativeTitle">Preparing the task</strong><p id="narrativeCopy">Odysseus is resolving the next safe action.</p></div>
                     <span class="narrative-tail" id="narrativeTail">No action needed</span>
                   </section>
+                  <section class="review-decision hidden" id="reviewDecisionCard" aria-label="Review and deliver this change"></section>
                   <section class="recovery-card hidden" id="recoveryCard" aria-label="Resume task with feedback">
                     <div class="recovery-copy">
-                      <small>RECOVERY</small>
-                      <strong>Resume this task with feedback</strong>
-                      <p>The same task branch and saved agent thread are reused. Put the next instruction here, or insert an assistant answer from the right rail.</p>
+                      <small id="recoveryLabel">RECOVERY</small>
+                      <strong id="recoveryTitle">Resume this task with feedback</strong>
+                      <p id="recoveryCopy">The same task branch and saved agent thread are reused. Put the next instruction here, or insert an assistant answer from the right rail.</p>
                     </div>
                     <textarea id="inlineFeedback" rows="5" placeholder="Tell the agent exactly what to change or investigate next."></textarea>
                     <div class="recovery-actions">
@@ -400,6 +401,12 @@
       <label>Repository folder <span class="field-help">An absolute path on the computer running Odysseus.</span><input name="path" required placeholder="/Users/me/code/my-project"></label>
       <details class="advanced"><summary>More options…</summary><label>Custom display name <span class="field-help">Usually unnecessary; the Git repository name is used automatically.</span><input name="name" placeholder="Optional"></label><label>Tags <input name="tags" placeholder="client, backend, priority"></label></details>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Add repository</button></div>
+    </form></dialog>
+
+    <dialog id="confirmDialog"><form method="dialog" id="confirmForm">
+      <div class="dialog-head"><div><p class="eyebrow" id="confirmEyebrow">CONFIRM ACTION</p><h2 id="confirmTitle">Continue?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong id="confirmLead">Review what will happen.</strong><p id="confirmMessage"></p></div>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" id="confirmProceed" value="confirm" type="submit">Continue</button></div>
     </form></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

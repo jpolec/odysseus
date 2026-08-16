@@ -6,6 +6,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="${1:-$REPOSITORY_ROOT/docs/screenshots}"
 PORT="${ODYSSEUS_SCREENSHOT_PORT:-8743}"
+port_is_free() {
+  python3 -c 'import socket,sys
+s=socket.socket()
+try:
+    s.bind(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+finally:
+    s.close()' "$1"
+}
+while ! port_is_free "$PORT" || ! port_is_free "$((PORT + 1))"; do
+  PORT="$((PORT + 2))"
+done
 STATE_DIR="$(mktemp -d)"
 FIRST_RUN_STATE_DIR="$(mktemp -d)"
 FIRST_RUN_PORT="$((PORT + 1))"
@@ -50,16 +63,19 @@ curl -fsS "http://127.0.0.1:$FIRST_RUN_PORT/api/health" >/dev/null
 
 RUN_ID="$($REPOSITORY_ROOT/bin/odysseus --state-dir "$STATE_DIR" runs --json | python3 -c 'import json,sys; print(next(run["id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Stabilize checkout retry flow"))')"
 PROJECT_ID="$($REPOSITORY_ROOT/bin/odysseus --state-dir "$STATE_DIR" runs --json | python3 -c 'import json,sys; print(next(run["project_id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Stabilize checkout retry flow"))')"
+REVIEW_RUN_ID="$($REPOSITORY_ROOT/bin/odysseus --state-dir "$STATE_DIR" runs --json | python3 -c 'import json,sys; print(next(run["id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Guard the factor pipeline against look-ahead bias"))')"
+ACCEPTED_RUN_ID="$($REPOSITORY_ROOT/bin/odysseus --state-dir "$STATE_DIR" runs --json | python3 -c 'import json,sys; print(next(run["id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Make webhook delivery idempotent"))')"
 BASE_URL="http://127.0.0.1:$PORT"
-COMMON=(--headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --virtual-time-budget=1800 --window-size=1440,1000)
+COMMON=(--headless=new --disable-gpu --no-sandbox --hide-scrollbars --force-device-scale-factor=1 --window-size=1440,1000)
 
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-first-run.png" "http://127.0.0.1:$FIRST_RUN_PORT/"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-workspace.png" "$BASE_URL/?view=work"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-project.png" "$BASE_URL/#project/$PROJECT_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-attention.png" "$BASE_URL/?view=attention"
-"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-task-summary.png" "$BASE_URL/#task/$RUN_ID"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-task-review.png" "$BASE_URL/#task/$REVIEW_RUN_ID"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-task-delivery.png" "$BASE_URL/#task/$ACCEPTED_RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-integration.png" "$BASE_URL/?tab=integration#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-ci-repair.png" "$BASE_URL/?tab=ci#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-context-receipt.png" "$BASE_URL/?tab=context#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-new-task.png" "$BASE_URL/?view=work&dialog=task&prompt=Review%20authentication%20security"
-printf 'Nine real screenshots written to %s\n' "$OUTPUT_DIR"
+printf 'Ten real screenshots written to %s\n' "$OUTPUT_DIR"

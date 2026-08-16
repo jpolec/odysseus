@@ -152,11 +152,15 @@ questions, permission requests, failures, broken dependencies, and review gates
 are collected.
 Then choose one action:
 
-- **Approve** records approval and creates a local artifact commit. It does not
-  push, merge into your source branch, or delete anything.
-- **Resume with feedback** appears directly below a failed, review-ready, or
-  attention status. It sends guidance into the saved implementation thread and
-  the same worktree.
+- **View changes** opens the diff; **View checks and review** opens the evidence.
+- **Accept result** records approval and creates a local artifact commit. It
+  still does not change your source checkout.
+- **Apply to repository** appears after acceptance. It merges the complete
+  artifact only into a clean checkout on the expected branch and aborts a
+  conflicting merge automatically.
+- **Request changes instead** sends guidance into the saved implementation
+  thread and the same worktree. Failed and attention states keep the direct
+  **Resume with feedback** recovery editor.
 - **Context assistant** on the right can ask the locally authenticated Codex or
   Claude CLI what instruction to send next, then insert or submit the answer.
   Task context is selectable and diff/code sharing is off by default.
@@ -164,7 +168,7 @@ Then choose one action:
   the safe tmux command. This is optional for interactive debugging; the normal
   workflow can remain entirely in the browser. Paste the command into a
   terminal to enter the agent; the browser never injects keystrokes into tmux.
-- **Draft PR** commits and pushes the task branch, then asks `gh` to create a
+- **Create draft PR** commits and pushes the task branch, then asks `gh` to create a
   draft pull request.
 
 CLI equivalents:
@@ -174,6 +178,7 @@ bin/odysseus resume RUN_ID "Fix the failing edge case"
 bin/odysseus resume RUN_ID --strategy switch --lane claude "Try a second lane"
 bin/odysseus takeover RUN_ID
 bin/odysseus accept RUN_ID
+bin/odysseus apply RUN_ID
 bin/odysseus draft-pr RUN_ID
 bin/odysseus attention
 bin/odysseus answer ATTENTION_ID "Choose option A"

@@ -133,6 +133,12 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(accepted["status"], "accepted")
             self.assertEqual(accepted["event_seq"], sent_back["event_seq"] + 3)
             self.assertTrue(accepted["artifact_sha"])
+            self.assertEqual(accepted["delivery"]["status"], "not_applied")
+            self.assertFalse((repo / "result.txt").exists())
+            applied = actions.apply(run["id"])
+            self.assertEqual(applied["delivery"]["status"], "applied")
+            self.assertEqual((repo / "result.txt").read_text(), "attempt 2\n")
+            self.assertIn("delivery.applied", [event["type"] for event in store.events(run["id"])])
             with mock.patch.object(
                 WorktreeManager,
                 "draft_pr",
@@ -141,6 +147,7 @@ class SchedulerTests(unittest.TestCase):
                 published = actions.draft_pr(run["id"])
             self.assertEqual(published["status"], "pr_created")
             self.assertEqual(published["pull_request_url"], "https://github.com/example/project/pull/1")
+            self.assertEqual(published["delivery"]["status"], "pr_created")
 
     def test_untrusted_repo_commands_stop_before_agent_until_operator_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

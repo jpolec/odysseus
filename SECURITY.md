@@ -48,11 +48,15 @@ Common credential-shaped fields and token patterns are redacted from normalized
 vendor telemetry before it is persisted. This is defense in depth, not a reason
 to put secrets in prompts or shell commands.
 
-Accepting a task creates a local commit on its Odysseus task branch. Downstream
-artifact composition runs `git merge` only in the downstream task worktree and
-aborts on conflict; it does not update the operator's source checkout. Draft PR
-and CI-repair actions can push the task branch through the service user's Git
-credentials. Odysseus does not auto-merge pull requests.
+Accepting a task creates a local commit on its Odysseus task branch and does not
+update the operator's source checkout. Downstream artifact composition runs
+`git merge` only in the downstream task worktree and aborts on conflict. The
+separate, confirmed **Apply to repository** action is the only normal workflow
+action that updates the source checkout: it refuses a dirty checkout, detached
+HEAD, wrong branch, missing artifact, or rewritten base history, and aborts a
+conflicting merge. Draft PR and CI-repair actions can push the task branch
+through the service user's Git credentials. Odysseus does not auto-merge pull
+requests.
 
 GitHub CI and review intake invoke authenticated `gh` as the service user.
 Notification destinations may embed webhook credentials. Protect

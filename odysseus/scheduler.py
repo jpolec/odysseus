@@ -769,13 +769,23 @@ class ReviewActions:
     def __init__(self, store: RunStore, scheduler: Scheduler) -> None:
         self.store = store
         self.scheduler = scheduler
+        self._delivery_lock = threading.Lock()
 
     def accept(self, run_id: str) -> dict[str, Any]:
         run = self.store.get(run_id)
         if run.get("status") != "review":
             raise ValueError("only a run waiting for review can be accepted")
         artifact = self.scheduler.worktrees.snapshot(run, reason="accepted")
-        self.store.update(run_id, **artifact, artifact_created_at=now_iso())
+        delivery = {
+            "status": "not_applied",
+            "method": "",
+            "target_branch": str(run.get("base_ref") or ""),
+            "target_before_sha": "",
+            "target_after_sha": "",
+            "delivered_at": None,
+            "error": "",
+        }
+        self.store.update(run_id, **artifact, artifact_created_at=now_iso(), delivery=delivery)
         self.store.append_event(run_id, "artifact.created", "git", artifact)
         self.store.append_event(run_id, "review.accepted", "user", {})
         self.store.attention.resolve_for_run(run_id, resolution="accepted")
@@ -785,6 +795,61 @@ class ReviewActions:
             event_type="run.accepted",
             review_status="accepted",
         )
+
+    def apply(self, run_id: str) -> dict[str, Any]:
+        """Apply an accepted artifact to its original clean checkout."""
+
+        with self._delivery_lock:
+            run = self.store.get(run_id)
+            if run.get("status") != "accepted":
+                raise ValueError("accept the result before applying it to the repository")
+            delivery = dict(run.get("delivery") or {})
+            if delivery.get("status") == "applied":
+                return run
+            self.store.append_event(
+                run_id,
+                "delivery.started",
+                "user",
+                {
+                    "method": "local_merge",
+                    "target_branch": str(run.get("base_ref") or ""),
+                },
+            )
+            try:
+                applied = self.scheduler.worktrees.apply_to_repository(run)
+            except Exception as exc:
+                failed = {
+                    **delivery,
+                    "status": "failed",
+                    "method": "local_merge",
+                    "target_branch": str(run.get("base_ref") or ""),
+                    "delivered_at": None,
+                    "error": str(exc),
+                }
+                self.store.update(run_id, delivery=failed)
+                self.store.append_event(
+                    run_id,
+                    "delivery.failed",
+                    "git",
+                    {"message": str(exc), "target_branch": failed["target_branch"]},
+                )
+                raise
+            applied["delivered_at"] = now_iso()
+            self.store.update(run_id, delivery=applied)
+            self.store.append_event(
+                run_id,
+                "delivery.applied",
+                "git",
+                {
+                    "method": applied["method"],
+                    "target_branch": applied["target_branch"],
+                    "target_before_sha": applied["target_before_sha"],
+                    "target_after_sha": applied["target_after_sha"],
+                    "already_applied": applied["already_applied"],
+                },
+            )
+            self.store.attention.resolve_for_run(run_id, resolution="delivery.applied")
+            return self.store.get(run_id)
 
     def send_back(self, run_id: str, feedback: str) -> dict[str, Any]:
         feedback = feedback.strip()
@@ -839,6 +904,14 @@ class ReviewActions:
             changes["agent_session_id"] = ""
         if strategy == "switch":
             changes["lane"] = lane.strip()
+        if run.get("status") == "accepted":
+            previous_delivery = dict(run.get("delivery") or {})
+            changes["delivery"] = {
+                **previous_delivery,
+                "status": "update_pending",
+                "delivered_at": None,
+                "error": "",
+            }
         self.store.update(
             run_id,
             status="queued",
@@ -958,12 +1031,23 @@ class ReviewActions:
             self.store.append_event(run_id, "pr.failed", "git", {"message": str(exc)})
             raise
         self.store.append_event(run_id, "pr.created", "git", {"url": url})
+        delivery = {
+            "status": "pr_created",
+            "method": "pull_request",
+            "target_branch": str(run.get("base_ref") or ""),
+            "target_before_sha": "",
+            "target_after_sha": str(artifact.get("artifact_sha") or ""),
+            "delivered_at": now_iso(),
+            "error": "",
+            "url": url,
+        }
         ci = dict(self.store.get(run_id).get("ci") or {})
         ci.update({"status": "pending", "summary": "Waiting for GitHub checks.", "updated_at": now_iso()})
         return self.store.transition(
             run_id,
             "pr_created",
             pull_request_url=url,
+            delivery=delivery,
             ci=ci,
             review_status="published",
             worker_pid=None,

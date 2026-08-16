@@ -33,7 +33,7 @@ from .tmux import TmuxBridge
 from .worktrees import WorktreeManager
 
 
-RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|send-back|resume|takeover|draft-pr|ci-poll))?$")
+RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|apply|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
 PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile|skills|knowledge))?$")
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
@@ -431,6 +431,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json(self.server.app.scheduler.cancel(run_id), HTTPStatus.ACCEPTED)
             elif action == "accept":
                 self._json(self.server.app.actions.accept(run_id))
+            elif action == "apply":
+                self._json(self.server.app.actions.apply(run_id))
             elif action == "send-back":
                 self._json(self.server.app.actions.send_back(run_id, str(body.get("feedback", ""))))
             elif action == "resume":

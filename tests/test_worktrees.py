@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from odysseus.worktrees import IntegrationError, WorktreeManager
+from odysseus.worktrees import GitError, IntegrationError, WorktreeManager
 
 
 def git(repo: Path, *args: str) -> str:
@@ -87,6 +87,61 @@ class WorktreeTests(unittest.TestCase):
             self.assertEqual((target / "frontend.txt").read_text(), "frontend\n")
             self.assertEqual(result["merge_analysis"]["risk"], "medium")
             self.assertEqual(len(result["integration_sources"]), 2)
+
+    def test_apply_to_repository_merges_complete_artifact_and_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-b", "main")
+            git(repo, "config", "user.name", "Odysseus Test")
+            git(repo, "config", "user.email", "odysseus@example.test")
+            (repo / "base.txt").write_text("base\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-m", "base")
+            manager = WorktreeManager(root / "worktrees")
+            task = manager.create({"id": "apply-one", "project_path": str(repo)}, lambda *_: None)
+            (Path(task["worktree_path"]) / "feature.txt").write_text("delivered\n")
+            task.update(manager.snapshot(task))
+
+            applied = manager.apply_to_repository(task)
+            self.assertEqual((repo / "feature.txt").read_text(), "delivered\n")
+            self.assertEqual(applied["status"], "applied")
+            self.assertFalse(applied["already_applied"])
+            self.assertEqual(applied["target_branch"], "main")
+
+            repeated = manager.apply_to_repository(task)
+            self.assertTrue(repeated["already_applied"])
+            self.assertEqual(repeated["target_after_sha"], applied["target_after_sha"])
+
+    def test_apply_to_repository_refuses_dirty_checkout_and_aborts_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-b", "main")
+            git(repo, "config", "user.name", "Odysseus Test")
+            git(repo, "config", "user.email", "odysseus@example.test")
+            (repo / "shared.txt").write_text("base\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-m", "base")
+            manager = WorktreeManager(root / "worktrees")
+            task = manager.create({"id": "apply-conflict", "project_path": str(repo)}, lambda *_: None)
+            (Path(task["worktree_path"]) / "shared.txt").write_text("task\n")
+            task.update(manager.snapshot(task))
+
+            (repo / "untracked.txt").write_text("operator work\n")
+            with self.assertRaisesRegex(GitError, "uncommitted or untracked"):
+                manager.apply_to_repository(task)
+            (repo / "untracked.txt").unlink()
+
+            (repo / "shared.txt").write_text("source\n")
+            git(repo, "add", "shared.txt")
+            git(repo, "commit", "-m", "source change")
+            with self.assertRaisesRegex(GitError, "merge was aborted"):
+                manager.apply_to_repository(task)
+            self.assertEqual((repo / "shared.txt").read_text(), "source\n")
+            self.assertEqual(git(repo, "status", "--porcelain"), "")
 
     def test_conflicting_artifacts_stop_on_the_isolated_integration_branch(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

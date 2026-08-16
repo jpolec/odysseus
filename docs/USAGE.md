@@ -346,10 +346,10 @@ and becomes a high-priority operator item; the source checkout is untouched.
 | `running` | The implementation agent is active. |
 | `checking` | Trusted project checks are executing. |
 | `reviewing` | The read-only review pass is active. |
-| `review` | Waiting for Approve, Give feedback, Continue in terminal, or Draft PR. |
+| `review` | The agent finished; use the 1 Review, 2 Test, 3 Deliver checklist. Nothing is applied yet. |
 | `attention` | The agent yielded a question, permission request, or decision. |
 | `failed` | Inspect the last error and event history; resume is still available. |
-| `accepted` | Approval and a local artifact commit were recorded; nothing was pushed or merged to the source branch. |
+| `accepted` | Approval and a local artifact commit were recorded; delivery is separately not applied, applied, failed, or represented by a PR. |
 | `pr_created` | A draft pull request exists and GitHub checks are being observed. |
 | `session` | A durable record for an adopted interactive tmux session. |
 
@@ -361,8 +361,8 @@ Events.
 
 ### Recover a failed task in the browser
 
-When a task is in `failed`, `review`, or `attention`, its Summary puts a
-recovery card immediately below the status explanation:
+When a task is in `failed` or `attention`, its Summary puts a recovery card
+immediately below the status explanation:
 
 1. Enter a concrete correction in **Resume this task with feedback**.
 2. Choose **Resume with feedback**.
@@ -376,6 +376,12 @@ attached. Diff/code remains off until explicitly enabled. You can then
 **Insert answer**, **Submit answer**, **Copy answer**, or **Queue as new task**.
 Conversation history is local to the browser and messages derived from a
 context scope are omitted from later requests when that scope is disabled.
+
+When a task reaches `review`, Summary instead shows a deliberate three-step
+checklist: review the complete diff, open a preview when the run provides one
+or inspect checks and review evidence, then choose delivery. **Request changes
+instead** returns feedback to the same agent thread without presenting a
+successful review as a recovery failure.
 
 The optional **Direct API: ChatGPT** and **Direct API: Claude** choices require
 `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the server environment. Run-derived
@@ -442,16 +448,21 @@ The command prints a `tmux attach-session` command and creates the managed
 session only once. The same session appears in `prefix` + `u` and the web
 **Agent terminals** view.
 
-### Accept or publish
+### Accept, apply, or publish
 
 ```sh
 bin/odysseus accept RUN_ID
+bin/odysseus apply RUN_ID
 bin/odysseus draft-pr RUN_ID
 ```
 
 Accept records the decision and snapshots the complete worktree into a local
-Git artifact. It does not push or merge the artifact. Draft PR pushes the task
-branch and invokes `gh pr create --draft`.
+Git artifact. It does not push or merge the artifact. Apply is a separate,
+explicit action: the source checkout must be clean, checked out on the task's
+base branch, and still descend from the recorded base commit. Odysseus merges
+the complete artifact branch so composed DAG predecessors are not lost, and it
+aborts a conflicting merge before returning an error. Draft PR pushes the task
+branch and invokes `gh pr create --draft` without changing the source checkout.
 
 ## Reach green after publishing
 
