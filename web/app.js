@@ -74,6 +74,27 @@ function truncateText(value, limit = HEAVY_TEXT_LIMIT) {
   if (content.length <= limit) return content;
   return `${content.slice(0, limit)}\n\n[truncated in browser: ${compactNumber(content.length - limit)} more characters]`;
 }
+function isLoopbackHost(hostname) {
+  const host = String(hostname || "").toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1" || host === "127.0.0.1" || host.startsWith("127.");
+}
+function reachablePreviewUrl(previewUrl) {
+  if (!previewUrl) return "";
+  try {
+    const localUrl = new URL(previewUrl, window.location.href);
+    if (!isLoopbackHost(localUrl.hostname) || isLoopbackHost(window.location.hostname)) return "";
+    const remoteUrl = new URL(localUrl.href);
+    remoteUrl.hostname = window.location.hostname;
+    return remoteUrl.href;
+  } catch {
+    return "";
+  }
+}
+function previewLinks(previewUrl) {
+  if (!previewUrl) return "";
+  const tailscaleUrl = reachablePreviewUrl(previewUrl);
+  return `<div class="preview-actions"><a class="ghost button-link" href="${escapeHtml(previewUrl)}" target="_blank" rel="noreferrer">Open local preview</a>${tailscaleUrl ? `<a class="ghost button-link" href="${escapeHtml(tailscaleUrl)}" target="_blank" rel="noreferrer" title="Uses the current Odysseus host with the preview port">Open via Tailscale</a>` : ""}</div>`;
+}
 function projectById(id) { return state.projects.find((project) => project.id === id); }
 function projectName(project) { return project?.display_name || project?.name || project?.folder_name || "Repository"; }
 function projectRepository(project) { return project?.repository || project?.folder_name || "Local repository"; }
@@ -848,7 +869,7 @@ function renderEnvironment(run) {
     <p>${escapeHtml(environment.isolation || "Environment will be resolved when the task starts.")}</p>
     ${details.length ? `<div class="environment-tags">${details.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : ""}
     ${ports.length ? `<div class="environment-ports">${ports.map(([name, value]) => `<span><strong>${escapeHtml(name)}</strong> ${profile === "docker" ? `127.0.0.1:${escapeHtml(value.host)} → ${escapeHtml(value.container)}` : `127.0.0.1:${escapeHtml(value.host)} allocated`}</span>`).join("")}</div>` : ""}
-    ${environment.preview_url ? `<a href="${escapeHtml(environment.preview_url)}" target="_blank" rel="noreferrer">Open preview ↗</a>` : ""}
+    ${previewLinks(environment.preview_url)}
     ${profile === "host" ? `<div class="environment-warning">Host mode is compatible, but it can access the same files, credentials, ports, and services as your user.</div>` : ""}`;
 }
 
@@ -927,7 +948,7 @@ function renderReviewDecision(run) {
     <header class="review-decision-head"><div><small>${run.status === "review" ? "REVIEW CHECKLIST" : applied ? "DELIVERED LOCALLY" : run.status === "pr_created" ? "DELIVERED FOR REVIEW" : "DELIVERY OPTIONS"}</small><strong>${run.status === "review" ? "Review, test, then choose what happens to the result." : applied ? "The change is in your source checkout." : run.status === "pr_created" ? "The change is on GitHub." : "The result is safe, but your source checkout is unchanged."}</strong></div><span>${Math.round(Number(run.confidence || 0) * 100)}% confidence</span></header>
     <ol class="delivery-steps">
       <li><span>1</span><div><strong>Review the change</strong><p>See every changed file before deciding.</p><button class="ghost" data-review-action="view-changes" type="button">View changes</button></div></li>
-      <li><span>2</span><div><strong>Test the feature</strong><p>${previewUrl ? "A task preview is available." : "No visual preview is configured for this task. Use Changes and Evidence."}</p>${previewUrl ? `<a class="ghost button-link" href="${escapeHtml(previewUrl)}" target="_blank" rel="noreferrer">Open preview</a>` : `<button class="ghost" data-review-action="view-evidence" type="button">View checks and review</button>`}</div></li>
+      <li><span>2</span><div><strong>Test the feature</strong><p>${previewUrl ? "A task preview is available." : "No visual preview is configured for this task. Use Changes and Evidence."}</p>${previewUrl ? previewLinks(previewUrl) : `<button class="ghost" data-review-action="view-evidence" type="button">View checks and review</button>`}</div></li>
       <li><span>3</span><div><strong>Deliver the result</strong><p>${escapeHtml(deliveryCopy)}</p>${deliveryHelp}<div class="delivery-actions">${deliveryActions}</div></div></li>
     </ol>
     ${run.status === "review" ? `<details class="review-request"><summary>Request changes instead</summary><p>Send precise feedback into the same agent thread and worktree.</p><textarea id="reviewFeedback" rows="4" placeholder="What should the agent change before you accept this result?"></textarea><div><button class="primary" data-review-action="send-back" type="button">Send changes back to agent</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
