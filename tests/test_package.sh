@@ -16,7 +16,15 @@ trap cleanup EXIT INT TERM
 
 command -v uv >/dev/null 2>&1 || { printf '%s\n' 'uv is required for the package proof.' >&2; exit 1; }
 EXPECTED_VERSION="$(cd "$REPOSITORY_ROOT" && python3 -c 'from odysseus import __version__; print(__version__)')"
-UV_CACHE_DIR="$TEMP_ROOT/uv-cache" uv build "$REPOSITORY_ROOT" --out-dir "$TEMP_ROOT/dist" >/dev/null
+if ! UV_CACHE_DIR="$TEMP_ROOT/uv-cache" uv build "$REPOSITORY_ROOT" --out-dir "$TEMP_ROOT/dist" >"$TEMP_ROOT/uv-build.log" 2>&1; then
+  if grep -Eq 'Failed to fetch|No solution found when resolving|operation timed out|offline' "$TEMP_ROOT/uv-build.log"; then
+    printf '%s\n' 'uv could not fetch isolated build requirements; using offline package proof fallback.' >&2
+    ODYSSEUS_OFFLINE_DIST="$TEMP_ROOT/dist" python3 "$REPOSITORY_ROOT/scripts/build-offline-package.py" >/dev/null
+  else
+    cat "$TEMP_ROOT/uv-build.log" >&2
+    exit 1
+  fi
+fi
 WHEEL="$(find "$TEMP_ROOT/dist" -name '*.whl' -print -quit)"
 test -n "$WHEEL"
 

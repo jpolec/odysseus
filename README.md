@@ -530,6 +530,22 @@ Override it with `ODYSSEUS_HOME` or `--state-dir`. Custom lanes can be added to
 `{prompt}` placeholders. See [docs/USAGE.md](docs/USAGE.md) for examples and an
 operator command reference.
 
+Inspect retained worktrees and runtime directories without deleting anything:
+
+```sh
+bin/odysseus resources
+bin/odysseus resources --json
+```
+
+Reclamation is separate and explicit:
+
+```sh
+bin/odysseus resources --reclaim
+```
+
+Delivered worktrees and stale runtime directories can be reclaimed after the
+retention window; failed worktrees are kept for recovery.
+
 ## Remote and VPS
 
 The server binds to loopback by default. It is designed for one operator on a
@@ -595,6 +611,7 @@ bin/odysseus draft-pr RUN_ID
 bin/odysseus ci RUN_ID
 bin/odysseus search "failing browser test"
 bin/odysseus stats
+bin/odysseus resources
 bin/odysseus version
 bin/odysseus update --check
 bin/odysseus rollback
