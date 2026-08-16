@@ -482,6 +482,13 @@
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" id="confirmProceed" value="confirm" type="submit">Continue</button></div>
     </form></dialog>
 
+    <dialog id="integrationDialog"><form method="dialog" id="integrationForm">
+      <div class="dialog-head"><div><p class="eyebrow">INTEGRATION DELIVERY</p><h2>Choose artifact disposition</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Every current candidate needs an explicit choice.</strong><p>Only artifacts marked Integrate now will be composed into the integration run.</p></div>
+      <div class="integration-candidate-list" id="integrationCandidateList"></div>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create integration run</button></div>
+    </form></dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/app.js" defer></script>
   </body>

@@ -62,7 +62,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 10
+RUN_SCHEMA_VERSION = 11
 
 
 def _safe_int(value: Any) -> int:
@@ -106,6 +106,13 @@ def _run_defaults() -> dict[str, Any]:
         "integration_sources": [],
         "integration_head": "",
         "integration_conflicts": [],
+        "integration_disposition": {
+            "state": "pending",
+            "integration_run_id": "",
+            "superseded_by": "",
+            "reason": "",
+            "decided_at": None,
+        },
         "merge_analysis": {"risk": "none", "source_count": 0, "overlaps": [], "files": []},
         "ci": {
             "status": "not_started",
