@@ -951,7 +951,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             self.server.app.leave_sse()
 
     def _static(self, requested: str) -> None:
-        routes = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css"}
+        routes = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/styles.css": "styles.css", "/odysseus-icon.svg": "odysseus-icon.svg"}
         relative = routes.get(requested)
         if relative is None:
             self._json_error(HTTPStatus.NOT_FOUND, "not found")

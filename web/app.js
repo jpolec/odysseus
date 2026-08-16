@@ -1,11 +1,16 @@
 "use strict";
 
+const THEME_KEY = "odysseus-theme";
+let savedTheme = "";
+try { savedTheme = window.localStorage.getItem(THEME_KEY) || ""; } catch { savedTheme = ""; }
+document.documentElement.dataset.theme = savedTheme === "dark" ? "dark" : "light";
+
 const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, selectedDiff: null, selectedDiffRunId: "", selectedDiffLoadingRunId: "",
   events: [], eventsLoadedRunId: "", eventsLoadingRunId: "", eventVisibleLimit: 150,
   selectionGeneration: 0, filter: "all", projectFilter: "all", view: "work",
-  stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
+  stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
   assistantConversations: {}, config: null,
 };
@@ -78,6 +83,9 @@ function projectCheckoutLabel(project) {
   if (project?.repository && project.repository !== project.folder_name) return project.repository;
   return project?.folder_name || project?.path || "Local repository";
 }
+function runTitle(run, fallback = "task") {
+  return String(run?.title || run?.task || fallback).split("\n")[0].trim() || fallback;
+}
 function projectOptionLabel(project) {
   const name = projectName(project);
   return projectHasDuplicateCheckout(project) ? `${name} — ${project.folder_name}` : name;
@@ -100,6 +108,22 @@ function prepareProjectSelect(select, container) {
   const preferred = preferredProjectId();
   if (preferred && [...select.options].some((option) => option.value === preferred)) select.value = preferred;
   syncCustomProject(select, container);
+}
+
+function syncThemeButton() {
+  const button = $("#themeToggle");
+  if (!button) return;
+  const isDark = document.documentElement.dataset.theme === "dark";
+  button.setAttribute("aria-label", isDark ? "Switch to light theme" : "Switch to dark theme");
+  button.title = isDark ? "Switch to light theme" : "Switch to dark theme";
+  button.setAttribute("aria-pressed", String(isDark));
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { window.localStorage.setItem(THEME_KEY, next); } catch { /* Theme remains active for this tab. */ }
+  syncThemeButton();
 }
 
 function setFormSubmitting(form, submitting, activeButton, label) {
@@ -167,6 +191,12 @@ function filteredRuns() {
 function runsForProject(projectId) { return state.runs.filter((run) => run.project_id === projectId); }
 function attentionForProject(projectId) { return state.attention.filter((item) => item.project_id === projectId); }
 function projectTerminalCount(project) { return state.sessions.filter((session) => session.project_path === project.path).length; }
+function repositoryScopedSessions() {
+  const project = activeProject();
+  if (project) return state.sessions.filter((session) => session.project_path === project.path);
+  const projectPaths = new Set(state.projects.map((project) => project.path));
+  return state.sessions.filter((session) => projectPaths.has(session.project_path));
+}
 
 function environmentFromForm(data) {
   const profile = String(data.get("environment_profile") || "");
@@ -512,7 +542,7 @@ function renderQuickStart() {
       setFormSubmitting(form, true, button, "Starting...");
       const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task, project_path: project.path, lane, skill_mode: "auto"})});
       status.textContent = addAnother ? "Task started. Add the next request." : "Task started. Opening the live task view...";
-      toast(`Task started: ${run.title}`);
+      toast(`Task started: ${runTitle(run)}`);
       await Promise.all([refreshRuns(), refreshProjects()]);
       if (addAnother) {
         window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
@@ -1328,7 +1358,7 @@ async function queueAssistantTask() {
     button.disabled = true;
     button.textContent = "Queueing...";
     const created = await api("/api/runs", {method: "POST", body: JSON.stringify({task: prompt, project_path: project.path, lane: run.lane || state.bootstrap.default_lane, skill_mode: "auto"})});
-    toast(`Queued new task: ${created.title}`);
+    toast(`Queued new task: ${runTitle(created)}`);
     await Promise.all([refreshRuns(), refreshProjects()]);
     await selectRun(created.id);
   } catch (error) { toast(error.message, true); }
@@ -1509,13 +1539,21 @@ async function refreshSessions() {
 }
 
 function renderSessions() {
-  const visibleSessions = state.sessionScope === "attached" ? state.sessions.filter((session) => session.attached) : state.sessions;
-  const uniqueTmux = new Set(state.sessions.map((session) => session.tmux_session)).size;
-  const waiting = state.sessions.filter((session) => session.status === "waiting").length;
-  const working = state.sessions.filter((session) => session.status === "working").length;
-  const tracked = state.sessions.filter((session) => session.adopted_run_id).length;
+  const scopeSelect = $("#sessionScope");
+  const repositoryOption = scopeSelect?.querySelector('option[value="repositories"]');
+  if (repositoryOption) repositoryOption.textContent = activeProject() ? "This repository" : "Your repositories";
+  if (scopeSelect && scopeSelect.value !== state.sessionScope) scopeSelect.value = state.sessionScope;
+  const visibleSessions = state.sessionScope === "repositories"
+    ? repositoryScopedSessions()
+    : state.sessionScope === "attached"
+      ? state.sessions.filter((session) => session.attached)
+      : state.sessions;
+  const uniqueTmux = new Set(visibleSessions.map((session) => session.tmux_session)).size;
+  const waiting = visibleSessions.filter((session) => session.status === "waiting").length;
+  const working = visibleSessions.filter((session) => session.status === "working").length;
+  const tracked = visibleSessions.filter((session) => session.adopted_run_id).length;
   $("#sessionSummary").innerHTML = [
-    [state.sessions.length, "agent panes", `${uniqueTmux} tmux sessions`], [working, "working", "visible tmux activity"], [waiting, "need terminal input", "action required"], [tracked, "tracked", "durable Odysseus entries"],
+    [visibleSessions.length, "shown", `${uniqueTmux} tmux sessions · ${state.sessions.length} discovered`], [working, "working", "visible tmux activity"], [waiting, "need terminal input", "action required"], [tracked, "tracked", "durable Odysseus entries"],
   ].map(([value, label, note]) => `<div><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(note)}</small></div>`).join("");
   const groups = new Map();
   visibleSessions.forEach((session) => { const key = session.tmux_session || "unknown"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(session); });
@@ -1530,7 +1568,7 @@ function renderSessions() {
         <div class="card-actions">${session.adopted_run_id ? `<button class="ghost" data-open-run="${escapeHtml(session.adopted_run_id)}" type="button">Open tracked entry</button>` : `<button class="primary" data-adopt="${escapeHtml(session.id)}" type="button" title="Adds this pane to Tasks without changing it">Track in Odysseus</button>`}<button class="ghost" data-attach="${escapeHtml(session.tmux_session)}" data-pane-target="${escapeHtml(session.tmux_target || "")}" type="button">Copy tmux command</button></div></article>`;
     }).join("");
     return `<section class="session-group"><div class="session-group-head"><h2>tmux session ${escapeHtml(name)}</h2><span>${sessions.length} agent pane${sessions.length === 1 ? "" : "s"} · ${attached ? "attached" : "detached"}</span></div><div class="session-group-grid">${cards}</div></section>`;
-  }).join("") : `<div class="empty-card"><strong>${state.sessionScope === "attached" && state.sessions.length ? "No panes in an attached tmux session." : "No agent terminals found."}</strong><br>${state.sessionScope === "attached" && state.sessions.length ? "Choose “All discovered sessions” to see detached tmux sessions." : "Start Codex or Claude inside tmux; it will appear here automatically within a few seconds. There is no import button."}</div>`;
+  }).join("") : `<div class="empty-card"><strong>${state.sessionScope === "repositories" && state.sessions.length ? activeProject() ? "No panes for this repository." : "No panes for your repositories." : state.sessionScope === "attached" && state.sessions.length ? "No panes in an attached tmux session." : "No agent terminals found."}</strong><br>${state.sessionScope === "repositories" && state.sessions.length ? "Choose All discovered sessions to see other Codex and Claude panes." : state.sessionScope === "attached" && state.sessions.length ? "Choose All discovered sessions to see detached tmux sessions." : "Start Codex or Claude inside tmux; it will appear here automatically within a few seconds. There is no import button."}</div>`;
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
   $$('[data-attach]').forEach((button) => button.addEventListener("click", () => copyCommand(button.dataset.paneTarget ? `tmux select-pane -t ${button.dataset.paneTarget} \\; attach-session -t ${button.dataset.attach}` : `tmux attach-session -t ${button.dataset.attach}`)));
   $$('[data-adopt]').forEach((button) => button.addEventListener("click", async () => { try { const run = await api(`/api/tmux/sessions/${encodeURIComponent(button.dataset.adopt)}/adopt`, {method: "POST", body: "{}"}); toast("Now tracking this pane. The original tmux session was not changed."); await Promise.all([refreshSessions(), refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } }));
@@ -1629,7 +1667,7 @@ function bindDialogs() {
       state.taskSkillRecommendations = null;
       renderTaskSkillRecommendations();
       status.textContent = addAnother ? "Task started. Add the next request." : "Task started. Opening the live task view...";
-      toast(`Task started for ${data.get("lane")}: ${run.title}`);
+      toast(`Task started for ${data.get("lane")}: ${runTitle(run)}`);
       await Promise.all([refreshRuns(), refreshProjects()]);
       if (addAnother) {
         window.requestAnimationFrame(() => $("#taskPrompt").focus());
@@ -1731,6 +1769,8 @@ async function init() {
     state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join(""); $("#laneSelect").innerHTML = laneOptions; $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions; $("#settingsDefaultLane").innerHTML = laneOptions; $("#settingsPlannerLane").innerHTML = laneOptions; $("#settingsReviewLane").innerHTML = laneOptions;
     [["docker", "Docker is not installed"], ["devcontainer", "Dev Container CLI is not installed"]].forEach(([profile, message]) => { const option = $("#environmentProfile").querySelector(`option[value="${profile}"]`); if (option && !state.bootstrap.capabilities?.[profile]) { option.disabled = true; option.textContent += ` — unavailable`; option.title = message; } });
     bindDialogs();
+    syncThemeButton();
+    $("#themeToggle").addEventListener("click", toggleTheme);
     $$(".nav-button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
     $$(".filter").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderRuns(); }));
     $$(".tab").forEach((button) => button.addEventListener("click", () => activateTab(button.dataset.tab)));

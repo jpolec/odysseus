@@ -17,9 +17,9 @@ not claim that a model produced those exact changes. Real agent runs retain
 their own immutable Context Receipts, event journals, checks, review, costs,
 and operator decisions in the selected state directory.
 
-For 0.6.10 the release gate is:
+For 0.6.11 the release gate is:
 
-- 96 automated tests, including lightweight run summaries, deferred browser
+- 97 automated tests, including null-safe task titles, lightweight run summaries, deferred browser
   evidence loading, safe local artifact application, preservation
   of unrelated and colliding untracked files, conflict abort,
   repository identity, hidden internal worktrees,
@@ -33,10 +33,10 @@ For 0.6.10 the release gate is:
   injection, writable implementation/check mounts, and read-only review mounts;
 - a checkout installer smoke test and an exact-commit clone/piped-installer smoke test;
 - a clean wheel tested through `uvx`, including installed web assets and nine Skills;
-- a real versioned install from 0.6.1, live-process refusal, upgrade to 0.6.10,
+- a real versioned install from 0.6.1, live-process refusal, upgrade to 0.6.11,
   downgrade refusal, checksummed state backup, corrupt-restore refusal, verified
   state restore, first-install backup, command-link preflight, and atomic rollback;
-- packaged and checkout HTTP servers reporting version 0.6.10;
+- packaged and checkout HTTP servers reporting version 0.6.11;
 - deterministic fresh-state and demo routes for eleven screenshot target views.
 - a production-proof assertion that every seeded task is classified as demo,
   every other evidence class is empty, and observed autonomous outcomes are zero.

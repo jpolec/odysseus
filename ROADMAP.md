@@ -6,6 +6,18 @@ verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
 
+## Shipped — 0.6.11: composed operator polish
+
+- Task titles and notifications fall back to the request text when an API
+  client explicitly sends a null title; operators no longer see `null` notices.
+- Agent terminals default to the selected or saved repositories, with the
+  complete machine-wide session list available as an explicit wider scope.
+- A light-by-default theme gains a compact dark-mode switch and a packaged
+  Odysseus icon while the navigation surfaces remain visually stable.
+- Three independently accepted task artifacts are composed into one release,
+  so their delivery history remains traceable without replaying conflicting
+  patches against a newer frontend.
+
 ## Shipped — 0.6.10: exact on-demand tabs
 
 - Cross-section and deep-link navigation activates the requested inner tab

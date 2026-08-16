@@ -84,6 +84,20 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(events[0]["type"], "run.queued")
             self.assertEqual(events[1]["type"], "context.receipt.created")
 
+    def test_run_title_falls_back_to_task_when_title_is_null(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+
+            run = store.create(
+                {"title": None, "task": "Fix the popup\nwith details", "project_path": str(project)}
+            )
+
+            self.assertEqual(run["title"], "Fix the popup")
+            self.assertNotIn("none", run["id"].lower())
+
     def test_persistent_config_updates_concurrency(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = RunStore(Path(temp) / "state")

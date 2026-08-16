@@ -3,14 +3,15 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="light dark">
     <title>Odysseus — Coding agents, organized</title>
+    <link rel="icon" href="/odysseus-icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body data-view="work">
     <header class="titlebar">
       <a class="brand" href="#" aria-label="Open Odysseus repositories">
-        <span class="brand-mark" aria-hidden="true">O</span>
+        <img class="brand-mark" src="/odysseus-icon.svg" alt="" aria-hidden="true">
         <span class="brand-copy"><strong>ODYSSEUS</strong><small>Coding agents, organized</small></span>
       </a>
       <div class="title-context" aria-label="Current location"><span id="titleProject">Odysseus</span><i>/</i><strong id="titleSurface">Repositories</strong></div>
@@ -18,6 +19,7 @@
       <div class="topbar-status">
         <span class="connection" title="Live connection to the Odysseus server"><i></i><span id="connectionLabel">Connecting</span></span>
         <button class="parallel" id="parallelLabel" type="button" title="Open queue settings">— slots</button>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to dark theme" aria-pressed="false" title="Switch to dark theme"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 8.7 6.8 7 7 0 0 1-8.5-6.5L12 3Zm-6.5 9a6.5 6.5 0 0 1 4.9-6.3 9.1 9.1 0 0 0 7.9 7.9A6.5 6.5 0 1 1 5.5 12Z"/></svg></button>
         <button class="primary compact" id="newTaskButton" type="button"><span>＋</span> New task</button>
       </div>
     </header>
@@ -261,7 +263,7 @@
         </div>
 
         <section class="view-panel collection-view" id="sessionsView">
-          <div class="page-head"><div><p class="eyebrow">AUTO-DISCOVERED · NO IMPORT NEEDED</p><h1>Agent terminals</h1><p>Codex and Claude panes already running in tmux appear here automatically. Viewing this page does not change or control them.</p></div><div class="session-controls"><label><span>Show</span><select id="sessionScope"><option value="attached">Current tmux sessions</option><option value="all">All discovered sessions</option></select></label><button class="ghost" id="refreshSessions" type="button">Refresh now</button></div></div>
+          <div class="page-head"><div><p class="eyebrow">AUTO-DISCOVERED · NO IMPORT NEEDED</p><h1>Agent terminals</h1><p>Codex and Claude panes already running in tmux appear here automatically. Viewing this page does not change or control them.</p></div><div class="session-controls"><label><span>Show</span><select id="sessionScope"><option value="repositories">Your repositories</option><option value="attached">Current tmux sessions</option><option value="all">All discovered sessions</option></select></label><button class="ghost" id="refreshSessions" type="button">Refresh now</button></div></div>
           <div class="session-summary" id="sessionSummary"></div>
           <div class="how-it-works session-guide" aria-label="How tmux discovery works">
             <div><span>01</span><strong>See</strong><p>Odysseus detects agent panes and refreshes this page automatically.</p></div>

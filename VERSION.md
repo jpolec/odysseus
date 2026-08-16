@@ -6,13 +6,27 @@
 
 ## Current version
 
-**0.6.10 — 2026-08-16**
+**0.6.11 — 2026-08-16**
 
-Version 0.6.10 closes the final deep-link edge case in responsive task
-inspection: the requested inner tab becomes active before its section renders,
-so opening Integration never fetches the default Diff first.
+Version 0.6.11 composes three independently accepted operator improvements into
+the current frontend: null-safe task notices, repository-scoped agent terminals,
+and a light-by-default theme with a packaged icon and optional dark workspace.
 
-## What is available in 0.6.10
+## What is available in 0.6.11
+
+### 0.6.11 Composed Operator Polish
+
+- An explicit null task title falls back to the first request line in storage,
+  IDs, and browser notifications.
+- Agent terminals initially show the selected repository, or all saved
+  repositories when none is selected. The complete machine-wide view remains
+  one deliberate scope change away.
+- The top bar includes a persistent light/dark theme switch and a packaged
+  Odysseus icon. Light remains the default, including the navigation surfaces.
+- The release commit retains all three accepted artifacts as Git parents, so
+  their provenance and delivery status are both truthful.
+
+## Earlier 0.6 releases
 
 ### 0.6.10 Exact On-Demand Tabs
 
@@ -20,8 +34,6 @@ so opening Integration never fetches the default Diff first.
   any heavy panel renderer runs.
 - Opening Integration does not issue a Diff request; opening each Evidence tab
   renders only that selected evidence surface.
-
-## Earlier 0.6 releases
 
 ### 0.6.9 Responsive Task Inspection
 
@@ -443,7 +455,7 @@ so opening Integration never fetches the default Diff first.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.6.10` |
+| Application version | `0.6.11` |
 | Run snapshot schema | `10` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

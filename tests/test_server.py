@@ -144,7 +144,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.6.10")
+                self.assertEqual(bootstrap["version"], "0.6.11")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
@@ -239,6 +239,9 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="assistantProvider"', html)
                 self.assertIn('id="assistantMessages"', html)
                 self.assertIn('id="assistantComposer"', html)
+                self.assertIn('id="themeToggle"', html)
+                self.assertIn('href="/odysseus-icon.svg"', html)
+                self.assertIn('value="repositories"', html)
                 self.assertIn('id="recoveryCard"', html)
                 self.assertIn('id="inlineFeedback"', html)
                 self.assertIn('id="reviewDecisionCard"', html)
@@ -260,8 +263,17 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("Open Changes to load the diff.", app_js)
                 self.assertIn("eventsLoadedRunId", app_js)
                 self.assertIn("Ask agent to resolve", app_js)
+                self.assertIn('sessionScope: "repositories"', app_js)
+                self.assertIn("repositoryScopedSessions", app_js)
+                self.assertIn("runTitle(run)", app_js)
+                self.assertIn('dataset.theme = savedTheme === "dark" ? "dark" : "light"', app_js)
                 self.assertIn('const section = ["diff", "integration"].includes(name) ? "changes" : "evidence";', app_js)
                 self.assertNotIn("const [run, diff] = await Promise.all", app_js)
+
+                with urllib.request.urlopen(f"{base}/odysseus-icon.svg") as response:
+                    icon = response.read().decode()
+                    self.assertEqual(response.headers.get_content_type(), "image/svg+xml")
+                self.assertIn("<svg", icon)
 
                 assist_request = urllib.request.Request(
                     f"{base}/api/assist",

@@ -501,3 +501,107 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
   .quick-task-toolbar { align-items: flex-start; flex-direction: column; gap: 7px; }.quick-task-actions .text-button:first-of-type { margin-left: 0; }.project-overview-card { grid-template-columns: 1fr; }.project-overview-side { justify-content: space-between; padding: 0 2px 3px 50px; }
   .settings-grid { grid-template-columns: 1fr; }
 }
+
+/* 0.6.11 operator theme: light by default, optional dark workspace, white navigation. */
+:root {
+  color-scheme: light;
+  --sidebar-surface: #ffffff;
+  --sidebar-hover: #f3f3f3;
+  --sidebar-selected: #e9e9e9;
+}
+
+.titlebar { background: color-mix(in srgb, var(--surface) 96%, transparent); }
+.titlebar .brand-mark { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; }
+.theme-toggle { display: grid; width: 30px; height: 30px; min-height: 30px; padding: 0; place-items: center; border: 1px solid var(--line-bright); border-radius: 4px; color: var(--muted); background: var(--surface); }
+.theme-toggle:hover { color: var(--ink); border-color: var(--accent); }
+.theme-toggle svg { width: 17px; height: 17px; fill: currentColor; }
+
+.activity-bar { border-right-color: #e1dfdd; color: #616161; background: var(--sidebar-surface); }
+.activity-bar .nav-button, .activity-bar .github-button { color: #616161; }
+.activity-bar .nav-button:hover, .activity-bar .github-button:hover { color: #242424; background: var(--sidebar-hover); }
+.activity-bar .nav-button.active { color: #242424; background: var(--sidebar-selected); box-shadow: inset 2px 0 var(--accent); }
+.activity-badge { border-color: var(--sidebar-surface); }
+.project-explorer { --ink: #242424; --muted: #616161; --faint: #8a8886; --surface: #ffffff; --surface-2: #f3f3f3; --line: #e1dfdd; --line-bright: #c8c6c4; color: #242424; background: var(--sidebar-surface); }
+.project-explorer .workspace-link:hover, .project-explorer .project-row:hover, .project-explorer .explorer-tools button:hover { background: var(--sidebar-hover); }
+.project-explorer .workspace-link.selected, .project-explorer .project-row.selected, .project-explorer .task-card.selected { color: #242424; background: var(--sidebar-selected); }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #f5f7fa;
+  --muted: #c5cad3;
+  --faint: #8f98a8;
+  --base: #101317;
+  --surface: #171b21;
+  --surface-2: #20262e;
+  --surface-3: #2a313b;
+  --line: #303844;
+  --line-bright: #46515f;
+  --accent: #4aa7f5;
+  --accent-strong: #7bbefa;
+  --accent-ink: #07111c;
+  --cyan: #55c4d8;
+  --amber: #e2b451;
+  --red: #ff6b76;
+  --blue: #66b6ff;
+  --shadow: 0 12px 32px rgba(0,0,0,.30), 0 1px 3px rgba(0,0,0,.24);
+  --shadow-soft: 0 4px 14px rgba(0,0,0,.20);
+}
+
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] .workspace { color: var(--ink); background: var(--base); }
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] dialog,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .collection-card,
+:root[data-theme="dark"] .stack-card,
+:root[data-theme="dark"] .empty-card,
+:root[data-theme="dark"] .project-knowledge-card,
+:root[data-theme="dark"] .project-skill,
+:root[data-theme="dark"] .project-deep-section,
+:root[data-theme="dark"] .work-stat,
+:root[data-theme="dark"] .project-overview-card,
+:root[data-theme="dark"] .work-task-row,
+:root[data-theme="dark"] .assistant-context,
+:root[data-theme="dark"] .assistant-empty,
+:root[data-theme="dark"] .assistant-message,
+:root[data-theme="dark"] .settings-panel,
+:root[data-theme="dark"] .toast { color: var(--ink); background: var(--surface); }
+:root[data-theme="dark"] .journey-stepper,
+:root[data-theme="dark"] .journey-stepper button,
+:root[data-theme="dark"] .journey-number,
+:root[data-theme="dark"] .workflow-strip,
+:root[data-theme="dark"] .workflow-strip span,
+:root[data-theme="dark"] .metric,
+:root[data-theme="dark"] .ghost,
+:root[data-theme="dark"] .action-button { background: var(--surface); }
+:root[data-theme="dark"] .journey-stepper button:hover,
+:root[data-theme="dark"] .project-deep-section > summary:hover,
+:root[data-theme="dark"] .task-section-tab:hover,
+:root[data-theme="dark"] .project-overview-card:hover,
+:root[data-theme="dark"] .work-task-row:hover,
+:root[data-theme="dark"] .timeline-entry:hover { background: var(--surface-2); }
+:root[data-theme="dark"] .journey-stepper button.current,
+:root[data-theme="dark"] .current-repository-hint,
+:root[data-theme="dark"] .assistant-panel,
+:root[data-theme="dark"] .task-skill-recommendations,
+:root[data-theme="dark"] .receipt-head { background: #142435; }
+:root[data-theme="dark"] .first-run-card,
+:root[data-theme="dark"] .quick-task-card,
+:root[data-theme="dark"] .run-narrative { background: linear-gradient(110deg, #142435, var(--surface) 64%); }
+:root[data-theme="dark"] .project-deep-content,
+:root[data-theme="dark"] .tabs,
+:root[data-theme="dark"] .skill-preview pre,
+:root[data-theme="dark"] .receipt-source pre,
+:root[data-theme="dark"] .context-chip-row label,
+:root[data-theme="dark"] .card-meta span,
+:root[data-theme="dark"] .quiet-badge,
+:root[data-theme="dark"] .project-card-signals span { background: var(--surface-2); }
+:root[data-theme="dark"] .code,
+:root[data-theme="dark"] .diff-stat,
+:root[data-theme="dark"] .check-output,
+:root[data-theme="dark"] .file-surface pre,
+:root[data-theme="dark"] .ci-logs pre { color: #e5eaf0; background: #0b0d10; }
+:root[data-theme="dark"] .task-submit-status { color: #9dceff; border-color: #315776; background: #142435; }
+:root[data-theme="dark"] .task-section-tabs { background: var(--base); }
