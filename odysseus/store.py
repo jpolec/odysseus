@@ -360,7 +360,8 @@ class RunStore:
         config = self.config()
         stamp = now_iso()
         compact_stamp = stamp.replace("-", "").replace(":", "").replace("T", "-")[:15]
-        title = str(request.get("title", "")).strip() or task.splitlines()[0][:100]
+        raw_title = request.get("title")
+        title = (str(raw_title).strip() if raw_title is not None else "") or task.splitlines()[0][:100]
         run_id = f"{compact_stamp}-{_slug(title)}-{secrets.token_hex(2)}"
         checks = request.get("checks", [])
         if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):

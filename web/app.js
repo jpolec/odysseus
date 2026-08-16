@@ -51,6 +51,9 @@ function projectCheckoutLabel(project) {
   if (project?.repository && project.repository !== project.folder_name) return project.repository;
   return project?.folder_name || project?.path || "Local repository";
 }
+function runTitle(run, fallback = "task") {
+  return String(run?.title || run?.task || fallback).split("\n")[0].trim() || fallback;
+}
 function projectOptionLabel(project) {
   const name = projectName(project);
   return projectHasDuplicateCheckout(project) ? `${name} — ${project.folder_name}` : name;
@@ -465,7 +468,7 @@ function renderQuickStart() {
       button.disabled = true; button.textContent = "Queueing…";
       const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task, project_path: project.path, lane: data.get("lane") || state.bootstrap.default_lane, skill_mode: "auto"})});
       event.currentTarget.elements.task.value = "";
-      toast(`Task queued: ${run.title}`);
+      toast(`Task queued: ${runTitle(run)}`);
       await Promise.all([refreshRuns(), refreshProjects()]);
       if (addAnother) window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
       else await selectRun(run.id);
@@ -1247,7 +1250,7 @@ function bindDialogs() {
       form.elements.title.value = "";
       state.taskSkillRecommendations = null;
       renderTaskSkillRecommendations();
-      toast(`Task queued for ${data.get("lane")}: ${run.title}`);
+      toast(`Task queued for ${data.get("lane")}: ${runTitle(run)}`);
       await Promise.all([refreshRuns(), refreshProjects()]);
       if (addAnother) window.requestAnimationFrame(() => $("#taskPrompt").focus());
       else {
