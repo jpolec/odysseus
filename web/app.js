@@ -1,5 +1,9 @@
 "use strict";
 
+const THEME_KEY = "odysseus-theme";
+const savedTheme = window.localStorage.getItem(THEME_KEY);
+document.documentElement.dataset.theme = savedTheme === "light" ? "light" : "dark";
+
 const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
@@ -73,6 +77,21 @@ function prepareProjectSelect(select, container) {
   const preferred = preferredProjectId();
   if (preferred && [...select.options].some((option) => option.value === preferred)) select.value = preferred;
   syncCustomProject(select, container);
+}
+
+function syncThemeButton() {
+  const button = $("#themeToggle");
+  if (!button) return;
+  const isDark = document.documentElement.dataset.theme === "dark";
+  button.setAttribute("aria-label", isDark ? "Switch to light theme" : "Switch to dark theme");
+  button.title = isDark ? "Switch to light theme" : "Switch to dark theme";
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  window.localStorage.setItem(THEME_KEY, next);
+  syncThemeButton();
 }
 
 function setView(view) {
@@ -799,7 +818,7 @@ function openStream(runId) {
   stream.onopen = () => setConnection(true); stream.onerror = () => setConnection(false);
 }
 function closeStream() { if (state.stream) state.stream.close(); state.stream = null; }
-function setConnection(online) { $(".connection").classList.toggle("online", online); $("#connectionLabel").textContent = online ? "Live" : "Reconnecting"; }
+function setConnection(online) { $(".connection").classList.toggle("online", online); $("#connectionLabel").textContent = online ? "Server connected" : "Reconnecting"; }
 
 async function copyCommand(command) {
   try { await navigator.clipboard.writeText(command); toast(`Copied: ${command}`); }
@@ -1286,6 +1305,8 @@ async function init() {
     state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}">${escapeHtml(lane)}</option>`).join(""); $("#laneSelect").innerHTML = laneOptions; $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions;
     [["docker", "Docker is not installed"], ["devcontainer", "Dev Container CLI is not installed"]].forEach(([profile, message]) => { const option = $("#environmentProfile").querySelector(`option[value="${profile}"]`); if (option && !state.bootstrap.capabilities?.[profile]) { option.disabled = true; option.textContent += ` — unavailable`; option.title = message; } });
     bindDialogs();
+    syncThemeButton();
+    $("#themeToggle").addEventListener("click", toggleTheme);
     $$(".nav-button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
     $$(".filter").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderRuns(); }));
     $$(".tab").forEach((button) => button.addEventListener("click", () => activateTab(button.dataset.tab)));

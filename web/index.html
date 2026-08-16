@@ -3,21 +3,23 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light">
+    <meta name="color-scheme" content="light dark">
     <title>Odysseus — Coding agents, organized</title>
+    <link rel="icon" href="/odysseus-icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body data-view="work">
     <header class="titlebar">
       <a class="brand" href="#" aria-label="Open Odysseus repositories">
-        <span class="brand-mark" aria-hidden="true">O</span>
-        <span class="brand-copy"><strong>ODYSSEUS</strong><small>Coding agents, organized</small></span>
+        <img class="brand-mark" src="/odysseus-icon.svg" alt="" aria-hidden="true">
+        <span class="brand-copy"><strong>ODYSSEUS</strong><small>Agent task control plane</small></span>
       </a>
       <div class="title-context" aria-label="Current location"><span id="titleProject">Odysseus</span><i>/</i><strong id="titleSurface">Repositories</strong></div>
       <label class="global-search" title="Press Enter to search all local Odysseus history"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m14.2 13.3 3.4 3.4-.9.9-3.4-3.4a6.5 6.5 0 1 1 .9-.9ZM9.1 14.2a5.1 5.1 0 1 0 0-10.2 5.1 5.1 0 0 0 0 10.2Z"/></svg><input id="globalSearch" type="search" placeholder="Search tasks and events" aria-label="Search all Odysseus history"><kbd>⌘K</kbd></label>
       <div class="topbar-status">
-        <span class="connection" title="Live connection to the Odysseus server"><i></i><span id="connectionLabel">Connecting</span></span>
+        <span class="connection" title="Real-time connection to the Odysseus server"><i></i><span id="connectionLabel">Connecting to server</span></span>
         <span class="parallel" id="parallelLabel">— slots</span>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 8.7 6.8 7 7 0 0 1-8.5-6.5L12 3Zm-6.5 9a6.5 6.5 0 0 1 4.9-6.3 9.1 9.1 0 0 0 7.9 7.9A6.5 6.5 0 1 1 5.5 12Z"/></svg></button>
         <button class="primary compact" id="newTaskButton" type="button"><span>＋</span> New task</button>
       </div>
     </header>

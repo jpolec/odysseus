@@ -40,7 +40,7 @@ packages = ["odysseus"]
 version = {attr = "odysseus.__version__"}
 
 [tool.setuptools.data-files]
-"share/odysseus/web" = ["web/index.html", "web/app.js", "web/styles.css"]
+"share/odysseus/web" = ["web/index.html", "web/app.js", "web/styles.css", "web/odysseus-icon.svg"]
 "share/odysseus/skills/api-contracts" = ["skills/api-contracts/SKILL.md"]
 "share/odysseus/skills/database-change" = ["skills/database-change/SKILL.md"]
 "share/odysseus/skills/dependency-upgrade" = ["skills/dependency-upgrade/SKILL.md"]

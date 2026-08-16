@@ -167,6 +167,7 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("blank scratch workspace", html)
                 self.assertIn('data-section="summary"', html)
                 self.assertIn('data-section="evidence"', html)
+                self.assertIn('href="/odysseus-icon.svg"', html)
 
                 with urllib.request.urlopen(f"{base}/app.js") as response:
                     app_js = response.read().decode()
@@ -174,6 +175,9 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('["review", "failed", "attention"]', app_js)
                 self.assertIn('["review", "failed", "attention", "accepted", "pr_created"]', app_js)
                 self.assertIn("feedbackDialog", app_js)
+                with urllib.request.urlopen(f"{base}/odysseus-icon.svg") as response:
+                    self.assertEqual(response.headers.get_content_type(), "image/svg+xml")
+                    self.assertIn("<svg", response.read().decode())
 
                 assist_request = urllib.request.Request(
                     f"{base}/api/assist",
