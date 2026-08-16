@@ -67,6 +67,24 @@ class BlockingAgentRunner:
         return ProcessResult(130, "stopped", 0.01, cancelled=True)
 
 
+class ConflictResolvingAgentRunner:
+    def __init__(self) -> None:
+        self.implementation_prompt = ""
+        self.implementations = 0
+        self.reviews = 0
+
+    def run(self, lane, worktree, prompt, *, review, emit, cancelled):  # noqa: ANN001
+        if review:
+            self.reviews += 1
+            return ProcessResult(0, "No material concerns.", 0.01)
+        self.implementations += 1
+        self.implementation_prompt = prompt
+        (worktree / "shared.txt").write_text("resolved\n")
+        git(worktree, "add", "shared.txt")
+        emit("agent.output", lane, {"text": "Resolved integration conflict.", "stream": "stdout"})
+        return ProcessResult(0, "Resolved integration conflict.", 0.01)
+
+
 class BudgetAgentRunner:
     def run(self, lane, worktree, prompt, *, review, emit, cancelled):  # noqa: ANN001
         emit(
@@ -148,6 +166,97 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(published["status"], "pr_created")
             self.assertEqual(published["pull_request_url"], "https://github.com/example/project/pull/1")
             self.assertEqual(published["delivery"]["status"], "pr_created")
+
+    def test_apply_queues_pending_accepted_artifacts_for_integration_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
+            actions = ReviewActions(store, scheduler)
+
+            accepted_ids = []
+            for title, filename, check in (
+                ("Backend", "backend.txt", "python3 -m unittest"),
+                ("Frontend", "frontend.txt", "git diff --check"),
+            ):
+                run = store.create(
+                    {
+                        "title": title,
+                        "task": f"Create {filename}",
+                        "project_path": str(repo),
+                        "status": "review",
+                        "checks": [check],
+                    }
+                )
+                info = scheduler.worktrees.create(run, lambda *_: None)
+                store.update(run["id"], **info)
+                (Path(info["worktree_path"]) / filename).write_text(f"{filename}\n")
+                accepted = actions.accept(run["id"])
+                accepted_ids.append(accepted["id"])
+
+            result = actions.apply(accepted_ids[0])
+            integration = result["integration_run"]
+            self.assertEqual(integration["status"], "queued")
+            self.assertEqual(integration["depends_on"], accepted_ids)
+            self.assertEqual(integration["task_key"], "integration-delivery")
+            self.assertEqual(integration["checks"], ["python3 -m unittest", "git diff --check"])
+            for run_id in accepted_ids:
+                delivery = store.get(run_id)["delivery"]
+                self.assertEqual(delivery["status"], "integration_queued")
+                self.assertEqual(delivery["integration_run_id"], integration["id"])
+
+            repeated = actions.apply(accepted_ids[1])
+            self.assertNotIn("integration_run", repeated)
+            queued = [run for run in store.list() if run.get("task_key") == "integration-delivery"]
+            self.assertEqual(len(queued), 1)
+
+    def test_dependency_conflict_reaches_integration_agent_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            (repo / "shared.txt").write_text("base\n")
+            git(repo, "add", "shared.txt")
+            git(repo, "commit", "-m", "add shared")
+            store = RunStore(root / "state")
+            manager = WorktreeManager(store.worktrees_dir)
+
+            dependency_ids = []
+            for title, content in (("Left", "left\n"), ("Right", "right\n")):
+                run = store.create({"title": title, "task": title, "project_path": str(repo), "status": "review"})
+                info = manager.create(run, lambda *_: None)
+                run = store.update(run["id"], **info)
+                (Path(info["worktree_path"]) / "shared.txt").write_text(content)
+                artifact = manager.snapshot(run)
+                store.update(run["id"], **artifact, status="accepted")
+                dependency_ids.append(run["id"])
+
+            integration = store.create(
+                {
+                    "title": "Integration",
+                    "task": "Integrate accepted artifacts",
+                    "project_path": str(repo),
+                    "depends_on": dependency_ids,
+                    "max_retries": 0,
+                }
+            )
+            agents = ConflictResolvingAgentRunner()
+            scheduler = Scheduler(store, agent_runner=agents, check_runner=FlakyCheckRunner(), poll_seconds=0.02)
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline and store.get(integration["id"])["status"] != "review":
+                    time.sleep(0.03)
+                finished = store.get(integration["id"])
+            finally:
+                scheduler.stop()
+
+            self.assertEqual(finished["status"], "review")
+            self.assertEqual(agents.implementations, 1)
+            self.assertIn("Dependency artifact integration stopped with Git merge conflicts", agents.implementation_prompt)
+            self.assertEqual(finished["integration_conflicts"][0]["conflicts"], ["shared.txt"])
+            self.assertEqual((Path(finished["worktree_path"]) / "shared.txt").read_text(), "resolved\n")
+            self.assertIn("integration.completed", [event["type"] for event in store.events(integration["id"])])
 
     def test_untrusted_repo_commands_stop_before_agent_until_operator_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

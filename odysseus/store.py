@@ -104,6 +104,7 @@ def _run_defaults() -> dict[str, Any]:
         },
         "integration_sources": [],
         "integration_head": "",
+        "integration_conflicts": [],
         "merge_analysis": {"risk": "none", "source_count": 0, "overlaps": [], "files": []},
         "ci": {
             "status": "not_started",

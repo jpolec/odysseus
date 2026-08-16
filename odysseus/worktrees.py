@@ -316,10 +316,24 @@ class WorktreeManager:
         }
 
     @staticmethod
+    def unmerged_files(worktree: Path | str) -> list[str]:
+        result = _run(
+            ["git", "-C", str(worktree), "diff", "--name-only", "--diff-filter=U"],
+            check=False,
+        )
+        return [item for item in result.stdout.splitlines() if item]
+
+    @staticmethod
+    def head(worktree: Path | str) -> str:
+        return _run(["git", "-C", str(worktree), "rev-parse", "HEAD"]).stdout.strip()
+
+    @staticmethod
     def integrate(
         run: Mapping[str, Any],
         dependencies: Sequence[Mapping[str, Any]],
         emit: Callable[[str, str, Mapping[str, Any]], None],
+        *,
+        allow_conflicts: bool = False,
     ) -> dict[str, Any]:
         """Merge accepted dependency artifacts into the downstream task branch."""
 
@@ -328,6 +342,7 @@ class WorktreeManager:
             raise IntegrationError("run has no worktree for dependency integration")
         analysis = WorktreeManager.analyze_dependencies(dependencies)
         sources: list[dict[str, str]] = []
+        integration_conflicts: list[dict[str, Any]] = []
         emit("integration.started", "git", analysis)
         for dependency in dependencies:
             dependency_id = str(dependency.get("id") or "")
@@ -358,18 +373,20 @@ class WorktreeManager:
                     timeout=180,
                 )
                 if result.returncode != 0:
-                    conflicts = _run(
-                        ["git", "-C", str(worktree), "diff", "--name-only", "--diff-filter=U"],
-                        check=False,
-                    ).stdout.splitlines()
-                    _run(["git", "-C", str(worktree), "merge", "--abort"], check=False)
+                    conflicts = WorktreeManager.unmerged_files(worktree)
                     detail = {
                         **analysis,
                         "dependency_run_id": dependency_id,
+                        "artifact_sha": sha,
                         "conflicts": [item for item in conflicts if item],
                         "message": f"Dependency artifact {dependency_id} conflicts with the integration branch.",
                     }
                     emit("integration.conflict", "git", detail)
+                    if allow_conflicts:
+                        integration_conflicts.append(detail)
+                        sources.append({"run_id": dependency_id, "artifact_sha": sha})
+                        break
+                    _run(["git", "-C", str(worktree), "merge", "--abort"], check=False)
                     raise IntegrationError(detail["message"])
             sources.append({"run_id": dependency_id, "artifact_sha": sha})
             emit(
@@ -378,8 +395,14 @@ class WorktreeManager:
                 {"dependency_run_id": dependency_id, "artifact_sha": sha},
             )
         head = _run(["git", "-C", str(worktree), "rev-parse", "HEAD"]).stdout.strip()
-        result = {"integration_sources": sources, "integration_head": head, "merge_analysis": analysis}
-        emit("integration.completed", "git", {**analysis, "integration_head": head})
+        result = {
+            "integration_sources": sources,
+            "integration_head": head,
+            "integration_conflicts": integration_conflicts,
+            "merge_analysis": analysis,
+        }
+        if not integration_conflicts:
+            emit("integration.completed", "git", {**analysis, "integration_head": head})
         return result
 
     @staticmethod
