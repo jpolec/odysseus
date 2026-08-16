@@ -25,6 +25,18 @@ to Odysseus itself and reach a run only through explicit `allow_env`.
   Docker client process itself is launched with the same scoped environment.
 - Context Assistant keys such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` stay
   server-only unless an operator deliberately allowlists them for a task.
+- `scripts/release-proof.sh` now exercises the 0.6.12 release-candidate path
+  end to end: packaging/install, managed upgrade and rollback, demo boot, HTTP
+  and real-browser smoke tests, credential isolation, selective artifact
+  integration, conflict recovery, resource inventory/reclaim safety, lifecycle
+  leases, screenshot routes, production-proof classification, and remote-access
+  authentication guardrails.
+- The package proof keeps `uv build` as the canonical path but can prove the
+  zero-dependency wheel offline when PyPI is unavailable, then installs that
+  wheel through `uvx` and verifies the shipped CLI, web assets, and Skills.
+- `odysseus resources --json` remains the non-destructive resource inventory
+  dry-run. Reclamation still requires the explicit `--reclaim` flag and keeps
+  failed worktrees available for recovery.
 
 ## Earlier 0.6 releases
 

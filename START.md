@@ -195,7 +195,13 @@ bin/odysseus attention
 bin/odysseus answer ATTENTION_ID "Choose option A"
 bin/odysseus ci RUN_ID
 bin/odysseus stats
+bin/odysseus resources --json
 ```
+
+`resources --json` only inventories retained worktrees and runtime
+directories. Add `--reclaim` when you deliberately want Odysseus to remove
+eligible delivered resources after the retention window; failed worktrees stay
+available for recovery.
 
 ## 7. Add the tmux controls
 

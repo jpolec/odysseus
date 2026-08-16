@@ -14,8 +14,8 @@ Operational hardening for the current 0.6 line:
 
 - Long-lived per-task preview processes with explicit start, health, stop, and
   cleanup controls instead of relying on one disposable command lifetime.
-- Safe runtime, worktree, branch, artifact, and preview-process retention with
-  deterministic cleanup.
+- Broader branch, artifact, and preview-process retention policies that build
+  on the current worktree/runtime inventory and explicit reclaim command.
 - Verified backup, import, restore, and crash tests across approval, artifact,
   container, and delivery transitions.
 - Stronger container controls: Podman support, disk/PID limits, outbound host
