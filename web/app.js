@@ -1130,6 +1130,15 @@ function assistantProviderLabel(provider) {
   return provider === "claude" ? "Claude Code CLI" : provider === "openai" ? "Direct API: ChatGPT" : provider === "anthropic" ? "Direct API: Claude" : "Codex CLI";
 }
 
+function assistantProviderValue() {
+  return $("#assistantProvider")?.value || $("#summaryAssistantProvider")?.value || "codex";
+}
+
+function syncAssistantProvider(provider) {
+  if ($("#assistantProvider")) $("#assistantProvider").value = provider;
+  if ($("#summaryAssistantProvider")) $("#summaryAssistantProvider").value = provider;
+}
+
 function assistantConversation(runId = state.selectedId) {
   if (!runId) return [];
   if (!state.assistantConversations[runId]) {
@@ -1176,15 +1185,23 @@ function assistantOmittedCount() {
 }
 
 function renderAssistantStatus(message = "") {
-  const provider = $("#assistantProvider")?.value || "codex";
+  const provider = assistantProviderValue();
   const info = state.bootstrap?.assistant?.[provider] || {};
   const status = $("#assistantStatus");
-  if (!status) return;
   const defaultMessage = info.mode === "local_cli"
-    ? (info.configured ? `${assistantProviderLabel(provider)} ready from local authentication. It runs in a blank scratch workspace; selected context is attached explicitly, while the process still has this user's filesystem permissions.` : `${assistantProviderLabel(provider)} is not on PATH.`)
+    ? (info.configured ? `${assistantProviderLabel(provider)} ready from local authentication. It runs in a blank scratch workspace, not the task repository; selected context is attached explicitly, while the process still has this user's filesystem permissions.` : `${assistantProviderLabel(provider)} is not on PATH.`)
     : (info.configured ? `${assistantProviderLabel(provider)} ready via ${info.env}; model ${info.model}.` : `Direct API mode requires ${info.env || (provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the server environment.`);
-  status.textContent = message || defaultMessage;
-  status.classList.toggle("assistant-missing", !info.configured && !message);
+  if (status) {
+    status.textContent = message || defaultMessage;
+    status.classList.toggle("assistant-missing", !info.configured && !message);
+  }
+  const access = $("#summaryAssistantAccess");
+  if (access) {
+    access.textContent = message || (info.mode === "local_cli"
+      ? "Local CLI helpers start in a blank scratch workspace, not the task repository. They receive only selected context by prompt, but run with the Odysseus user's filesystem permissions."
+      : "Direct API helpers receive only the selected prompt context over the configured API provider.");
+    access.classList.toggle("assistant-missing", !info.configured && !message);
+  }
 }
 
 function renderAssistantMessages() {
@@ -1203,7 +1220,9 @@ function renderAssistantMessages() {
 function renderAssistantPanel(run = state.selected) {
   if (!run || run.kind === "tmux") return;
   const omitted = assistantOmittedCount();
-  $("#assistantShareNotice").textContent = `${assistantShareSummary()}${omitted ? ` ${omitted} older message${omitted === 1 ? "" : "s"} will be omitted from the next request.` : ""}`;
+  const shareText = `${assistantShareSummary()}${omitted ? ` ${omitted} older message${omitted === 1 ? "" : "s"} will be omitted from the next request.` : ""}`;
+  $("#assistantShareNotice").textContent = shareText;
+  $("#summaryAssistantShareNotice").textContent = shareText;
   renderAssistantStatus();
   renderAssistantMessages();
   const hasAnswer = Boolean(lastAssistantAnswer());
@@ -1211,6 +1230,8 @@ function renderAssistantPanel(run = state.selected) {
   $("#assistantSubmitFeedback").disabled = !hasAnswer || !canAssistantFollowUp(run);
   $("#assistantCopy").disabled = !hasAnswer;
   $("#assistantQueueTask").disabled = !hasAnswer;
+  $("#summaryAssistantInsertFeedback").disabled = !hasAnswer;
+  $("#summaryAssistantSubmitFeedback").disabled = !hasAnswer || !canAssistantFollowUp(run);
 }
 
 function lastAssistantAnswer() {
@@ -1253,37 +1274,44 @@ async function submitReviewFeedback(prompt, button) {
   finally { button.disabled = false; button.textContent = originalLabel; }
 }
 
-async function sendAssistantMessage() {
+async function sendAssistantMessage(source = "side") {
   if (!state.selectedId) return;
-  const instruction = $("#assistantComposer").value.trim();
+  const composer = source === "summary" ? $("#summaryAssistantComposer") : $("#assistantComposer");
+  const mirrorComposer = source === "summary" ? $("#assistantComposer") : $("#summaryAssistantComposer");
+  const sendButton = source === "summary" ? $("#summaryAssistantSend") : $("#assistantSend");
+  const mirrorButton = source === "summary" ? $("#assistantSend") : $("#summaryAssistantSend");
+  const instruction = composer.value.trim();
   if (!instruction) { toast("Ask the assistant first.", true); return; }
-  const button = $("#assistantSend");
-  const originalLabel = button.textContent;
+  const originalLabel = sendButton.textContent;
   const messages = assistantConversation();
   const userMessage = {role: "user", content: instruction, shared_context: selectedAssistantContextLabels()};
   messages.push(userMessage);
-  $("#assistantComposer").value = "";
+  composer.value = "";
+  if (mirrorComposer?.value.trim() === instruction) mirrorComposer.value = "";
   renderAssistantMessages();
   try {
-    button.disabled = true;
-    button.textContent = "Sending...";
+    sendButton.disabled = true;
+    if (mirrorButton) mirrorButton.disabled = true;
+    sendButton.textContent = "Sending...";
     const scopes = selectedAssistantScopes();
     const include_diff = Boolean($("#assistantIncludeDiff").checked);
-    renderAssistantStatus(`Sending to ${assistantProviderLabel($("#assistantProvider").value)}. ${assistantShareSummary()}`);
-    const result = await api("/api/assist", {method: "POST", body: JSON.stringify({provider: $("#assistantProvider").value, run_id: state.selectedId, messages: assistantOutgoingMessages().slice(-12), scopes, include_diff})});
+    const provider = assistantProviderValue();
+    renderAssistantStatus(`Sending to ${assistantProviderLabel(provider)}. ${assistantShareSummary()}`);
+    const result = await api("/api/assist", {method: "POST", body: JSON.stringify({provider, run_id: state.selectedId, messages: assistantOutgoingMessages().slice(-12), scopes, include_diff})});
     messages.push({role: "assistant", content: result.prompt || "", provider: result.provider, shared_context: result.shared_context || []});
     saveAssistantConversation();
     renderAssistantMessages();
     renderAssistantStatus(`Answered with ${assistantProviderLabel(result.provider)}. ${assistantShareSummary()}`);
   } catch (error) {
     messages.pop();
-    $("#assistantComposer").value = instruction;
+    composer.value = instruction;
     renderAssistantStatus(error.message);
     renderAssistantMessages();
     toast(error.message, true);
   } finally {
-    button.disabled = false;
-    button.textContent = originalLabel;
+    sendButton.disabled = false;
+    if (mirrorButton) mirrorButton.disabled = false;
+    sendButton.textContent = originalLabel;
     renderAssistantPanel();
   }
 }
@@ -1702,14 +1730,19 @@ function bindDialogs() {
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_path: project.path, planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session is waiting to continue." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt is waiting on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
-  $("#assistantProvider").addEventListener("change", () => renderAssistantPanel());
+  $("#assistantProvider").addEventListener("change", (event) => { syncAssistantProvider(event.currentTarget.value); renderAssistantPanel(); });
+  $("#summaryAssistantProvider").addEventListener("change", (event) => { syncAssistantProvider(event.currentTarget.value); renderAssistantPanel(); });
   $$("[data-assistant-scope]").forEach((item) => item.addEventListener("change", () => renderAssistantPanel()));
   $("#assistantIncludeDiff").addEventListener("change", () => renderAssistantPanel());
-  $("#assistantSend").addEventListener("click", sendAssistantMessage);
+  $("#assistantSend").addEventListener("click", () => sendAssistantMessage());
+  $("#summaryAssistantSend").addEventListener("click", () => sendAssistantMessage("summary"));
   $("#assistantComposer").addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") sendAssistantMessage(); });
+  $("#summaryAssistantComposer").addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") sendAssistantMessage("summary"); });
   $("#assistantInsertFeedback").addEventListener("click", insertAssistantFeedback);
+  $("#summaryAssistantInsertFeedback").addEventListener("click", insertAssistantFeedback);
   $("#assistantCopy").addEventListener("click", copyAssistantPrompt);
   $("#assistantSubmitFeedback").addEventListener("click", submitAssistantFeedback);
+  $("#summaryAssistantSubmitFeedback").addEventListener("click", submitAssistantFeedback);
   $("#assistantQueueTask").addEventListener("click", queueAssistantTask);
   $("#inlineResume").addEventListener("click", () => submitInlineFeedback());
   $("#inlineTakeover").addEventListener("click", () => runAction("takeover"));

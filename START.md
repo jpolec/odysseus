@@ -169,9 +169,12 @@ Then choose one action:
 - **Request changes instead** sends guidance into the saved implementation
   thread and the same worktree. Failed and attention states keep the direct
   **Resume with feedback** recovery editor.
-- **Context assistant** on the right can ask the locally authenticated Codex or
+- **Context assistant** in Summary can ask the locally authenticated Codex or
   Claude CLI what instruction to send next, then insert or submit the answer.
-  Task context is selectable and diff/code sharing is off by default.
+  The side panel keeps the full conversation and context controls. Task context
+  is selectable and diff/code sharing is off by default. Local CLI helpers start
+  in a blank scratch workspace, not the repository, but still run with the
+  filesystem permissions of the Odysseus user.
 - **Continue in terminal** resumes that exact thread interactively and copies
   the safe tmux command. This is optional for interactive debugging; the normal
   workflow can remain entirely in the browser. Paste the command into a
