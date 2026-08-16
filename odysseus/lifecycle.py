@@ -323,13 +323,15 @@ class ResourceLifecycle:
                 run_id = ""
                 status = "orphan"
                 title = ""
+                owner = _owner(path)
+                active_owner = _pid_alive(owner.get("pid"))
                 try:
                     stale = path.stat().st_mtime <= cutoff
                 except OSError:
                     stale = False
-                reclaimable = stale
-                force_reclaimable = True
-                reason = "orphan runtime directory"
+                reclaimable = stale and not active_owner
+                force_reclaimable = not active_owner
+                reason = "orphan runtime directory has a live owner" if active_owner else "orphan runtime directory"
             records.append(
                 {
                     "run_id": run_id,
