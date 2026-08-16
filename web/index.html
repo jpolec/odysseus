@@ -154,50 +154,102 @@
                 <span><b>3</b> Continue with the agent there</span>
               </div>
             </section>
-            <div id="detailGrid">
-              <nav class="task-section-tabs" aria-label="Task details">
-                <button class="task-section-tab active" data-section="summary" type="button">Summary</button>
-                <button class="task-section-tab" data-section="changes" type="button">Changes</button>
-                <button class="task-section-tab" data-section="activity" type="button">Activity</button>
-                <button class="task-section-tab" data-section="evidence" type="button">Evidence</button>
-              </nav>
-              <section class="task-section-pane active" id="task-section-summary">
-                <section class="run-narrative" id="runNarrative">
-                  <span class="narrative-mark" id="narrativeMark" aria-hidden="true">→</span>
-                  <div><small id="narrativeLabel">CURRENT STEP</small><strong id="narrativeTitle">Preparing the task</strong><p id="narrativeCopy">Odysseus is resolving the next safe action.</p></div>
-                  <span class="narrative-tail" id="narrativeTail">No action needed</span>
+            <div class="detail-body">
+              <div id="detailGrid" class="detail-main">
+                <nav class="task-section-tabs" aria-label="Task details">
+                  <button class="task-section-tab active" data-section="summary" type="button">Summary</button>
+                  <button class="task-section-tab" data-section="changes" type="button">Changes</button>
+                  <button class="task-section-tab" data-section="activity" type="button">Activity</button>
+                  <button class="task-section-tab" data-section="evidence" type="button">Evidence</button>
+                </nav>
+                <section class="task-section-pane active" id="task-section-summary">
+                  <section class="run-narrative" id="runNarrative">
+                    <span class="narrative-mark" id="narrativeMark" aria-hidden="true">→</span>
+                    <div><small id="narrativeLabel">CURRENT STEP</small><strong id="narrativeTitle">Preparing the task</strong><p id="narrativeCopy">Odysseus is resolving the next safe action.</p></div>
+                    <span class="narrative-tail" id="narrativeTail">No action needed</span>
+                  </section>
+                  <section class="recovery-card hidden" id="recoveryCard" aria-label="Resume task with feedback">
+                    <div class="recovery-copy">
+                      <small>RECOVERY</small>
+                      <strong>Resume this task with feedback</strong>
+                      <p>The same task branch and saved agent thread are reused. Put the next instruction here, or insert an assistant answer from the right rail.</p>
+                    </div>
+                    <textarea id="inlineFeedback" rows="5" placeholder="Tell the agent exactly what to change or investigate next."></textarea>
+                    <div class="recovery-actions">
+                      <button class="primary" id="inlineResume" type="button">Resume with feedback</button>
+                      <button class="ghost" id="inlineTakeover" type="button">Continue in terminal</button>
+                    </div>
+                  </section>
+                  <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
+                    <li id="stageWorktree"><span>01</span><div><strong>Isolate</strong><small>Git worktree</small></div></li>
+                    <li id="stageIntegrate"><span>02</span><div><strong>Compose</strong><small>Artifacts</small></div></li>
+                    <li id="stageAgent"><span>03</span><div><strong>Agent</strong><small>Implement</small></div></li>
+                    <li id="stageCheck"><span>04</span><div><strong>Verify</strong><small>Checks</small></div></li>
+                    <li id="stageReview"><span>05</span><div><strong>Review</strong><small>Evidence gate</small></div></li>
+                    <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
+                  </ol>
+                  <div class="metrics" id="metrics"></div>
+                  <section class="environment-card" id="environmentCard"></section>
                 </section>
-                <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
-                  <li id="stageWorktree"><span>01</span><div><strong>Isolate</strong><small>Git worktree</small></div></li>
-                  <li id="stageIntegrate"><span>02</span><div><strong>Compose</strong><small>Artifacts</small></div></li>
-                  <li id="stageAgent"><span>03</span><div><strong>Agent</strong><small>Implement</small></div></li>
-                  <li id="stageCheck"><span>04</span><div><strong>Verify</strong><small>Checks</small></div></li>
-                  <li id="stageReview"><span>05</span><div><strong>Review</strong><small>Evidence gate</small></div></li>
-                  <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
-                </ol>
-                <div class="metrics" id="metrics"></div>
-                <section class="environment-card" id="environmentCard"></section>
-              </section>
-              <section class="task-section-pane" id="task-section-changes">
-                <section class="panel workspace-panel inspector-panel">
-                  <div class="tabs" role="tablist"><button class="tab active" data-tab="diff" type="button">Diff</button><button class="tab" data-tab="integration" type="button">Integration</button></div>
-                  <div class="tab-pane active" id="tab-diff"><pre class="diff-stat" id="diffStat">No diff yet.</pre><pre class="code" id="diffPatch">The worktree will appear here after the task starts.</pre></div>
-                  <div class="tab-pane" id="tab-integration"><div id="integrationResults"></div></div>
+                <section class="task-section-pane" id="task-section-changes">
+                  <section class="panel workspace-panel inspector-panel">
+                    <div class="tabs" role="tablist"><button class="tab active" data-tab="diff" type="button">Diff</button><button class="tab" data-tab="integration" type="button">Integration</button></div>
+                    <div class="tab-pane active" id="tab-diff"><pre class="diff-stat" id="diffStat">No diff yet.</pre><pre class="code" id="diffPatch">The worktree will appear here after the task starts.</pre></div>
+                    <div class="tab-pane" id="tab-integration"><div id="integrationResults"></div></div>
+                  </section>
                 </section>
-              </section>
-              <section class="task-section-pane" id="task-section-activity">
-                <section class="panel workspace-panel activity-panel"><div class="panel-head"><div><p class="eyebrow">LIVE EVENT STREAM</p><h3>Activity</h3></div><span class="live-badge"><i></i> SSE</span></div><div class="event-log" id="eventLog"></div></section>
-              </section>
-              <section class="task-section-pane" id="task-section-evidence">
-                <section class="panel workspace-panel inspector-panel">
-                  <div class="tabs" role="tablist"><button class="tab active" data-tab="checks" type="button">Checks</button><button class="tab" data-tab="context" type="button">Context</button><button class="tab" data-tab="review" type="button">Review</button><button class="tab" data-tab="evaluation" type="button">Evaluation</button><button class="tab" data-tab="ci" type="button">CI</button></div>
-                  <div class="tab-pane active" id="tab-checks"><div id="checkResults"></div></div>
-                  <div class="tab-pane" id="tab-context"><div id="contextReceipt"></div></div>
-                  <div class="tab-pane" id="tab-review"><pre class="review-copy" id="reviewSummary">Review has not run yet.</pre></div>
-                  <div class="tab-pane" id="tab-evaluation"><div id="evaluationResults"></div></div>
-                  <div class="tab-pane" id="tab-ci"><div id="ciResults"></div></div>
+                <section class="task-section-pane" id="task-section-activity">
+                  <section class="panel workspace-panel activity-panel"><div class="panel-head"><div><p class="eyebrow">LIVE EVENT STREAM</p><h3>Activity</h3></div><span class="live-badge"><i></i> SSE</span></div><div class="event-log" id="eventLog"></div></section>
                 </section>
-              </section>
+                <section class="task-section-pane" id="task-section-evidence">
+                  <section class="panel workspace-panel inspector-panel">
+                    <div class="tabs" role="tablist"><button class="tab active" data-tab="checks" type="button">Checks</button><button class="tab" data-tab="context" type="button">Context</button><button class="tab" data-tab="review" type="button">Review</button><button class="tab" data-tab="evaluation" type="button">Evaluation</button><button class="tab" data-tab="ci" type="button">CI</button></div>
+                    <div class="tab-pane active" id="tab-checks"><div id="checkResults"></div></div>
+                    <div class="tab-pane" id="tab-context"><div id="contextReceipt"></div></div>
+                    <div class="tab-pane" id="tab-review"><pre class="review-copy" id="reviewSummary">Review has not run yet.</pre></div>
+                    <div class="tab-pane" id="tab-evaluation"><div id="evaluationResults"></div></div>
+                    <div class="tab-pane" id="tab-ci"><div id="ciResults"></div></div>
+                  </section>
+                </section>
+              </div>
+              <aside class="assistant-panel" id="assistantPanel" aria-label="Assistant conversation">
+                <div class="assistant-head">
+                  <div><p class="eyebrow">CONTEXT ASSISTANT</p><h3>Ask what to send next</h3></div>
+                  <label>Assistant
+                    <select id="assistantProvider">
+                      <option value="codex">Codex CLI</option>
+                      <option value="claude">Claude Code CLI</option>
+                      <option value="openai">Direct API: ChatGPT</option>
+                      <option value="anthropic">Direct API: Claude</option>
+                    </select>
+                  </label>
+                </div>
+                <section class="assistant-context" aria-label="Shared context controls">
+                  <div class="context-chip-row">
+                    <label><input type="checkbox" value="task" data-assistant-scope checked> Task</label>
+                    <label><input type="checkbox" value="failure" data-assistant-scope checked> Failure</label>
+                    <label><input type="checkbox" value="review" data-assistant-scope checked> Review</label>
+                    <label><input type="checkbox" value="checks" data-assistant-scope checked> Checks</label>
+                  </div>
+                  <details class="assistant-code-scope">
+                    <summary>Share diff/code excerpt</summary>
+                    <label><input type="checkbox" id="assistantIncludeDiff"> Include redacted diff/code in this assistant request</label>
+                  </details>
+                  <p id="assistantShareNotice">Shared: Task, Failure, Review, Checks. Diff/code is off.</p>
+                </section>
+                <div class="assistant-messages" id="assistantMessages" aria-live="polite"></div>
+                <div class="assistant-compose">
+                  <textarea id="assistantComposer" rows="4" placeholder="Ask what feedback to send, what changed, or how to turn this into the next agent prompt."></textarea>
+                  <button class="primary" id="assistantSend" type="button">Send</button>
+                </div>
+                <div class="assistant-actions">
+                  <button class="ghost" id="assistantInsertFeedback" type="button">Insert answer</button>
+                  <button class="ghost" id="assistantSubmitFeedback" type="button">Submit answer</button>
+                  <button class="ghost" id="assistantCopy" type="button">Copy answer</button>
+                  <button class="ghost" id="assistantQueueTask" type="button">Queue as new task</button>
+                </div>
+                <p class="assistant-status" id="assistantStatus">Selected context is attached explicitly. Local CLI assistants run in a blank scratch workspace, but the host process still has the filesystem permissions of the Odysseus user. Direct API modes require server environment keys.</p>
+              </aside>
             </div>
             <details class="technical-details" id="technicalDetails">
               <summary><span>Technical details</span><small>run id, branch, worktree, sessions, dependencies, usage</small></summary>

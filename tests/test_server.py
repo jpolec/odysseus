@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import socket
+import subprocess
 import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
-from odysseus.server import OdysseusApp
+from odysseus.server import OdysseusApp, OdysseusHandler
 from odysseus.store import RunStore
 
 
@@ -70,6 +73,13 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])
+                self.assertIn("codex", bootstrap["assistant"])
+                self.assertEqual(bootstrap["assistant"]["codex"]["mode"], "local_cli")
+                self.assertIn("claude", bootstrap["assistant"])
+                self.assertEqual(bootstrap["assistant"]["claude"]["mode"], "local_cli")
+                self.assertEqual(bootstrap["assistant"]["openai"]["env"], "OPENAI_API_KEY")
+                self.assertEqual(bootstrap["assistant"]["openai"]["mode"], "direct_api")
+                self.assertIn("anthropic", bootstrap["assistant"])
                 self.assertTrue(bootstrap["working_directory"])
                 self.assertIsInstance(bootstrap["current_repository"], dict)
 
@@ -107,6 +117,15 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(request) as response:
                     run = json.load(response)
                 self.assertEqual(run["status"], "queued")
+                secret_title = "Secret title sk-abcdefghijklmnop"
+                secret_task = "Do not leak ghp_abcdefghijklmnop"
+                secret_check = "curl -H 'Authorization: Bearer abcdefghijklmnop'"
+                store.update(
+                    run["id"],
+                    title=secret_title,
+                    task=secret_task,
+                    check_results=[{"command": secret_check, "returncode": 1}],
+                )
 
                 with urllib.request.urlopen(f"{base}/") as response:
                     html = response.read().decode()
@@ -137,8 +156,159 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="taskSkillRecommendations"', html)
                 self.assertIn('id="environmentProfile"', html)
                 self.assertIn('id="environmentCard"', html)
+                self.assertIn('id="assistantPanel"', html)
+                self.assertIn('id="assistantProvider"', html)
+                self.assertIn('id="assistantMessages"', html)
+                self.assertIn('id="assistantComposer"', html)
+                self.assertIn('id="recoveryCard"', html)
+                self.assertIn('id="inlineFeedback"', html)
+                self.assertIn("Direct API: ChatGPT", html)
+                self.assertIn("Share diff/code excerpt", html)
+                self.assertIn("blank scratch workspace", html)
                 self.assertIn('data-section="summary"', html)
                 self.assertIn('data-section="evidence"', html)
+
+                with urllib.request.urlopen(f"{base}/app.js") as response:
+                    app_js = response.read().decode()
+                self.assertIn("Follow up with agent", app_js)
+                self.assertIn('["review", "failed", "attention"]', app_js)
+                self.assertIn('["review", "failed", "attention", "accepted", "pr_created"]', app_js)
+                self.assertIn("feedbackDialog", app_js)
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({"provider": "codex", "run_id": run["id"], "messages": [{"role": "user", "content": "draft feedback"}]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with mock.patch.object(OdysseusHandler, "_call_local_assistant", return_value="Send this next.") as local_call:
+                    with urllib.request.urlopen(assist_request) as response:
+                        drafted = json.load(response)
+                self.assertEqual(drafted["provider"], "codex")
+                self.assertEqual(drafted["prompt"], "Send this next.")
+                self.assertEqual(drafted["shared_context"], ["Task", "Checks"])
+                self.assertIn("[Diff/code] Not shared", local_call.call_args.args[2])
+                self.assertNotIn("Diff excerpt", local_call.call_args.args[2])
+                self.assertNotIn("sk-abcdefghijklmnop", local_call.call_args.args[2])
+                self.assertNotIn("ghp_abcdefghijklmnop", local_call.call_args.args[2])
+                self.assertNotIn("Bearer abcdefghijklmnop", local_call.call_args.args[2])
+                self.assertIn("[REDACTED]", local_call.call_args.args[2])
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({"provider": "codex", "run_id": run["id"], "messages": [{"role": "user", "content": "no context please"}], "scopes": []}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with mock.patch.object(OdysseusHandler, "_call_local_assistant", return_value="No context.") as local_call:
+                    with urllib.request.urlopen(assist_request) as response:
+                        drafted = json.load(response)
+                self.assertEqual(drafted["shared_context"], [])
+                self.assertNotIn("Title:", local_call.call_args.args[2])
+                self.assertNotIn("Status:", local_call.call_args.args[2])
+                self.assertNotIn(secret_title, local_call.call_args.args[2])
+                self.assertNotIn(secret_task, local_call.call_args.args[2])
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({"provider": "codex", "run_id": run["id"], "messages": [{"role": "user", "content": "draft feedback"}]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                completed = subprocess.CompletedProcess(["codex"], 0, '{"message":{"content":"Scratch answer."}}\n', "")
+                with mock.patch("odysseus.server.shutil.which", return_value="/usr/bin/codex"):
+                    with mock.patch("odysseus.server.subprocess.run", return_value=completed) as process:
+                        with urllib.request.urlopen(assist_request) as response:
+                            drafted = json.load(response)
+                self.assertEqual(drafted["prompt"], "Scratch answer.")
+                command = " ".join(process.call_args.args[0])
+                self.assertNotIn(str(project), command)
+                self.assertNotIn(str(project), process.call_args.kwargs["cwd"])
+                self.assertFalse(Path(process.call_args.kwargs["cwd"]).exists())
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({"provider": "openai", "run_id": run["id"], "messages": [{"role": "user", "content": "draft feedback"}]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""}, clear=False):
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(assist_request)
+                self.assertEqual(caught.exception.code, 400)
+                self.assertIn("OPENAI_API_KEY", caught.exception.read().decode())
+                caught.exception.close()
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({"provider": "openai", "run_id": run["id"], "messages": [{"role": "user", "content": "draft feedback"}]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False):
+                    with mock.patch.object(OdysseusHandler, "_call_openai", return_value="Send this next.") as call:
+                        with urllib.request.urlopen(assist_request) as response:
+                            drafted = json.load(response)
+                self.assertEqual(drafted["provider"], "openai")
+                self.assertEqual(drafted["prompt"], "Send this next.")
+                self.assertIn("[Diff/code] Not shared", call.call_args.args[2])
+                self.assertNotIn("sk-abcdefghijklmnop", call.call_args.args[2])
+                self.assertNotIn("ghp_abcdefghijklmnop", call.call_args.args[2])
+                self.assertNotIn("Bearer abcdefghijklmnop", call.call_args.args[2])
+                self.assertIn("[REDACTED]", call.call_args.args[2])
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({"provider": "openai", "run_id": run["id"], "messages": [{"role": "user", "content": "direct no context"}], "scopes": []}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False):
+                    with mock.patch.object(OdysseusHandler, "_call_openai", return_value="No context.") as call:
+                        with urllib.request.urlopen(assist_request) as response:
+                            drafted = json.load(response)
+                self.assertEqual(drafted["shared_context"], [])
+                self.assertNotIn("Title:", call.call_args.args[2])
+                self.assertNotIn("Status:", call.call_args.args[2])
+                self.assertNotIn(secret_title, call.call_args.args[2])
+                self.assertNotIn(secret_task, call.call_args.args[2])
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({
+                        "provider": "openai",
+                        "run_id": run["id"],
+                        "messages": [{"role": "user", "content": "review this diff"}],
+                        "include_diff": True,
+                    }).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False):
+                    with mock.patch("odysseus.server.WorktreeManager.diff", return_value={"stat": "app.py | 1 +", "patch": "Authorization: Bearer abcdefghijklmnop"}):
+                        with mock.patch.object(OdysseusHandler, "_call_openai", return_value="Diff feedback.") as call:
+                            with urllib.request.urlopen(assist_request) as response:
+                                drafted = json.load(response)
+                self.assertIn("Diff/code", drafted["shared_context"])
+                self.assertIn("[REDACTED]", call.call_args.args[2])
+                self.assertNotIn("abcdefghijklmnop", call.call_args.args[2])
+
+                assist_request = urllib.request.Request(
+                    f"{base}/api/assist",
+                    data=json.dumps({
+                        "provider": "openai",
+                        "run_id": run["id"],
+                        "messages": [
+                            {"role": "user", "content": "review code", "shared_context": ["Diff/code"]},
+                            {"role": "assistant", "content": "SECRET_CODE_DERIVED_RESPONSE", "shared_context": ["Diff/code"]},
+                            {"role": "user", "content": "now answer without code", "shared_context": ["Task"]},
+                        ],
+                        "scopes": ["task"],
+                        "include_diff": False,
+                    }).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": bootstrap["token"]},
+                )
+                with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False):
+                    with mock.patch.object(OdysseusHandler, "_call_openai", return_value="No-code answer.") as call:
+                        with urllib.request.urlopen(assist_request) as response:
+                            drafted = json.load(response)
+                self.assertEqual(drafted["shared_context"], ["Task"])
+                self.assertIn("now answer without code", call.call_args.args[2])
+                self.assertNotIn("SECRET_CODE_DERIVED_RESPONSE", call.call_args.args[2])
+                self.assertNotIn("review code", call.call_args.args[2])
 
                 with urllib.request.urlopen(f"{base}/api/projects") as response:
                     projects = json.load(response)

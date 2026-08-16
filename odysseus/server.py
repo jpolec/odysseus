@@ -5,9 +5,12 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import os
 import re
 import secrets
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
 from http import HTTPStatus
@@ -15,10 +18,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
 
 from . import __version__
 from .ci import CIWatcher
 from .planner import EpicPlanner
+from .runners import AgentRunner, _extract_text, _sanitize
 from .scheduler import ReviewActions, Scheduler
 from .search import search, statistics
 from .github import GitHubBridge
@@ -35,6 +40,12 @@ PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
 EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
+
+DIRECT_ASSISTANT_PROVIDER_ENV = {
+    "openai": ("OPENAI_API_KEY", "ODYSSEUS_ASSISTANT_OPENAI_MODEL", "gpt-4o-mini"),
+    "anthropic": ("ANTHROPIC_API_KEY", "ODYSSEUS_ASSISTANT_ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"),
+}
+ASSISTANT_PROVIDERS = ("codex", "claude", "openai", "anthropic")
 
 
 class OdysseusApp:
@@ -195,6 +206,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                         name: bool(shutil.which(name))
                         for name in ("git", "codex", "claude", "tmux", "gh", "docker", "devcontainer")
                     },
+                    "assistant": self._assistant_bootstrap(),
                     "working_directory": str(Path.cwd()),
                     "current_repository": self.server.app.store.projects.describe(Path.cwd()),
                     "repository_url": "https://github.com/jpolec/odysseus",
@@ -326,6 +338,9 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/runs":
                 run = self.server.app.store.create({**body, "origin": "web", "evidence_class": "observed"})
                 self._json(run, HTTPStatus.CREATED)
+                return
+            if parsed.path == "/api/assist":
+                self._json(self._assist(body))
                 return
             if parsed.path == "/api/projects":
                 self._json(self.server.app.store.projects.upsert(str(body.get("path") or ""), body, require_git=True), HTTPStatus.CREATED)
@@ -551,6 +566,232 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
         return value
+
+    def _assist(self, body: Mapping[str, Any]) -> dict[str, Any]:
+        provider = str(body.get("provider") or "codex").strip().lower()
+        if provider not in ASSISTANT_PROVIDERS:
+            raise ValueError("provider must be codex, claude, openai, or anthropic")
+        messages = body.get("messages") or []
+        if not isinstance(messages, list):
+            raise ValueError("messages must be a list")
+        messages = [item for item in messages if isinstance(item, dict)]
+        instruction = str(body.get("instruction") or (messages[-1].get("content") if messages else "") or "").strip()
+        if len(instruction) < 4:
+            raise ValueError("message is required")
+        scopes = body["scopes"] if "scopes" in body else ["task", "failure", "review", "checks"]
+        if not isinstance(scopes, list):
+            raise ValueError("scopes must be a list")
+        scopes = [str(item).strip().lower() for item in scopes]
+        include_diff = bool(body.get("include_diff"))
+        run_id = str(body.get("run_id") or "").strip()
+        run: Mapping[str, Any] | None = None
+        diff: Mapping[str, Any] = {}
+        if run_id:
+            run = self.server.app.store.get(run_id)
+            if include_diff:
+                diff = WorktreeManager.diff(run)
+        prompt, shared_context = self._assistant_prompt(provider, messages, instruction, run, diff, scopes, include_diff)
+        if provider in {"codex", "claude"}:
+            answer = self._call_local_assistant(provider, run, prompt)
+            return {"provider": provider, "model": "local-cli", "prompt": answer.strip(), "shared_context": shared_context}
+        key_env, model_env, default_model = DIRECT_ASSISTANT_PROVIDER_ENV[provider]
+        api_key = os.environ.get(key_env)
+        if not api_key:
+            raise RuntimeError(f"set {key_env} before using direct API mode")
+        model = str(body.get("model") or os.environ.get(model_env) or default_model).strip()
+        if provider == "anthropic":
+            answer = self._call_anthropic(api_key, model, prompt)
+        else:
+            answer = self._call_openai(api_key, model, prompt)
+        return {"provider": provider, "model": model, "prompt": answer.strip(), "shared_context": shared_context}
+
+    def _assistant_bootstrap(self) -> dict[str, Any]:
+        direct = {
+            provider: {
+                "mode": "direct_api",
+                "configured": bool(os.environ.get(env_name)),
+                "env": env_name,
+                "model": os.environ.get(model_env, default_model),
+            }
+            for provider, (env_name, model_env, default_model) in DIRECT_ASSISTANT_PROVIDER_ENV.items()
+        }
+        return {
+            "codex": {"mode": "local_cli", "configured": bool(shutil.which("codex")), "command": "codex"},
+            "claude": {"mode": "local_cli", "configured": bool(shutil.which("claude")), "command": "claude"},
+            **direct,
+        }
+
+    def _assistant_prompt(
+        self,
+        provider: str,
+        messages: list[Mapping[str, Any]],
+        instruction: str,
+        run: Mapping[str, Any] | None,
+        diff: Mapping[str, Any],
+        scopes: list[str],
+        include_diff: bool,
+    ) -> tuple[str, list[str]]:
+        shared: list[str] = []
+        context: list[str] = [
+            "You are an assistant inside the Odysseus operator UI.",
+            "Help the operator decide what feedback or next prompt to send to a coding agent.",
+            "Answer conversationally, but make any suggested agent prompt easy to paste.",
+            "Do not claim you saw repository code unless code/diff context is explicitly provided below.",
+            f"Assistant provider: {provider}.",
+        ]
+        if run:
+            context.append("")
+            context.append("Shared Odysseus context:")
+            if "task" in scopes:
+                shared.append("Task")
+                context.extend(
+                    [
+                        "[Task]",
+                        f"Title: {self._assistant_context_text(run.get('title'))}",
+                        f"Status: {self._assistant_context_text(run.get('status'))}",
+                        f"Agent lane: {self._assistant_context_text(run.get('lane'))}",
+                        f"Task: {self._assistant_context_text(run.get('task'))}",
+                    ]
+                )
+            if "failure" in scopes and run.get("last_error"):
+                shared.append("Failure")
+                context.extend(["[Failure]", self._assistant_context_text(run.get("last_error"), 6000)])
+            if "review" in scopes and run.get("review_summary"):
+                shared.append("Review")
+                context.extend(["[Review]", self._assistant_context_text(run.get("review_summary"), 6000)])
+            if "checks" in scopes:
+                checks = run.get("check_results") or []
+                if isinstance(checks, list) and checks:
+                    shared.append("Checks")
+                    rows = []
+                    for check in checks[:12]:
+                        if isinstance(check, Mapping):
+                            command = self._assistant_context_text(check.get("command") or "check", 2000)
+                            returncode = self._assistant_context_text(check.get("returncode"), 100)
+                            rows.append(f"{command} -> {returncode}")
+                    context.extend(["[Checks]", "\n".join(rows)])
+            if include_diff:
+                shared.append("Diff/code")
+                context.extend(["[Diff/code shared by explicit opt-in]", str(_sanitize(str(diff.get("stat") or "No diff stat.")))[:4000]])
+                patch = str(diff.get("patch") or "")
+                if patch:
+                    context.extend(["Redacted diff excerpt:", str(_sanitize(patch))[:12000]])
+            else:
+                context.append("[Diff/code] Not shared. The operator did not opt in.")
+        prior = [
+            (str(item.get("role") or "user"), str(item.get("content") or ""))
+            for item in messages[-12:]
+            if str(item.get("content") or "").strip() and self._assistant_message_allowed(item, scopes, include_diff)
+        ]
+        if prior:
+            context.append("")
+            context.append("Conversation so far:")
+            for role, content in prior:
+                context.append(f"{role.upper()}: {content[:6000]}")
+        else:
+            context.extend(["", f"USER: {instruction}"])
+        return "\n".join(context), shared
+
+    @staticmethod
+    def _assistant_context_text(value: Any, limit: int = 6000) -> str:
+        return str(_sanitize("" if value is None else str(value)))[:limit]
+
+    @staticmethod
+    def _assistant_message_allowed(message: Mapping[str, Any], scopes: list[str], include_diff: bool) -> bool:
+        shared = message.get("shared_context")
+        if not isinstance(shared, list):
+            return str(message.get("role") or "user") == "user"
+        allowed = {item[0].upper() + item[1:] for item in scopes if item}
+        for item in shared:
+            label = str(item)
+            if label == "Diff/code" and not include_diff:
+                return False
+            if label != "Diff/code" and label not in allowed:
+                return False
+        return True
+
+    def _call_local_assistant(self, provider: str, run: Mapping[str, Any] | None, prompt: str) -> str:
+        if not shutil.which(provider):
+            raise RuntimeError(f"{provider} CLI is not installed or is not on PATH")
+        with tempfile.TemporaryDirectory(prefix="odysseus-assistant-") as scratch:
+            scratch_path = Path(scratch)
+            args = AgentRunner().command(provider, scratch_path, prompt, review=True)
+            completed = subprocess.run(
+                args,
+                cwd=str(scratch_path),
+                text=True,
+                capture_output=True,
+                timeout=120,
+                check=False,
+            )
+        output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
+        text_parts: list[str] = []
+        for line in output.splitlines():
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            text = _extract_text(payload)
+            if text:
+                text_parts.append(text)
+        answer = "\n".join(text_parts).strip() or output.strip()
+        if completed.returncode != 0:
+            raise RuntimeError(answer[-2000:] or f"{provider} exited with {completed.returncode}")
+        if not answer:
+            raise RuntimeError(f"{provider} returned no text")
+        return str(_sanitize(answer))
+
+    def _call_openai(self, api_key: str, model: str, prompt: str) -> str:
+        payload = json.dumps(
+            {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "Draft implementation prompts for coding agents."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.2,
+            }
+        ).encode("utf-8")
+        request = Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=60) as response:
+            data = json.load(response)
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError("OpenAI returned no choices")
+        return str(((choices[0].get("message") or {}).get("content")) or "")
+
+    def _call_anthropic(self, api_key: str, model: str, prompt: str) -> str:
+        payload = json.dumps(
+            {
+                "model": model,
+                "max_tokens": 1200,
+                "temperature": 0.2,
+                "system": "Draft implementation prompts for coding agents.",
+                "messages": [{"role": "user", "content": prompt}],
+            }
+        ).encode("utf-8")
+        request = Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urlopen(request, timeout=60) as response:
+            data = json.load(response)
+        parts = data.get("content") or []
+        text = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
+        if not text:
+            raise RuntimeError("Anthropic returned no text")
+        return text
 
     def _host_allowed(self) -> bool:
         if self.server.app.allow_remote:

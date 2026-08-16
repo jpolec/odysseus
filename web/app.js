@@ -5,6 +5,7 @@ const state = {
   selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
   stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
+  assistantConversations: {},
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -606,6 +607,9 @@ function renderDetail(run, diff) {
   $("#detailTitle").textContent = discovered?.title || discovered?.window_name || run.title;
   $("#detailTask").textContent = interactive ? `Existing ${run.lane} session in tmux ${discovered?.tmux_session || run.tmux_session || "—"}${(discovered?.tmux_target || run.tmux_target) ? `, pane ${discovered?.tmux_target || run.tmux_target}` : ""}.` : run.task;
   $("#observedSession").classList.toggle("hidden", !interactive);
+  $("#assistantPanel").classList.toggle("hidden", interactive);
+  renderAssistantPanel(run);
+  renderRecoveryCard(run);
   $("#runNarrative").classList.toggle("hidden", interactive);
   $("#metrics").classList.toggle("hidden", interactive);
   $("#detailGrid").classList.toggle("hidden", interactive);
@@ -637,7 +641,7 @@ function renderDetail(run, diff) {
   if (technical.dataset.runId !== run.id) { technical.dataset.runId = run.id; technical.open = interactive; }
   if ($("#runDetail").dataset.runId !== run.id) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
   $("#workflowStrip").classList.toggle("hidden", interactive);
-  renderActions(run); renderNarrative(run); renderWorkflow(run); renderEvents();
+  renderActions(run); renderNarrative(run); renderRecoveryCard(run); renderWorkflow(run); renderEvents();
   $("#diffStat").textContent = diff.stat || "No changed files yet."; $("#diffPatch").textContent = diff.patch || "No diff yet.";
   renderIntegration(run); renderChecks(run.check_results || []); renderContextReceipt(run); $("#reviewSummary").textContent = run.review_summary || run.last_error || "Review has not run yet."; renderEvaluation(run.evaluation || {}); renderCI(run);
 }
@@ -690,9 +694,9 @@ function renderNarrative(run) {
 function renderActions(run) {
   const actions = [];
   if (run.status === "review") actions.push(`<button class="action-button accept" data-action="accept" type="button">Approve</button>`);
-  if (["attention", "review", "failed", "accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Give feedback</button>`);
+  if (["accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Follow up with agent</button>`);
   if (["review", "accepted"].includes(run.status)) actions.push(`<button class="action-button" data-action="draft-pr" type="button">Draft PR</button>`);
-  if (run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) actions.push(`<button class="action-button" data-action="takeover" type="button" title="Copies a command that opens this agent in your terminal">${run.kind === "tmux" ? "Copy tmux command" : "Continue in terminal"}</button>`);
+  if ((run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) && !canInlineResume(run)) actions.push(`<button class="action-button" data-action="takeover" type="button" title="Copies a command that opens this agent in your terminal">${run.kind === "tmux" ? "Copy tmux command" : "Continue in terminal"}</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
   if (run.pull_request_url) actions.push(`<a class="action-button accept" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open PR</a>`);
   if (run.pull_request_url) actions.push(`<button class="action-button" data-action="ci-poll" type="button">Poll CI</button>`);
@@ -800,6 +804,229 @@ function setConnection(online) { $(".connection").classList.toggle("online", onl
 async function copyCommand(command) {
   try { await navigator.clipboard.writeText(command); toast(`Copied: ${command}`); }
   catch { window.prompt("Run this command in your terminal:", command); }
+}
+
+function assistantProviderLabel(provider) {
+  return provider === "claude" ? "Claude Code CLI" : provider === "openai" ? "Direct API: ChatGPT" : provider === "anthropic" ? "Direct API: Claude" : "Codex CLI";
+}
+
+function assistantConversation(runId = state.selectedId) {
+  if (!runId) return [];
+  if (!state.assistantConversations[runId]) {
+    try { state.assistantConversations[runId] = JSON.parse(localStorage.getItem(`odysseus.assistant.${runId}`) || "[]"); }
+    catch { state.assistantConversations[runId] = []; }
+  }
+  return state.assistantConversations[runId];
+}
+
+function saveAssistantConversation(runId = state.selectedId) {
+  if (!runId) return;
+  localStorage.setItem(`odysseus.assistant.${runId}`, JSON.stringify(assistantConversation(runId).slice(-30)));
+}
+
+function selectedAssistantScopes() {
+  return $$("[data-assistant-scope]").filter((item) => item.checked).map((item) => item.value);
+}
+
+function selectedAssistantContextLabels() {
+  const labels = selectedAssistantScopes().map((item) => item[0].toUpperCase() + item.slice(1));
+  if ($("#assistantIncludeDiff")?.checked) labels.push("Diff/code");
+  return labels;
+}
+
+function assistantShareSummary() {
+  const scopes = selectedAssistantScopes().map((item) => item[0].toUpperCase() + item.slice(1));
+  const includeDiff = $("#assistantIncludeDiff")?.checked;
+  return `Shared: ${scopes.length ? scopes.join(", ") : "no task context"}. Diff/code is ${includeDiff ? "on and redacted" : "off"}.`;
+}
+
+function assistantMessageAllowed(message) {
+  const shared = Array.isArray(message.shared_context) ? message.shared_context : null;
+  if (!shared) return message.role === "user";
+  const allowed = new Set(selectedAssistantContextLabels());
+  return shared.every((item) => allowed.has(item));
+}
+
+function assistantOutgoingMessages() {
+  return assistantConversation().filter(assistantMessageAllowed);
+}
+
+function assistantOmittedCount() {
+  return assistantConversation().length - assistantOutgoingMessages().length;
+}
+
+function renderAssistantStatus(message = "") {
+  const provider = $("#assistantProvider")?.value || "codex";
+  const info = state.bootstrap?.assistant?.[provider] || {};
+  const status = $("#assistantStatus");
+  if (!status) return;
+  const defaultMessage = info.mode === "local_cli"
+    ? (info.configured ? `${assistantProviderLabel(provider)} ready from local authentication. It runs in a blank scratch workspace; selected context is attached explicitly, while the process still has this user's filesystem permissions.` : `${assistantProviderLabel(provider)} is not on PATH.`)
+    : (info.configured ? `${assistantProviderLabel(provider)} ready via ${info.env}; model ${info.model}.` : `Direct API mode requires ${info.env || (provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the server environment.`);
+  status.textContent = message || defaultMessage;
+  status.classList.toggle("assistant-missing", !info.configured && !message);
+}
+
+function renderAssistantMessages() {
+  const messages = assistantConversation();
+  $("#assistantMessages").innerHTML = messages.length ? messages.map((message) => `
+    <article class="assistant-message ${escapeHtml(message.role)} ${assistantMessageAllowed(message) ? "" : "omitted"}">
+      <small>${escapeHtml(message.role === "assistant" ? assistantProviderLabel(message.provider || $("#assistantProvider").value) : "You")}</small>
+      <p>${escapeHtml(message.content)}</p>
+      ${message.shared_context?.length ? `<em>Shared: ${escapeHtml(message.shared_context.join(", "))}</em>` : ""}
+      ${assistantMessageAllowed(message) ? "" : `<em>Omitted from the next request because current context sharing is narrower.</em>`}
+    </article>
+  `).join("") : `<div class="assistant-empty">Ask a local Codex or Claude helper what feedback to send next. Only selected context chips are shared.</div>`;
+  $("#assistantMessages").scrollTop = $("#assistantMessages").scrollHeight;
+}
+
+function renderAssistantPanel(run = state.selected) {
+  if (!run || run.kind === "tmux") return;
+  const omitted = assistantOmittedCount();
+  $("#assistantShareNotice").textContent = `${assistantShareSummary()}${omitted ? ` ${omitted} older message${omitted === 1 ? "" : "s"} will be omitted from the next request.` : ""}`;
+  renderAssistantStatus();
+  renderAssistantMessages();
+  const hasAnswer = Boolean(lastAssistantAnswer());
+  $("#assistantInsertFeedback").disabled = !hasAnswer;
+  $("#assistantSubmitFeedback").disabled = !hasAnswer || !canAssistantFollowUp(run);
+  $("#assistantCopy").disabled = !hasAnswer;
+  $("#assistantQueueTask").disabled = !hasAnswer;
+}
+
+function lastAssistantAnswer() {
+  return [...assistantConversation()].reverse().find((message) => message.role === "assistant")?.content?.trim() || "";
+}
+
+function canInlineResume(run = state.selected) {
+  return Boolean(run && ["review", "failed", "attention"].includes(run.status));
+}
+
+function canAssistantFollowUp(run = state.selected) {
+  return Boolean(run && ["review", "failed", "attention", "accepted", "pr_created"].includes(run.status));
+}
+
+function canTakeover(run = state.selected) {
+  return Boolean(run && (run.tmux_session || run.agent_sessions?.agent || run.agent_session_id));
+}
+
+function renderRecoveryCard(run) {
+  const visible = canInlineResume(run);
+  $("#recoveryCard").classList.toggle("hidden", !visible);
+  if (!visible) return;
+  $("#inlineTakeover").classList.toggle("hidden", !canTakeover(run));
+}
+
+async function sendAssistantMessage() {
+  if (!state.selectedId) return;
+  const instruction = $("#assistantComposer").value.trim();
+  if (!instruction) { toast("Ask the assistant first.", true); return; }
+  const button = $("#assistantSend");
+  const originalLabel = button.textContent;
+  const messages = assistantConversation();
+  const userMessage = {role: "user", content: instruction, shared_context: selectedAssistantContextLabels()};
+  messages.push(userMessage);
+  $("#assistantComposer").value = "";
+  renderAssistantMessages();
+  try {
+    button.disabled = true;
+    button.textContent = "Sending...";
+    const scopes = selectedAssistantScopes();
+    const include_diff = Boolean($("#assistantIncludeDiff").checked);
+    renderAssistantStatus(`Sending to ${assistantProviderLabel($("#assistantProvider").value)}. ${assistantShareSummary()}`);
+    const result = await api("/api/assist", {method: "POST", body: JSON.stringify({provider: $("#assistantProvider").value, run_id: state.selectedId, messages: assistantOutgoingMessages().slice(-12), scopes, include_diff})});
+    messages.push({role: "assistant", content: result.prompt || "", provider: result.provider, shared_context: result.shared_context || []});
+    saveAssistantConversation();
+    renderAssistantMessages();
+    renderAssistantStatus(`Answered with ${assistantProviderLabel(result.provider)}. ${assistantShareSummary()}`);
+  } catch (error) {
+    messages.pop();
+    $("#assistantComposer").value = instruction;
+    renderAssistantStatus(error.message);
+    renderAssistantMessages();
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+    renderAssistantPanel();
+  }
+}
+
+async function copyAssistantPrompt() {
+  const prompt = lastAssistantAnswer();
+  if (!prompt) { toast("There is no assistant answer to copy.", true); return; }
+  await copyCommand(prompt);
+}
+
+function insertAssistantFeedback() {
+  const prompt = lastAssistantAnswer();
+  if (!prompt) { toast("There is no assistant answer to insert.", true); return; }
+  if (canInlineResume()) {
+    $("#inlineFeedback").value = prompt;
+    toast("Inserted assistant answer into feedback.");
+    return;
+  }
+  if (canAssistantFollowUp()) {
+    $("#feedbackForm").elements.feedback.value = prompt;
+    $("#feedbackDialog").showModal();
+    toast("Inserted assistant answer into follow-up.");
+    return;
+  }
+  toast("This task is not waiting for agent feedback.", true);
+}
+
+async function submitInlineFeedback(prompt = $("#inlineFeedback").value.trim(), button = $("#inlineResume")) {
+  if (!state.selectedId || !prompt) { toast("Add feedback before resuming.", true); return; }
+  if (!canInlineResume()) { toast("This task is not waiting for recovery feedback.", true); return; }
+  const originalLabel = button.textContent;
+  try {
+    button.disabled = true;
+    button.textContent = "Resuming...";
+    await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy: "resume", lane: ""})});
+    toast("Feedback submitted to resume this task.");
+    $("#inlineFeedback").value = "";
+    await refreshRuns();
+    await refreshSelected();
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; button.textContent = originalLabel; }
+}
+
+async function submitAssistantFollowUp(prompt, button) {
+  if (!state.selectedId || !prompt) { toast("There is no assistant answer to submit.", true); return; }
+  if (!canAssistantFollowUp()) { toast("This task cannot be resumed with assistant feedback.", true); return; }
+  const originalLabel = button.textContent;
+  try {
+    button.disabled = true;
+    button.textContent = "Submitting...";
+    await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy: "resume", lane: ""})});
+    toast("Assistant answer submitted to the agent.");
+    await refreshRuns();
+    await refreshSelected();
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; button.textContent = originalLabel; }
+}
+
+async function submitAssistantFeedback() {
+  const prompt = lastAssistantAnswer();
+  if (!prompt) { toast("There is no assistant answer to submit.", true); return; }
+  await submitAssistantFollowUp(prompt, $("#assistantSubmitFeedback"));
+}
+
+async function queueAssistantTask() {
+  const prompt = lastAssistantAnswer();
+  const run = state.selected;
+  const project = projectById(run?.project_id);
+  if (!run || !project || !prompt) { toast("There is no assistant answer to queue.", true); return; }
+  const button = $("#assistantQueueTask");
+  const originalLabel = button.textContent;
+  try {
+    button.disabled = true;
+    button.textContent = "Queueing...";
+    const created = await api("/api/runs", {method: "POST", body: JSON.stringify({task: prompt, project_path: project.path, lane: run.lane || state.bootstrap.default_lane, skill_mode: "auto"})});
+    toast(`Queued new task: ${created.title}`);
+    await Promise.all([refreshRuns(), refreshProjects()]);
+    await selectRun(created.id);
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; button.textContent = originalLabel; }
 }
 
 async function runAction(action) {
@@ -1037,6 +1264,17 @@ function bindDialogs() {
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_path: project.path, planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
+  $("#assistantProvider").addEventListener("change", () => renderAssistantPanel());
+  $$("[data-assistant-scope]").forEach((item) => item.addEventListener("change", () => renderAssistantPanel()));
+  $("#assistantIncludeDiff").addEventListener("change", () => renderAssistantPanel());
+  $("#assistantSend").addEventListener("click", sendAssistantMessage);
+  $("#assistantComposer").addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") sendAssistantMessage(); });
+  $("#assistantInsertFeedback").addEventListener("click", insertAssistantFeedback);
+  $("#assistantCopy").addEventListener("click", copyAssistantPrompt);
+  $("#assistantSubmitFeedback").addEventListener("click", submitAssistantFeedback);
+  $("#assistantQueueTask").addEventListener("click", queueAssistantTask);
+  $("#inlineResume").addEventListener("click", () => submitInlineFeedback());
+  $("#inlineTakeover").addEventListener("click", () => runAction("takeover"));
   $("#newInboxButton").addEventListener("click", () => $("#inboxDialog").showModal());
   $("#inboxForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); await api("/api/inbox", {method: "POST", body: JSON.stringify({title: data.get("title"), task: data.get("task"), project_id: project?.id || "", project_path: project?.path || ""})}); $("#inboxDialog").close(); event.currentTarget.reset(); await refreshInbox(); });
   [$("#addProjectButton"), $("#manageAddProjectButton")].forEach((button) => button?.addEventListener("click", () => $("#projectDialog").showModal()));
