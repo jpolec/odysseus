@@ -582,6 +582,7 @@ function renderWork() {
   const needs = project ? attentionForProject(project.id).length : state.attention.length;
   const complete = runs.filter((run) => ["accepted", "pr_created", "completed"].includes(run.status)).length;
   const terminals = project ? projectTerminalCount(project) : state.sessions.length;
+  $("#workView").classList.toggle("repository-selected", !!project);
   $("#workBreadcrumb").textContent = project ? "GIT REPOSITORY" : "ODYSSEUS";
   $("#workTitle").textContent = project ? projectName(project) : (state.projects.length ? "Repositories" : "Welcome to Odysseus");
   $("#workDescription").textContent = project ? `Create tasks for ${projectName(project)}. Odysseus can run ${state.bootstrap.max_parallel} agents at once and queues the rest.` : state.projects.length ? "Choose the repository you want an agent to change." : "Add one Git repository, create a task, then review the result.";
@@ -594,6 +595,7 @@ function renderWork() {
     [project ? terminals : complete, project ? "Terminals" : "Completed", project ? "agent panes" : "accepted changes"],
   ].map(([value, label, note]) => `<div class="work-stat"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
   $("#workSummary").classList.toggle("hidden", !project);
+  $("#journeyStepper").classList.toggle("hidden", !!project);
   renderJourney();
   renderCurrentRepositoryHint();
   renderQuickStart();
