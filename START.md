@@ -194,8 +194,10 @@ The web **Agent terminals** view discovers managed sessions and existing Codex/C
 panes automatically; you do not press anything to import them. Select **Track
 in Odysseus** only when you want a durable entry under Tasks. Tracking leaves
 the original pane untouched and cannot recreate tokens, tools, checks, or diffs
-that Odysseus did not observe. **Copy tmux command** copies the exact command to
-open that pane in your terminal.
+that Odysseus did not observe. The default web scope shows panes for the selected
+repository, or for Your repositories when no single repository is selected; use
+**All discovered sessions** to see and attach to other Codex or Claude panes.
+**Copy tmux command** copies the exact command to open that pane in your terminal.
 
 ## 8. Confirm resume, terminal handoff, and tracking
 

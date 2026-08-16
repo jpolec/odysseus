@@ -3,7 +3,7 @@
 const state = {
   bootstrap: null, runs: [], projects: [], sessions: [], inbox: [], attention: [], epics: [], selectedId: null,
   selected: null, events: [], filter: "all", projectFilter: "all", view: "work",
-  stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "attached", taskSection: "summary",
+  stream: null, refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
 };
 
@@ -129,6 +129,12 @@ function filteredRuns() {
 function runsForProject(projectId) { return state.runs.filter((run) => run.project_id === projectId); }
 function attentionForProject(projectId) { return state.attention.filter((item) => item.project_id === projectId); }
 function projectTerminalCount(project) { return state.sessions.filter((session) => session.project_path === project.path).length; }
+function repositoryScopedSessions() {
+  const project = activeProject();
+  if (project) return state.sessions.filter((session) => session.project_path === project.path);
+  const projectPaths = new Set(state.projects.map((item) => item.path));
+  return state.sessions.filter((session) => projectPaths.has(session.project_path));
+}
 
 function environmentFromForm(data) {
   const profile = String(data.get("environment_profile") || "");
@@ -905,14 +911,34 @@ async function refreshSessions() {
   catch (error) { $("#sessionList").innerHTML = `<div class="empty-card">${escapeHtml(error.message)}</div>`; }
 }
 
+function sessionEmptyTitle() {
+  if (state.sessionScope === "repositories" && state.sessions.length) return activeProject() ? "No panes for this repository." : "No panes for your repositories.";
+  if (state.sessionScope === "attached" && state.sessions.length) return "No panes in an attached tmux session.";
+  return "No agent terminals found.";
+}
+
+function sessionEmptyMessage() {
+  if (state.sessionScope === "repositories" && state.sessions.length) return "Choose All discovered sessions to see other Codex and Claude panes, then copy a tmux command or track one in Odysseus.";
+  if (state.sessionScope === "attached" && state.sessions.length) return "Choose All discovered sessions to see detached tmux sessions.";
+  return "Start Codex or Claude inside tmux; it will appear here automatically within a few seconds. There is no import button.";
+}
+
 function renderSessions() {
-  const visibleSessions = state.sessionScope === "attached" ? state.sessions.filter((session) => session.attached) : state.sessions;
-  const uniqueTmux = new Set(state.sessions.map((session) => session.tmux_session)).size;
-  const waiting = state.sessions.filter((session) => session.status === "waiting").length;
-  const working = state.sessions.filter((session) => session.status === "working").length;
-  const tracked = state.sessions.filter((session) => session.adopted_run_id).length;
+  const scopeSelect = $("#sessionScope");
+  const repositoryOption = scopeSelect?.querySelector('option[value="repositories"]');
+  if (repositoryOption) repositoryOption.textContent = activeProject() ? "This repository" : "Your repositories";
+  if (scopeSelect && scopeSelect.value !== state.sessionScope) scopeSelect.value = state.sessionScope;
+  const visibleSessions = state.sessionScope === "repositories"
+    ? repositoryScopedSessions()
+    : state.sessionScope === "attached"
+      ? state.sessions.filter((session) => session.attached)
+      : state.sessions;
+  const uniqueTmux = new Set(visibleSessions.map((session) => session.tmux_session)).size;
+  const waiting = visibleSessions.filter((session) => session.status === "waiting").length;
+  const working = visibleSessions.filter((session) => session.status === "working").length;
+  const tracked = visibleSessions.filter((session) => session.adopted_run_id).length;
   $("#sessionSummary").innerHTML = [
-    [state.sessions.length, "agent panes", `${uniqueTmux} tmux sessions`], [working, "working", "visible tmux activity"], [waiting, "need terminal input", "action required"], [tracked, "tracked", "durable Odysseus entries"],
+    [visibleSessions.length, "shown", `${uniqueTmux} tmux sessions · ${state.sessions.length} discovered`], [working, "working", "visible tmux activity"], [waiting, "need terminal input", "action required"], [tracked, "tracked", "durable Odysseus entries"],
   ].map(([value, label, note]) => `<div><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span><small>${escapeHtml(note)}</small></div>`).join("");
   const groups = new Map();
   visibleSessions.forEach((session) => { const key = session.tmux_session || "unknown"; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(session); });
@@ -927,7 +953,7 @@ function renderSessions() {
         <div class="card-actions">${session.adopted_run_id ? `<button class="ghost" data-open-run="${escapeHtml(session.adopted_run_id)}" type="button">Open tracked entry</button>` : `<button class="primary" data-adopt="${escapeHtml(session.id)}" type="button" title="Adds this pane to Tasks without changing it">Track in Odysseus</button>`}<button class="ghost" data-attach="${escapeHtml(session.tmux_session)}" data-pane-target="${escapeHtml(session.tmux_target || "")}" type="button">Copy tmux command</button></div></article>`;
     }).join("");
     return `<section class="session-group"><div class="session-group-head"><h2>tmux session ${escapeHtml(name)}</h2><span>${sessions.length} agent pane${sessions.length === 1 ? "" : "s"} · ${attached ? "attached" : "detached"}</span></div><div class="session-group-grid">${cards}</div></section>`;
-  }).join("") : `<div class="empty-card"><strong>${state.sessionScope === "attached" && state.sessions.length ? "No panes in an attached tmux session." : "No agent terminals found."}</strong><br>${state.sessionScope === "attached" && state.sessions.length ? "Choose “All discovered sessions” to see detached tmux sessions." : "Start Codex or Claude inside tmux; it will appear here automatically within a few seconds. There is no import button."}</div>`;
+  }).join("") : `<div class="empty-card"><strong>${sessionEmptyTitle()}</strong><br>${sessionEmptyMessage()}</div>`;
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
   $$('[data-attach]').forEach((button) => button.addEventListener("click", () => copyCommand(button.dataset.paneTarget ? `tmux select-pane -t ${button.dataset.paneTarget} \\; attach-session -t ${button.dataset.attach}` : `tmux attach-session -t ${button.dataset.attach}`)));
   $$('[data-adopt]').forEach((button) => button.addEventListener("click", async () => { try { const run = await api(`/api/tmux/sessions/${encodeURIComponent(button.dataset.adopt)}/adopt`, {method: "POST", body: "{}"}); toast("Now tracking this pane. The original tmux session was not changed."); await Promise.all([refreshSessions(), refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } }));

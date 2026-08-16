@@ -470,6 +470,10 @@ bin/odysseus adopt TMUX_SESSION
 
 Tracking creates a durable run/event record. It does not restart the agent,
 move the pane, inject keystrokes, or invent telemetry from before tracking.
+By default, the web view is scoped to the selected repository, or to saved
+repositories when no single repository is selected. Choose **All discovered
+sessions** when you want the global resume-style picker for other Codex or
+Claude panes.
 
 ## Work across repositories
 
