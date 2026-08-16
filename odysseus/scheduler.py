@@ -259,7 +259,7 @@ class Scheduler:
         run = self.store.update(run_id, **worktree_info)
         dependencies = [self.store.get(str(item)) for item in run.get("depends_on") or []]
         if dependencies:
-            integration = self.worktrees.integrate(run, dependencies, emit)
+            integration = self.worktrees.integrate(run, dependencies, emit, allow_conflicts=True)
             run = self.store.update(run_id, **integration)
         worktree = Path(str(run["worktree_path"]))
         options = self._project_options(worktree)
@@ -415,6 +415,31 @@ class Scheduler:
                 {"attempt": attempt, "duration_seconds": agent_result.duration_seconds},
             )
             emit("step.completed", "odysseus", {"step": "agent", "attempt": attempt})
+            integration_conflicts = run.get("integration_conflicts")
+            if isinstance(integration_conflicts, list) and integration_conflicts:
+                unresolved = self.worktrees.unmerged_files(worktree)
+                if unresolved:
+                    message = f"Integration conflicts remain unresolved: {', '.join(unresolved)}"
+                    self.store.transition(
+                        run_id,
+                        "failed",
+                        event_type="run.failed",
+                        last_error=message,
+                        review_status="integration_conflicts_unresolved",
+                        data={"message": message},
+                    )
+                    return
+                head = self.worktrees.head(worktree)
+                self.store.update(run_id, integration_head=head)
+                emit(
+                    "integration.completed",
+                    "git",
+                    {
+                        **(run.get("merge_analysis") or {}),
+                        "integration_head": head,
+                        "resolved_conflicts": integration_conflicts,
+                    },
+                )
 
             pending = [
                 item
@@ -725,6 +750,24 @@ class Scheduler:
         if failure_context:
             label = "Review feedback" if attempt == 1 else "Failed check from the previous attempt"
             prompt += f"\n{label}:\n{failure_context[-20_000:]}\n"
+        integration_conflicts = run.get("integration_conflicts")
+        if isinstance(integration_conflicts, list) and integration_conflicts:
+            files = sorted(
+                {
+                    str(path)
+                    for item in integration_conflicts
+                    if isinstance(item, Mapping)
+                    for path in item.get("conflicts", [])
+                    if str(path)
+                }
+            )
+            prompt += (
+                "\nDependency artifact integration stopped with Git merge conflicts in this worktree. "
+                "Resolve the conflicts, preserve all accepted artifact intent, and leave the complete "
+                "integrated result ready for the full configured checks.\n"
+            )
+            if files:
+                prompt += f"Conflicted files: {', '.join(files)}\n"
         context_bundle = run.get("context_bundle") if isinstance(run.get("context_bundle"), list) else []
         if context_bundle:
             prompt += "\nProject context captured when this task was queued:\n"
@@ -796,6 +839,91 @@ class ReviewActions:
             review_status="accepted",
         )
 
+    def _accepted_delivery_batch(self, run: Mapping[str, Any]) -> list[dict[str, Any]]:
+        project = Path(str(run.get("project_path") or "")).expanduser().resolve()
+        base_ref = str(run.get("base_ref") or "")
+        candidates: list[dict[str, Any]] = []
+        for candidate in self.store.list():
+            delivery = candidate.get("delivery") if isinstance(candidate.get("delivery"), dict) else {}
+            if candidate.get("status") != "accepted":
+                continue
+            if not candidate.get("artifact_sha"):
+                continue
+            if str(candidate.get("task_key") or "") == "integration-delivery":
+                continue
+            if delivery.get("status") in {"applied", "pr_created", "integration_queued"}:
+                continue
+            if Path(str(candidate.get("project_path") or "")).expanduser().resolve() != project:
+                continue
+            if str(candidate.get("base_ref") or "") != base_ref:
+                continue
+            candidates.append(candidate)
+        return sorted(
+            candidates,
+            key=lambda item: (
+                str(item.get("artifact_created_at") or ""),
+                str(item.get("created_at") or ""),
+                str(item.get("id") or ""),
+            ),
+        )
+
+    def _queue_integration_delivery(self, run: Mapping[str, Any], batch: list[dict[str, Any]]) -> dict[str, Any]:
+        ids = [str(item["id"]) for item in batch]
+        checks: list[str] = []
+        for item in batch:
+            for command in item.get("checks") or []:
+                if isinstance(command, str) and command not in checks:
+                    checks.append(command)
+        title = "Integrate accepted artifacts"
+        integration = self.store.create(
+            {
+                "title": title,
+                "task": (
+                    "Integrate these accepted Odysseus artifacts into one deliverable, in order: "
+                    + ", ".join(ids)
+                    + ". Preserve each accepted change, resolve any merge conflicts in the integration "
+                    "worktree, run the complete configured test suite, and leave one reviewed artifact "
+                    "for local delivery."
+                ),
+                "project_path": str(run.get("project_path") or ""),
+                "base_ref": str(run.get("base_ref") or ""),
+                "lane": str(run.get("lane") or ""),
+                "review_lane": str(run.get("review_lane") or run.get("lane") or ""),
+                "checks": checks,
+                "max_retries": int(run.get("max_retries", 2) or 0),
+                "depends_on": ids,
+                "task_key": "integration-delivery",
+                "parallelizable": False,
+                "priority": min(int(item.get("priority", 50) or 50) for item in batch),
+                "environment": dict(run.get("environment_request") or {}),
+                "untrusted_project": bool(run.get("untrusted_project")),
+            }
+        )
+        self.store.append_event(
+            str(integration["id"]),
+            "integration.queued",
+            "odysseus",
+            {"source_run_ids": ids, "message": "Accepted artifacts were queued for integration delivery."},
+        )
+        for item in batch:
+            delivery = dict(item.get("delivery") or {})
+            queued = {
+                **delivery,
+                "status": "integration_queued",
+                "method": "integration_queue",
+                "target_branch": str(item.get("base_ref") or ""),
+                "error": "",
+                "integration_run_id": str(integration["id"]),
+            }
+            self.store.update(str(item["id"]), delivery=queued)
+            self.store.append_event(
+                str(item["id"]),
+                "integration.queued",
+                "odysseus",
+                {"integration_run_id": str(integration["id"]), "source_run_ids": ids},
+            )
+        return integration
+
     def apply(self, run_id: str) -> dict[str, Any]:
         """Apply an accepted artifact to its original clean checkout."""
 
@@ -806,6 +934,12 @@ class ReviewActions:
             delivery = dict(run.get("delivery") or {})
             if delivery.get("status") == "applied":
                 return run
+            if delivery.get("status") == "integration_queued":
+                return run
+            batch = self._accepted_delivery_batch(run)
+            if len(batch) > 1:
+                integration = self._queue_integration_delivery(run, batch)
+                return self.store.get(run_id) | {"integration_run": integration}
             self.store.append_event(
                 run_id,
                 "delivery.started",

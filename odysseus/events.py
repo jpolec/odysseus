@@ -30,6 +30,7 @@ EVENT_TYPES = frozenset(
         "delivery.started",
         "delivery.applied",
         "delivery.failed",
+        "integration.queued",
         "integration.started",
         "integration.artifact_applied",
         "integration.completed",

@@ -865,6 +865,7 @@ function renderNarrative(run) {
   let narrative = environmentApproval ? ["TRUST GATE", "Review repository execution commands", "No agent or repository command has run. Approve the container profile, setup, checks, and evaluators in Needs You, or reject the task.", "Needs you", "attention", "!"] : values[run.status] || ["WORKFLOW", "Odysseus is tracking this task", "Open Activity for the latest normalized events.", "No action needed", "calm", "→"];
   if (run.status === "accepted" && run.delivery?.status === "applied") narrative = ["APPLIED", `The change is now on ${run.delivery.target_branch || run.base_ref}`, `Repository HEAD is ${String(run.delivery.target_after_sha || "").slice(0, 12)}. The accepted artifact remains auditable.`, "Delivered locally", "success", "✓"];
   if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["ACCEPTED · APPLY BLOCKED", "The artifact is safe, but local delivery failed", run.delivery.error || "Resolve the repository state, then try Apply to repository again.", "Needs you", "danger", "!"];
+  if (run.status === "accepted" && run.delivery?.status === "integration_queued") narrative = ["ACCEPTED · INTEGRATION QUEUED", "This artifact is part of an integration delivery", `Integration run ${run.delivery.integration_run_id || ""} will compose the accepted artifacts and produce one deliverable.`, "Integration queued", "attention", "→"];
   const [label, title, copy, tail, tone, mark] = narrative;
   $("#narrativeLabel").textContent = label; $("#narrativeTitle").textContent = title; $("#narrativeCopy").textContent = copy; $("#narrativeTail").textContent = tail; $("#narrativeMark").textContent = mark; $("#runNarrative").dataset.tone = tone;
 }
@@ -907,6 +908,11 @@ function renderReviewDecision(run) {
           : "Inspect the source repository state, resolve the reason above, and then try again.";
       deliveryHelp = `<div class="delivery-help"><strong>What should I do?</strong><span>${escapeHtml(explanation)}</span><div class="delivery-help-actions">${conflict ? `<button class="primary" data-review-action="resolve-conflict" type="button">Ask agent to resolve</button>` : ""}<button class="ghost" data-review-action="copy-source-status" type="button">Copy status command</button>${tracked ? `<button class="ghost" data-review-action="copy-source-stash" type="button">Copy safe stash command</button>` : ""}</div></div>`;
     }
+  }
+  if (run.status === "accepted" && delivery.status === "integration_queued") {
+    deliveryCopy = `Queued for integration delivery${delivery.integration_run_id ? ` as ${delivery.integration_run_id}` : ""}. The integration run will compose accepted artifacts before local apply.`;
+    deliveryActions = `<span class="delivery-complete">Integration queued</span>`;
+    deliveryHelp = "";
   }
   if (applied) {
     deliveryCopy = `Applied to ${delivery.target_branch || run.base_ref} at ${String(delivery.target_after_sha || "").slice(0, 12)}.`;
