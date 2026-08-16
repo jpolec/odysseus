@@ -20,6 +20,7 @@ from typing import Any
 from . import __version__
 from .events import EVENT_SCHEMA_VERSION
 from .ci import CIWatcher
+from .economics import economics_csv, economics_ndjson, outcome_economics
 from .lifecycle import ResourceLifecycle
 from .lifecycle import ServerLease
 from .planner import EpicPlanner
@@ -423,7 +424,10 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
-    _print_json(statistics(_store(args, migrate=False)))
+    payload = statistics(_store(args, migrate=False))
+    if getattr(args, "economics", False):
+        payload = payload["outcome_economics"]
+    _print_json(payload)
     return 0
 
 
@@ -594,6 +598,16 @@ def cmd_rollback(args: argparse.Namespace) -> int:
 
 def cmd_export(args: argparse.Namespace) -> int:
     store = _store(args)
+    if args.format in {"csv", "ndjson"}:
+        economics = outcome_economics(store, privacy=args.privacy)
+        encoded = economics_csv(economics, view=args.view) if args.format == "csv" else economics_ndjson(economics, view=args.view)
+        if args.output:
+            target = Path(args.output).expanduser()
+            target.write_text(encoded, encoding="utf-8")
+            print(target)
+        else:
+            print(encoded, end="")
+        return 0
     payload = {
         "format": "odysseus-state-v1",
         "config": store.config(),
@@ -603,6 +617,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         "attention": store.attention.list(),
         "inbox": store.inbox.list(),
         "stats": statistics(store),
+        "outcome_economics": outcome_economics(store, privacy=args.privacy),
     }
     encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.output:
@@ -840,6 +855,7 @@ def parser() -> argparse.ArgumentParser:
     search_parser.set_defaults(func=cmd_search)
 
     stats_parser = sub.add_parser("stats", help="show engineering outcome and agent economics totals")
+    stats_parser.add_argument("--economics", action="store_true", help="emit the outcome-economics receipt payload")
     stats_parser.set_defaults(func=cmd_stats)
 
     resources_parser = sub.add_parser("resources", help="inspect and reclaim retained worktrees and runtime directories")
@@ -879,8 +895,11 @@ def parser() -> argparse.ArgumentParser:
     rollback_parser.add_argument("--restore-state", action="store_true", help="restore the matching pre-update state backup")
     rollback_parser.set_defaults(func=cmd_rollback)
 
-    export_parser = sub.add_parser("export", help="export inspectable state and event history as JSON")
+    export_parser = sub.add_parser("export", help="export inspectable state and event history")
     export_parser.add_argument("--output")
+    export_parser.add_argument("--format", choices=["json", "csv", "ndjson"], default="json")
+    export_parser.add_argument("--view", choices=["lead", "operator"], default="lead", help="economics view for CSV/NDJSON exports")
+    export_parser.add_argument("--privacy", choices=["redacted", "full"], default="redacted", help="redact task text in outcome economics unless full is requested")
     export_parser.set_defaults(func=cmd_export)
 
     demo = sub.add_parser("demo", help="open a populated no-token product tour")
