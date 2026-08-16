@@ -313,7 +313,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent-strong); 
 @media (max-width: 1080px) { .nav-button::before { display: none; }.shell { grid-template-columns: 275px minmax(0, 1fr); }.detail-grid { grid-template-columns: 1fr; }.panel { height: 520px; }.metrics { grid-template-columns: repeat(3, 1fr); }.metadata { grid-template-columns: repeat(2, 1fr); }.insight-grid, .session-summary { grid-template-columns: repeat(2, 1fr); }.workflow-strip { grid-template-columns: repeat(3, 1fr); }.workflow-strip li:nth-child(3) { border-right: 0; }.workflow-strip li:nth-child(-n+3) { border-bottom: 1px solid var(--line); } }
 @media (max-width: 720px) { body { padding-bottom: 58px; }.parallel, #connectionLabel, .brand small { display: none; }.topbar { grid-template-columns: auto 1fr; gap: 10px; padding: 0 12px; }.primary-nav { position: fixed; z-index: 30; right: 0; bottom: 0; left: 0; width: 100%; height: 58px; padding: 4px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: rgba(255,255,255,.97); overflow-x: auto; }.nav-button { flex: 1; min-width: 74px; padding: 0 8px; font-size: 10px; }.nav-button::before { display: grid; }.topbar-status { justify-self: end; gap: 9px; }.shell { display: block; }.task-rail { border-right: 0; border-bottom: 1px solid var(--line); }.task-list { display: flex; max-height: 185px; overflow-x: auto; overflow-y: hidden; }.task-card { min-width: 260px; border-right: 1px solid var(--line); }.run-detail, .collection-view { padding: 26px 15px; }.detail-head, .page-head { display: block; }.actions, .inline-controls, .session-controls { justify-content: flex-start; min-width: 0; margin-top: 18px; }.session-controls { align-items: stretch; flex-direction: column; }.session-controls label { justify-content: space-between; }.session-controls select { flex: 1; width: auto; }.run-narrative { grid-template-columns: auto 1fr; }.narrative-tail { grid-column: 2; width: max-content; }.form-row, .observed-session, .how-it-works { grid-template-columns: 1fr; gap: 0; }.observed-steps { margin-top: 18px; }.metrics, .session-summary { grid-template-columns: repeat(2, 1fr); }.github-button { display: none; }.insight-grid { grid-template-columns: 1fr; }.tabs { overflow-x: auto; }.tab { min-width: 82px; }.integration-hero, .ci-hero { align-items: flex-start; flex-direction: column; }.integration-hero > span, .ci-hero > span { max-width: none; text-align: left; }.technical-details summary small { display: none; } }
 @media (max-width: 430px) { .session-summary { grid-template-columns: 1fr; }.nav-button::before { display: none; }.nav-button { min-width: 68px; }.metrics { grid-template-columns: 1fr 1fr; }.empty-actions { align-items: stretch; flex-direction: column; width: 100%; } }
-
 /* 0.4.3 project-first workbench — Fluent density with progressive disclosure. */
 :root {
   --ink: #242424;
@@ -398,6 +397,15 @@ body { height: 100vh; overflow: hidden; background: var(--base); font-size: 13px
 .recovery-copy small, .recovery-copy strong, .recovery-copy p { display: block; }.recovery-copy small { color: #8a6418; font-size: 9px; letter-spacing: .08em; }.recovery-copy strong { margin-top: 3px; font-size: 13px; }.recovery-copy p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .recovery-card textarea { margin-top: 0; min-height: 96px; border-radius: 5px; background: white; }
 .recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }.recovery-actions button { min-height: 32px; }
+.summary-assistant { display: grid; gap: 10px; margin: 12px 0 0; padding: 14px; border: 1px solid #c7def2; border-left-width: 3px; border-radius: 6px; background: #f7fbff; }
+.summary-assistant-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.summary-assistant-head small, .summary-assistant-head strong { display: block; }.summary-assistant-head small { margin-bottom: 4px; color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .08em; }.summary-assistant-head strong { font-size: 14px; }
+.summary-assistant-head p, .summary-assistant-access { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.summary-assistant-head label { width: 175px; margin: 0; }.summary-assistant-head select { min-height: 30px; margin-top: 4px; padding: 4px 24px 4px 8px; font-size: 11px; }
+.summary-assistant-compose { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 8px; }
+.summary-assistant textarea { min-height: 74px; margin: 0; border-radius: 5px; background: white; font: 12px/1.5 var(--mono); }
+.summary-assistant-actions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }.summary-assistant-actions button { min-height: 30px; padding: 0 10px; font-size: 11px; }
+@media (max-width: 560px) { .summary-assistant-head, .summary-assistant-compose { display: grid; grid-template-columns: 1fr; }.summary-assistant-head label, .summary-assistant-actions button, .summary-assistant-compose button { width: 100%; }.summary-assistant-actions { justify-content: stretch; } }
 .review-decision { margin: 12px 0 0; overflow: hidden; border: 1px solid #b8cee2; border-radius: 6px; background: white; }
 .review-decision-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 16px; border-bottom: 1px solid #d8e5f0; background: #f4f9fd; }
 .review-decision-head small, .review-decision-head strong { display: block; }.review-decision-head small { margin-bottom: 4px; color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .08em; }.review-decision-head strong { font-size: 14px; }.review-decision-head > span { padding: 5px 8px; border-radius: 12px; color: #174f7d; background: #dcecf8; font: 600 10px var(--mono); white-space: nowrap; }
@@ -585,6 +593,7 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 :root[data-theme="dark"] .journey-stepper button.current,
 :root[data-theme="dark"] .current-repository-hint,
 :root[data-theme="dark"] .assistant-panel,
+:root[data-theme="dark"] .summary-assistant,
 :root[data-theme="dark"] .task-skill-recommendations,
 :root[data-theme="dark"] .receipt-head { background: #142435; }
 :root[data-theme="dark"] .first-run-card,

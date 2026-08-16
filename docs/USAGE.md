@@ -371,13 +371,14 @@ immediately below the status explanation:
 3. Odysseus reuses the same branch, worktree, and saved agent thread, then runs
    checks and review again.
 
-The right-side **Context assistant** is optional. Choose **Codex CLI** or
-**Claude Code CLI** to use the authentication already configured for that
-local command; no API key is needed. Select exactly which task context may be
-attached. Diff/code remains off until explicitly enabled. You can then
-**Insert answer**, **Submit answer**, **Copy answer**, or **Queue as new task**.
-Conversation history is local to the browser and messages derived from a
-context scope are omitted from later requests when that scope is disabled.
+The Summary **Context assistant** is optional. Choose **Codex CLI** or
+**Claude Code CLI** to use the authentication already configured for that local
+command; no API key is needed. The side panel keeps the full conversation and
+context controls. Select exactly which task context may be attached. Diff/code
+remains off until explicitly enabled. You can then **Insert answer**, **Submit
+answer**, **Copy answer**, or **Queue as new task**. Conversation history is
+local to the browser and messages derived from a context scope are omitted from
+later requests when that scope is disabled.
 
 When a task reaches `review`, Summary instead shows a deliberate three-step
 checklist: review the complete diff, open a preview when the run provides one
@@ -390,8 +391,8 @@ The optional **Direct API: ChatGPT** and **Direct API: Claude** choices require
 save the non-secret model names and show whether each provider is ready, but
 Odysseus never stores API keys in JSON or browser storage. Run-derived
 context is secret-redacted before it leaves Odysseus. Local CLI helpers run in
-a blank scratch workspace, although their host process still has the filesystem
-permissions of the user running Odysseus.
+a blank scratch workspace, not the task repository, although their host process
+still has the filesystem permissions of the user running Odysseus.
 
 **Continue in terminal** is an escape hatch for interactive debugging and full
 control, not a required step. Most tasks can be queued, followed, corrected,

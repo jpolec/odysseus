@@ -336,11 +336,14 @@ At the review gate:
 review checklist shows **1 Review**, **2 Test**, and **3 Deliver**; until Apply
 or a PR is chosen, the UI says that the source checkout is unchanged. For
 `Failed` or `Needs You`, the recovery path stays directly below the status
-message. The right-side **Context assistant** can draft feedback with
-the already authenticated local Codex CLI or Claude Code CLI; no separate API
-key is required for local mode. Task, failure, review, and check context are
-explicit toggles, while diff/code sharing is off by default. Direct ChatGPT or
-Claude API modes are optional and require `OPENAI_API_KEY` or
+message. The Summary **Context assistant** can draft feedback with the already
+authenticated local Codex CLI or Claude Code CLI; no separate API key is
+required for local mode. The full conversation and context toggles remain in
+the side panel. Task, failure, review, and check context are explicit toggles,
+while diff/code sharing is off by default. Local CLI helpers start in a blank
+scratch workspace, not the task repository; they receive only selected context
+by prompt, but still run with the filesystem permissions of the Odysseus user.
+Direct ChatGPT or Claude API modes are optional and require `OPENAI_API_KEY` or
 `ANTHROPIC_API_KEY` in the Odysseus server environment. Their non-secret model
 names can be selected in **Settings**; the keys themselves are only reported as
 configured or missing and are never persisted.

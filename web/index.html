@@ -176,12 +176,38 @@
                     <div class="recovery-copy">
                       <small id="recoveryLabel">RECOVERY</small>
                       <strong id="recoveryTitle">Resume this task with feedback</strong>
-                      <p id="recoveryCopy">The same task branch and saved agent thread are reused. Put the next instruction here, or insert an assistant answer from the right rail.</p>
+                      <p id="recoveryCopy">The same task branch and saved agent thread are reused. Put the next instruction here, or insert an assistant answer below.</p>
                     </div>
                     <textarea id="inlineFeedback" rows="5" placeholder="Tell the agent exactly what to change or investigate next."></textarea>
                     <div class="recovery-actions">
                       <button class="primary" id="inlineResume" type="button">Resume with feedback</button>
                       <button class="ghost" id="inlineTakeover" type="button">Continue in terminal</button>
+                    </div>
+                  </section>
+                  <section class="summary-assistant" id="summaryAssistant" aria-label="Ask context assistant">
+                    <div class="summary-assistant-head">
+                      <div>
+                        <small>CONTEXT ASSISTANT</small>
+                        <strong>Ask what to send next</strong>
+                        <p id="summaryAssistantShareNotice">Shared: Task, Failure, Review, Checks. Diff/code is off.</p>
+                      </div>
+                      <label>Assistant
+                        <select id="summaryAssistantProvider">
+                          <option value="codex">Codex CLI</option>
+                          <option value="claude">Claude Code CLI</option>
+                          <option value="openai">Direct API: ChatGPT</option>
+                          <option value="anthropic">Direct API: Claude</option>
+                        </select>
+                      </label>
+                    </div>
+                    <p class="summary-assistant-access" id="summaryAssistantAccess">Local CLI helpers start in a blank scratch workspace, not the task repository. They receive only selected context by prompt, but run with the Odysseus user's filesystem permissions.</p>
+                    <div class="summary-assistant-compose">
+                      <textarea id="summaryAssistantComposer" rows="3" placeholder="Ask what feedback to send, what else to inspect, or how to turn this state into the next agent prompt."></textarea>
+                      <button class="primary" id="summaryAssistantSend" type="button">Ask</button>
+                    </div>
+                    <div class="summary-assistant-actions">
+                      <button class="ghost" id="summaryAssistantInsertFeedback" type="button">Insert answer</button>
+                      <button class="ghost" id="summaryAssistantSubmitFeedback" type="button">Submit answer</button>
                     </div>
                   </section>
                   <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
@@ -252,7 +278,7 @@
                   <button class="ghost" id="assistantCopy" type="button">Copy answer</button>
                   <button class="ghost" id="assistantQueueTask" type="button">Queue as new task</button>
                 </div>
-                <p class="assistant-status" id="assistantStatus">Selected context is attached explicitly. Local CLI assistants run in a blank scratch workspace, but the host process still has the filesystem permissions of the Odysseus user. Direct API modes require server environment keys.</p>
+                <p class="assistant-status" id="assistantStatus">Selected context is attached explicitly. Local CLI assistants run in a blank scratch workspace, not the task repository, but the host process still has the filesystem permissions of the Odysseus user. Direct API modes require server environment keys.</p>
               </aside>
             </div>
             <details class="technical-details" id="technicalDetails">

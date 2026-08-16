@@ -699,6 +699,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             "Help the operator decide what feedback or next prompt to send to a coding agent.",
             "Answer conversationally, but make any suggested agent prompt easy to paste.",
             "Do not claim you saw repository code unless code/diff context is explicitly provided below.",
+            "Local CLI helpers are launched in a temporary scratch working directory, not the task repository.",
+            "Odysseus intentionally attaches only the selected context below, although a local CLI process still runs with the host filesystem permissions of the Odysseus user.",
             f"Assistant provider: {provider}.",
         ]
         if run:
