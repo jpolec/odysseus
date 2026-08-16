@@ -214,6 +214,9 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 }
             )
             return
+        if parsed.path == "/api/config":
+            self._json(self.server.app.store.config())
+            return
         if parsed.path == "/api/health":
             self._json(
                 {
@@ -335,6 +338,21 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             body = self._body()
+            if parsed.path == "/api/config":
+                changes: dict[str, Any] = {}
+                for key in (
+                    "max_parallel",
+                    "default_lane",
+                    "planner_lane",
+                    "review_lane",
+                    "max_retries",
+                    "budgets",
+                    "ci",
+                ):
+                    if key in body:
+                        changes[key] = body[key]
+                self._json(self.server.app.store.update_config(changes))
+                return
             if parsed.path == "/api/runs":
                 run = self.server.app.store.create({**body, "origin": "web", "evidence_class": "observed"})
                 self._json(run, HTTPStatus.CREATED)
@@ -612,6 +630,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 "configured": bool(os.environ.get(env_name)),
                 "env": env_name,
                 "model": os.environ.get(model_env, default_model),
+                "model_env": model_env,
             }
             for provider, (env_name, model_env, default_model) in DIRECT_ASSISTANT_PROVIDER_ENV.items()
         }

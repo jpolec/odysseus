@@ -54,6 +54,39 @@ class ServerTests(unittest.TestCase):
             self.assertFalse(scheduler.started)
             self.assertIsNone(app.httpd)
 
+    def test_config_endpoint_updates_safe_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = RunStore(Path(temp) / "state")
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                request = urllib.request.Request(
+                    f"{base}/api/config",
+                    data=json.dumps(
+                        {
+                            "max_parallel": 4,
+                            "default_lane": "claude",
+                            "budgets": {"max_tokens": 1200},
+                        }
+                    ).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with urllib.request.urlopen(request) as response:
+                    updated = json.load(response)
+                self.assertEqual(updated["max_parallel"], 4)
+                self.assertEqual(updated["default_lane"], "claude")
+                self.assertEqual(updated["budgets"]["max_tokens"], 1200)
+                with urllib.request.urlopen(f"{base}/api/config") as response:
+                    fetched = json.load(response)
+                self.assertEqual(fetched["max_parallel"], 4)
+            finally:
+                app.stop()
+
     def test_ui_bootstrap_and_token_protected_create(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -78,6 +111,7 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("claude", bootstrap["assistant"])
                 self.assertEqual(bootstrap["assistant"]["claude"]["mode"], "local_cli")
                 self.assertEqual(bootstrap["assistant"]["openai"]["env"], "OPENAI_API_KEY")
+                self.assertEqual(bootstrap["assistant"]["openai"]["model_env"], "ODYSSEUS_ASSISTANT_OPENAI_MODEL")
                 self.assertEqual(bootstrap["assistant"]["openai"]["mode"], "direct_api")
                 self.assertIn("anthropic", bootstrap["assistant"])
                 self.assertTrue(bootstrap["working_directory"])
@@ -145,6 +179,9 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("Repositories saved on this computer", html)
                 self.assertIn("Follow &amp; review", html)
                 self.assertIn("Manage repositories", html)
+                self.assertIn('id="settingsView"', html)
+                self.assertIn('id="settingsForm"', html)
+                self.assertIn("Models and API keys", html)
                 self.assertIn("A repository is the code Codex will work on", html)
                 self.assertNotIn("Other repository path", html)
                 self.assertIn('id="projectHome"', html)
