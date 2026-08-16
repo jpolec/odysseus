@@ -108,6 +108,26 @@ class LifecycleLeaseTests(unittest.TestCase):
             self.assertTrue(Path(info["worktree_path"]).is_dir())
             self.assertEqual(result["reclaimed"], [])
 
+    def test_reclaim_keeps_orphan_runtime_with_live_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = RunStore(Path(temp) / "state")
+            runtime = store.root / "runtime" / "orphan-active"
+            runtime.mkdir(parents=True)
+            (runtime / "owner.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+            (runtime / "scratch.txt").write_text("scratch\n", encoding="utf-8")
+
+            lifecycle = ResourceLifecycle(store)
+            preview = lifecycle.inspect(retention_days=0)
+            [record] = [item for item in preview["runtime_directories"] if item["path"] == str(runtime)]
+            self.assertFalse(record["reclaimable"])
+            self.assertFalse(record["force_reclaimable"])
+            self.assertIn("live owner", record["reason"])
+
+            result = lifecycle.reclaim(retention_days=0, force=True)
+
+            self.assertTrue(runtime.is_dir())
+            self.assertEqual(result["reclaimed"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

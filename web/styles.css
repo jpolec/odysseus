@@ -252,6 +252,14 @@ pre { margin: 0; white-space: pre-wrap; }
 .integration-hero > span, .ci-hero > span { max-width: 60%; color: var(--muted); font: 10px/1.5 var(--mono); text-align: right; }
 .artifact-card { display: grid; gap: 4px; margin: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; }
 .artifact-card code { overflow: hidden; font: 10px var(--mono); text-overflow: ellipsis; }
+.integration-candidate-list { display: grid; gap: 10px; max-height: min(58vh, 620px); overflow: auto; }
+.integration-candidate { display: grid; gap: 11px; padding: 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.integration-candidate header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.integration-candidate strong, .integration-candidate small { display: block; }
+.integration-candidate small, .integration-candidate span, .candidate-exclusions { color: var(--faint); font: 9px var(--mono); }
+.candidate-disposition { display: flex; flex-wrap: wrap; gap: 8px; }
+.candidate-disposition label { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); font: 10px var(--mono); }
+.integration-candidate input[name^="reason-"] { margin: 0; }
 .source-list, .overlap-list { margin: 14px; border: 1px solid var(--line); }
 .source-list > div { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 10px; border-bottom: 1px solid var(--line); font: 9px var(--mono); }
 .source-list > div:last-child { border: 0; }

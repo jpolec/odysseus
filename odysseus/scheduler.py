@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import inspect
 import os
+import re
+import subprocess
 import threading
 import time
 import traceback
@@ -17,6 +19,22 @@ from .events import now_iso
 from .runners import AgentRunner, CheckRunner, ProcessResult
 from .store import RunStore
 from .worktrees import WorktreeManager
+
+
+VALID_INTEGRATION_DISPOSITIONS = frozenset({"integrate_now", "keep_for_later", "supersede"})
+SENSITIVE_VALUE_RE = re.compile(
+    r"(?i)\b("
+    r"sk-[A-Za-z0-9_-]{12,}|"
+    r"(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^,\s]+"
+    r")"
+)
+
+
+def _audit_text(value: Any, *, limit: int = 500) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return SENSITIVE_VALUE_RE.sub("[REDACTED]", text)[:limit]
 
 
 class Scheduler:
@@ -839,26 +857,81 @@ class ReviewActions:
             review_status="accepted",
         )
 
-    def _accepted_delivery_batch(self, run: Mapping[str, Any]) -> list[dict[str, Any]]:
+    def _git_ok(self, repo: Path, *args: str) -> bool:
+        result = subprocess.run(
+            ["git", "-C", str(repo), *args],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        return result.returncode == 0
+
+    def _candidate_exclusion(self, anchor: Mapping[str, Any], candidate: Mapping[str, Any], project: Path) -> str:
+        delivery = candidate.get("delivery") if isinstance(candidate.get("delivery"), dict) else {}
+        disposition = candidate.get("integration_disposition")
+        disposition = disposition if isinstance(disposition, dict) else {}
+        if candidate.get("status") != "accepted":
+            return "not_accepted"
+        if not candidate.get("artifact_sha"):
+            return "stale"
+        if str(candidate.get("task_key") or "") == "integration-delivery":
+            return "already_delivered"
+        if delivery.get("status") in {"applied", "pr_created", "integration_queued"}:
+            return "already_delivered"
+        if disposition.get("state") == "superseded":
+            return "superseded"
+        try:
+            candidate_project = Path(str(candidate.get("project_path") or "")).expanduser().resolve()
+        except OSError:
+            return "stale"
+        if candidate_project != project:
+            return "different_repository"
+        if str(candidate.get("base_ref") or "") != str(anchor.get("base_ref") or ""):
+            return "incompatible_base"
+        artifact_sha = str(candidate.get("artifact_sha") or "")
+        base_sha = str(candidate.get("base_sha") or "")
+        base_ref = str(candidate.get("base_ref") or "")
+        if not self._git_ok(project, "cat-file", "-e", f"{artifact_sha}^{{commit}}"):
+            return "stale"
+        if not base_sha or not self._git_ok(project, "cat-file", "-e", f"{base_sha}^{{commit}}"):
+            return "incompatible_base"
+        if base_ref and not self._git_ok(project, "rev-parse", "--verify", base_ref):
+            return "incompatible_base"
+        if base_ref and not self._git_ok(project, "merge-base", "--is-ancestor", base_sha, base_ref):
+            return "stale"
+        return ""
+
+    def integration_candidates(self, run_or_id: Mapping[str, Any] | str) -> dict[str, Any]:
+        run = self.store.get(run_or_id) if isinstance(run_or_id, str) else dict(run_or_id)
+        if run.get("status") != "accepted":
+            raise ValueError("accept the result before preparing an integration delivery")
         project = Path(str(run.get("project_path") or "")).expanduser().resolve()
         base_ref = str(run.get("base_ref") or "")
         candidates: list[dict[str, Any]] = []
+        excluded: list[dict[str, str]] = []
         for candidate in self.store.list():
-            delivery = candidate.get("delivery") if isinstance(candidate.get("delivery"), dict) else {}
-            if candidate.get("status") != "accepted":
+            reason = self._candidate_exclusion(run, candidate, project)
+            if reason:
+                if candidate.get("status") == "accepted" and candidate.get("artifact_sha"):
+                    excluded.append({"run_id": str(candidate.get("id") or ""), "reason": reason})
                 continue
-            if not candidate.get("artifact_sha"):
-                continue
-            if str(candidate.get("task_key") or "") == "integration-delivery":
-                continue
-            if delivery.get("status") in {"applied", "pr_created", "integration_queued"}:
-                continue
-            if Path(str(candidate.get("project_path") or "")).expanduser().resolve() != project:
-                continue
-            if str(candidate.get("base_ref") or "") != base_ref:
-                continue
-            candidates.append(candidate)
-        return sorted(
+            candidates.append(
+                {
+                    "id": str(candidate.get("id") or ""),
+                    "title": str(candidate.get("title") or candidate.get("id") or ""),
+                    "task_key": str(candidate.get("task_key") or ""),
+                    "artifact_sha": str(candidate.get("artifact_sha") or ""),
+                    "artifact_files": list(candidate.get("artifact_files") or []),
+                    "artifact_created_at": candidate.get("artifact_created_at"),
+                    "created_at": candidate.get("created_at"),
+                    "base_ref": base_ref,
+                    "delivery": dict(candidate.get("delivery") or {}),
+                    "integration_disposition": dict(candidate.get("integration_disposition") or {}),
+                    "_run": candidate,
+                }
+            )
+        candidates = sorted(
             candidates,
             key=lambda item: (
                 str(item.get("artifact_created_at") or ""),
@@ -866,6 +939,14 @@ class ReviewActions:
                 str(item.get("id") or ""),
             ),
         )
+        public = [{key: value for key, value in item.items() if key != "_run"} for item in candidates]
+        return {
+            "project_path": str(project),
+            "base_ref": base_ref,
+            "anchor_run_id": str(run.get("id") or ""),
+            "candidates": public,
+            "excluded": sorted(excluded, key=lambda item: (item["reason"], item["run_id"])),
+        }
 
     def _queue_integration_delivery(self, run: Mapping[str, Any], batch: list[dict[str, Any]]) -> dict[str, Any]:
         ids = [str(item["id"]) for item in batch]
@@ -924,6 +1005,92 @@ class ReviewActions:
             )
         return integration
 
+    def create_integration_delivery(
+        self,
+        run_id: str,
+        dispositions: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        with self._delivery_lock:
+            anchor = self.store.get(run_id)
+            preview = self.integration_candidates(anchor)
+            candidate_ids = [str(item["id"]) for item in preview["candidates"]]
+            raw = dispositions.get("dispositions") if "dispositions" in dispositions else dispositions
+            if not isinstance(raw, Mapping):
+                raise ValueError("dispositions must be an object keyed by run id")
+            received_ids = {str(key) for key in raw}
+            expected_ids = set(candidate_ids)
+            if received_ids != expected_ids:
+                missing = sorted(expected_ids - received_ids)
+                extra = sorted(received_ids - expected_ids)
+                detail = []
+                if missing:
+                    detail.append("missing: " + ", ".join(missing))
+                if extra:
+                    detail.append("unknown: " + ", ".join(extra))
+                raise ValueError("provide one disposition for every current candidate" + (f" ({'; '.join(detail)})" if detail else ""))
+            decisions: list[tuple[str, str, str, str]] = []
+            selected_ids: list[str] = []
+            for candidate_id in candidate_ids:
+                value = raw[candidate_id]
+                if isinstance(value, str):
+                    decision, reason, superseded_by = value, "", ""
+                elif isinstance(value, Mapping):
+                    decision = str(value.get("decision") or value.get("disposition") or "")
+                    reason = _audit_text(value.get("reason"))
+                    superseded_by = _audit_text(value.get("superseded_by") or value.get("newer_task"), limit=200)
+                else:
+                    raise ValueError(f"invalid disposition for {candidate_id}")
+                if decision not in VALID_INTEGRATION_DISPOSITIONS:
+                    raise ValueError(f"invalid disposition for {candidate_id}: {decision}")
+                decisions.append((candidate_id, decision, reason, superseded_by))
+                if decision == "integrate_now":
+                    selected_ids.append(candidate_id)
+            if len(selected_ids) == 1:
+                raise ValueError("integration delivery requires at least two artifacts; apply a single artifact directly")
+            selected: list[dict[str, Any]] = []
+            for candidate_id, decision, reason, superseded_by in decisions:
+                candidate = self.store.get(candidate_id)
+                state = {
+                    "integrate_now": "selected",
+                    "keep_for_later": "deferred",
+                    "supersede": "superseded",
+                }[decision]
+                disposition = {
+                    "state": state,
+                    "integration_run_id": "",
+                    "superseded_by": superseded_by,
+                    "reason": reason,
+                    "decided_at": now_iso(),
+                }
+                self.store.update(candidate_id, integration_disposition=disposition)
+                event_data = {
+                    "decision": decision,
+                    "state": state,
+                    "anchor_run_id": run_id,
+                    "reason": reason,
+                    "superseded_by": superseded_by,
+                }
+                self.store.append_event(candidate_id, "integration.disposition_recorded", "user", event_data)
+                if decision == "integrate_now":
+                    selected.append(candidate)
+            self.store.append_event(
+                run_id,
+                "integration.candidates_presented",
+                "odysseus",
+                {
+                    "candidate_run_ids": candidate_ids,
+                    "selected_run_ids": [str(item["id"]) for item in selected],
+                },
+            )
+            if not selected:
+                return self.store.get(run_id) | {"integration_candidates": preview, "integration_run": None}
+            integration = self._queue_integration_delivery(anchor, selected)
+            for item in selected:
+                disposition = dict(self.store.get(str(item["id"])).get("integration_disposition") or {})
+                disposition["integration_run_id"] = str(integration["id"])
+                self.store.update(str(item["id"]), integration_disposition=disposition)
+            return self.store.get(run_id) | {"integration_candidates": preview, "integration_run": integration}
+
     def apply(self, run_id: str) -> dict[str, Any]:
         """Apply an accepted artifact to its original clean checkout."""
 
@@ -936,10 +1103,6 @@ class ReviewActions:
                 return run
             if delivery.get("status") == "integration_queued":
                 return run
-            batch = self._accepted_delivery_batch(run)
-            if len(batch) > 1:
-                integration = self._queue_integration_delivery(run, batch)
-                return self.store.get(run_id) | {"integration_run": integration}
             self.store.append_event(
                 run_id,
                 "delivery.started",
