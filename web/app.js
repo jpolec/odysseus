@@ -1,6 +1,10 @@
 "use strict";
 
 const THEME_KEY = "odysseus-theme";
+const SIDEBAR_WIDTH_KEY = "odysseus-sidebar-width";
+const DEFAULT_SIDEBAR_WIDTH = 340;
+const MIN_SIDEBAR_WIDTH = 280;
+const MAX_SIDEBAR_WIDTH = 520;
 let savedTheme = "";
 try { savedTheme = window.localStorage.getItem(THEME_KEY) || ""; } catch { savedTheme = ""; }
 document.documentElement.dataset.theme = savedTheme === "dark" ? "dark" : "light";
@@ -12,7 +16,7 @@ const state = {
   selectionGeneration: 0, filter: "active", projectFilter: "all", view: "work",
   stream: null, streamRunId: "", refreshTimer: null, stats: null, searchResults: [], sessionScope: "repositories", taskSection: "summary",
   projectOverview: null, projectSkills: null, projectKnowledge: null, taskSkillCatalog: null, taskSkillRecommendations: null,
-  assistantConversations: {}, config: null, resources: null,
+  assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -51,6 +55,55 @@ function confirmChoice({eyebrow = "CONFIRM ACTION", title, lead, message, confir
   dialog.returnValue = "cancel";
   dialog.showModal();
   return new Promise((resolve) => dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), {once: true}));
+}
+
+function setSidebarWidth(width, persist = true) {
+  const value = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, Math.round(Number(width) || DEFAULT_SIDEBAR_WIDTH)));
+  document.documentElement.style.setProperty("--sidebar-width", `${value}px`);
+  const handle = $("#sidebarResizer");
+  if (handle) handle.setAttribute("aria-valuenow", String(value));
+  if (persist) {
+    try { window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(value)); } catch { /* Width remains active for this tab. */ }
+  }
+}
+
+function resetSidebarWidth() {
+  try { window.localStorage.removeItem(SIDEBAR_WIDTH_KEY); } catch { /* Ignore storage failures. */ }
+  setSidebarWidth(DEFAULT_SIDEBAR_WIDTH, false);
+  toast("Sidebar width reset.");
+}
+
+function initSidebarResize() {
+  let saved = "";
+  try { saved = window.localStorage.getItem(SIDEBAR_WIDTH_KEY) || ""; } catch { saved = ""; }
+  setSidebarWidth(saved || DEFAULT_SIDEBAR_WIDTH, false);
+  const handle = $("#sidebarResizer");
+  if (!handle) return;
+  let dragging = false;
+  const updateFromClientX = (clientX) => {
+    const benchLeft = $(".workbench")?.getBoundingClientRect().left || 0;
+    const activityWidth = $(".activity-bar")?.getBoundingClientRect().width || 0;
+    setSidebarWidth(clientX - benchLeft - activityWidth);
+  };
+  handle.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    handle.setPointerCapture(event.pointerId);
+    updateFromClientX(event.clientX);
+  });
+  handle.addEventListener("pointermove", (event) => { if (dragging) updateFromClientX(event.clientX); });
+  handle.addEventListener("pointerup", (event) => {
+    dragging = false;
+    try { handle.releasePointerCapture(event.pointerId); } catch { /* Pointer capture may already be released. */ }
+  });
+  handle.addEventListener("keydown", (event) => {
+    const current = Number(handle.getAttribute("aria-valuenow") || DEFAULT_SIDEBAR_WIDTH);
+    if (event.key === "ArrowLeft") { event.preventDefault(); setSidebarWidth(current - (event.shiftKey ? 40 : 10)); }
+    if (event.key === "ArrowRight") { event.preventDefault(); setSidebarWidth(current + (event.shiftKey ? 40 : 10)); }
+    if (event.key === "Home") { event.preventDefault(); setSidebarWidth(MIN_SIDEBAR_WIDTH); }
+    if (event.key === "End") { event.preventDefault(); setSidebarWidth(MAX_SIDEBAR_WIDTH); }
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); resetSidebarWidth(); }
+  });
+  $("#resetSidebarWidth")?.addEventListener("click", resetSidebarWidth);
 }
 
 function relativeTime(iso) {
@@ -695,6 +748,8 @@ function resetHeavyTaskState() {
   state.selectedDiff = null;
   state.selectedDiffRunId = "";
   state.selectedDiffLoadingRunId = "";
+  state.decisionDiff = null;
+  state.decisionDiffRunId = "";
   state.events = [];
   state.eventsLoadedRunId = "";
   state.eventsLoadingRunId = "";
@@ -796,6 +851,7 @@ function renderDetail(run) {
   const delivered = run.delivery?.status;
   const visibleStatus = run.status === "review" ? "ready for review"
     : run.status === "accepted" && delivered === "applied" ? "applied"
+    : run.status === "accepted" && ["integrated_applied", "integrated_pr_created"].includes(delivered) ? "delivered by integration"
     : run.status === "accepted" ? "accepted · not applied"
     : statusLabel(run.status);
   status.textContent = interactive ? "tracked tmux terminal" : visibleStatus; status.className = `status-pill ${statusClass(run.status)}`;
@@ -843,6 +899,7 @@ function renderDetail(run) {
   if (changedRun) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
   $("#workflowStrip").classList.toggle("hidden", interactive);
   renderActions(run); renderNarrative(run); renderReviewDecision(run); renderRecoveryCard(run); renderWorkflow(run);
+  loadDecisionDiff(run);
   if (changedRun) {
     $("#diffStat").textContent = "Open Changes to load the diff.";
     $("#diffPatch").textContent = "Large diffs are loaded only when this tab is visible.";
@@ -899,7 +956,7 @@ function renderNarrative(run) {
   };
   const environmentApproval = run.status === "attention" && run.environment?.trust_status === "pending";
   let narrative = environmentApproval ? ["TRUST GATE", "Review repository execution commands", "No agent or repository command has run. Approve the container profile, setup, checks, and evaluators in Needs You, or reject the task.", "Needs you", "attention", "!"] : values[run.status] || ["WORKFLOW", "Odysseus is tracking this task", "Open Activity for the latest normalized events.", "No action needed", "calm", "→"];
-  if (run.status === "accepted" && run.delivery?.status === "applied") narrative = ["APPLIED", `The change is now on ${run.delivery.target_branch || run.base_ref}`, `Repository HEAD is ${String(run.delivery.target_after_sha || "").slice(0, 12)}. The accepted artifact remains auditable.`, "Delivered locally", "success", "✓"];
+  if (run.status === "accepted" && ["applied", "integrated_applied"].includes(run.delivery?.status)) narrative = ["APPLIED", `The change is now on ${run.delivery.target_branch || run.base_ref}`, `Repository HEAD is ${String(run.delivery.target_after_sha || "").slice(0, 12)}. The accepted artifact remains auditable.`, run.delivery?.status === "integrated_applied" ? "Delivered by integration" : "Delivered locally", "success", "✓"];
   if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["ACCEPTED · APPLY BLOCKED", "The artifact is safe, but local delivery failed", run.delivery.error || "Resolve the repository state, then try Apply to repository again.", "Needs you", "danger", "!"];
   if (run.status === "accepted" && run.delivery?.status === "integration_queued") narrative = ["ACCEPTED · INTEGRATION QUEUED", "This artifact is part of an integration delivery", `Integration run ${run.delivery.integration_run_id || ""} will compose the accepted artifacts and produce one deliverable.`, "Integration queued", "attention", "→"];
   const [label, title, copy, tail, tone, mark] = narrative;
@@ -918,6 +975,108 @@ function renderActions(run) {
   $$("#runActions [data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
 }
 
+function parseDiffStat(stat) {
+  const text = String(stat || "");
+  const summary = text.split("\n").find((line) => /\d+\s+files? changed/.test(line)) || "";
+  const files = Number((summary.match(/(\d+)\s+files? changed/) || [])[1] || 0);
+  const insertions = Number((summary.match(/(\d+)\s+insertions?\(\+\)/) || [])[1] || 0);
+  const deletions = Number((summary.match(/(\d+)\s+deletions?\(-\)/) || [])[1] || 0);
+  return {files, insertions, deletions, observed: Boolean(summary)};
+}
+
+function highRiskPaths(paths) {
+  const patterns = [/auth/i, /security/i, /migrations?\//i, /schema/i, /payment/i, /billing/i, /permissions?/i, /secrets?/i, /infra/i, /deploy/i, /Dockerfile/i, /package-lock\.json/i, /requirements/i];
+  return (paths || []).filter((path) => patterns.some((pattern) => pattern.test(String(path)))).slice(0, 5);
+}
+
+function findingsBySeverity(run) {
+  const findings = run.evaluation?.findings || [];
+  const grouped = {critical: 0, high: 0, medium: 0, low: 0};
+  for (const finding of findings) {
+    const severity = String(finding.severity || finding.priority || "medium").toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(grouped, severity)) grouped[severity] += 1;
+    else grouped.medium += 1;
+  }
+  return grouped;
+}
+
+function phaseUsage(run) {
+  const usage = run.metrics?.session_usage || {};
+  const parts = ["agent", "review", "retry"].map((phase) => {
+    const item = usage[phase] || usage[phase === "agent" ? "implementation" : phase] || {};
+    const tokens = Number(item.input_tokens || 0) + Number(item.output_tokens || 0);
+    return `${phase}: ${tokens ? compactNumber(tokens) : "Not observed"}`;
+  });
+  return parts.join(" · ");
+}
+
+function decisionEvidence(run) {
+  const checks = run.check_results || [];
+  const passed = checks.filter((item) => Number(item.returncode) === 0 || item.skipped).length;
+  const failed = checks.filter((item) => Number(item.returncode) !== 0 && !item.skipped);
+  const ci = run.ci || {};
+  const ciFailures = (ci.checks || []).filter((item) => ["fail", "failed", "failure"].includes(String(item.bucket || item.state || "").toLowerCase()));
+  const files = run.artifact_files || run.merge_analysis?.files || [];
+  const stat = state.decisionDiffRunId === run.id ? parseDiffStat(state.decisionDiff?.stat || "") : {observed: false};
+  const riskPaths = highRiskPaths(files);
+  const findings = findingsBySeverity(run);
+  const unresolved = Object.entries(findings).filter(([, count]) => count).map(([severity, count]) => `${count} ${severity}`).join(", ");
+  const verdict = run.evaluation?.decision || run.evaluation?.verdict || run.policy_decision || "";
+  const ciObserved = ci.status && ci.status !== "not_started";
+  const cost = run.metrics?.cost_observed
+    ? `$${Number(run.metrics.cost_usd || 0).toFixed(4)}`
+    : "Not observed";
+  const confidence = run.confidence === null || run.confidence === undefined ? "Unknown" : `${Math.round(Number(run.confidence) * 100)}%`;
+  const title = (run.status === "review" && (!ciObserved || !["passed", "success"].includes(String(ci.status).toLowerCase())))
+    ? "Ready for your decision"
+    : run.status === "review" ? "Ready for your decision" : "Delivery decision";
+  return {checks, passed, failed, ci, ciFailures, files, stat, riskPaths, unresolved, verdict, ciObserved, cost, confidence, title};
+}
+
+function renderDecisionSummary(run) {
+  const evidence = decisionEvidence(run);
+  const diffValue = evidence.stat.observed
+    ? `+${compactNumber(evidence.stat.insertions)} / -${compactNumber(evidence.stat.deletions)}`
+    : "Unknown";
+  const fileValue = evidence.stat.observed && evidence.stat.files ? evidence.stat.files : (evidence.files.length || "Unknown");
+  const riskValue = evidence.riskPaths.length ? evidence.riskPaths.join(", ") : "Not observed";
+  const ciValue = evidence.ciObserved ? statusLabel(evidence.ci.status) : "Not observed";
+  return `
+    <section class="decision-summary" aria-label="Evidence summary for acceptance">
+      <div><small>Checks</small><strong>${escapeHtml(evidence.passed)} / ${escapeHtml(evidence.checks.length)} passed</strong></div>
+      <div><small>Regression failures</small><strong>${escapeHtml(evidence.failed.length + evidence.ciFailures.length)}</strong></div>
+      <div><small>Diff</small><strong>${escapeHtml(diffValue)}</strong></div>
+      <div><small>Changed files</small><strong>${escapeHtml(fileValue)}</strong></div>
+      <div class="decision-wide"><small>High-risk paths</small><strong title="${escapeHtml(riskValue)}">${escapeHtml(riskValue)}</strong></div>
+      <div><small>Independent review</small><strong>${escapeHtml(evidence.verdict || "Unknown")}</strong></div>
+      <div><small>GitHub CI</small><strong>${escapeHtml(ciValue)}</strong></div>
+      <div><small>Confidence</small><strong>${escapeHtml(evidence.confidence)}</strong></div>
+      <div class="decision-wide"><small>Token usage by phase</small><strong title="${escapeHtml(phaseUsage(run))}">${escapeHtml(phaseUsage(run))}</strong></div>
+      <div><small>Observed cost</small><strong>${escapeHtml(evidence.cost)}</strong></div>
+      <div><small>Unresolved findings</small><strong>${escapeHtml(evidence.unresolved || "Not observed")}</strong></div>
+    </section>
+    <details class="decision-detail"><summary>Raw activity and detailed evidence</summary><pre>${escapeHtml([
+      `Checks: ${evidence.passed}/${evidence.checks.length}`,
+      `Failed checks: ${evidence.failed.map((item) => item.command || "check").join(", ") || "none observed"}`,
+      `CI failures: ${evidence.ciFailures.map((item) => item.name || item.workflow || "check").join(", ") || "none observed"}`,
+      `Changed files: ${evidence.files.join(", ") || "Unknown"}`,
+      `Review summary: ${run.review_summary || "Not observed"}`,
+    ].join("\n"))}</pre></details>`;
+}
+
+async function loadDecisionDiff(run) {
+  if (!run?.id || !["review", "accepted", "pr_created"].includes(run.status)) return;
+  if (state.decisionDiffRunId === run.id) return;
+  try {
+    state.decisionDiff = await api(`/api/runs/${encodeURIComponent(run.id)}/diff`);
+    state.decisionDiffRunId = run.id;
+    if (state.selectedId === run.id) renderReviewDecision(state.selected);
+  } catch {
+    state.decisionDiff = {stat: "", patch: ""};
+    state.decisionDiffRunId = run.id;
+  }
+}
+
 function renderReviewDecision(run) {
   const node = $("#reviewDecisionCard");
   const visible = ["review", "accepted", "pr_created"].includes(run.status);
@@ -925,7 +1084,7 @@ function renderReviewDecision(run) {
   if (!visible) { node.innerHTML = ""; return; }
   const project = projectById(run.project_id);
   const delivery = run.delivery || {};
-  const applied = delivery.status === "applied";
+  const applied = ["applied", "integrated_applied"].includes(delivery.status);
   const failed = delivery.status === "failed";
   const previewUrl = run.environment?.preview_url || "";
   let deliveryCopy = "Accepting saves a durable artifact. It does not change your source checkout.";
@@ -933,10 +1092,12 @@ function renderReviewDecision(run) {
   let deliveryHelp = "";
   if (run.status === "accepted" && !applied) {
     deliveryCopy = failed ? `Apply is blocked: ${delivery.error || "inspect the repository state and try again."}` : `Accepted, but not applied to ${run.base_ref || "the source branch"}. You may also keep it as an artifact and do nothing.`;
-    deliveryActions = `<button class="primary" data-review-action="apply" type="button">${failed ? "Try apply again" : "Apply to repository"}</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+    const conflict = /conflict|merge was aborted/i.test(delivery.error || "");
+    deliveryActions = conflict
+      ? `<button class="primary" data-review-action="resolve-conflict" type="button">Ask integration agent</button><button class="ghost" data-review-action="integration" type="button">Prepare integration</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`
+      : `<button class="primary" data-review-action="apply" type="button">${failed ? "Try apply again" : "Apply to repository"}</button><button class="ghost" data-review-action="integration" type="button">Prepare integration</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
     if (failed) {
       const tracked = /tracked local changes/i.test(delivery.error || "");
-      const conflict = /conflict|merge was aborted/i.test(delivery.error || "");
       const explanation = tracked
         ? "Your source folder contains edits that are not part of this task. Inspect, commit, or temporarily stash them; then try again."
         : conflict
@@ -951,15 +1112,17 @@ function renderReviewDecision(run) {
     deliveryHelp = "";
   }
   if (applied) {
-    deliveryCopy = `Applied to ${delivery.target_branch || run.base_ref} at ${String(delivery.target_after_sha || "").slice(0, 12)}.`;
-    deliveryActions = `<span class="delivery-complete">✓ Applied to repository</span>`;
+    deliveryCopy = `${delivery.status === "integrated_applied" ? "Integrated and applied" : "Applied"} to ${delivery.target_branch || run.base_ref} at ${String(delivery.target_after_sha || "").slice(0, 12)}.`;
+    deliveryActions = `<span class="delivery-complete">✓ ${delivery.status === "integrated_applied" ? "Delivered by integration" : "Applied to repository"}</span>`;
   }
   if (run.status === "pr_created") {
     deliveryCopy = "A draft pull request contains this change. GitHub CI is tracked separately.";
     deliveryActions = run.pull_request_url ? `<a class="primary button-link" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open pull request</a>` : `<span class="delivery-complete">✓ Draft PR created</span>`;
   }
+  const evidence = decisionEvidence(run);
   node.innerHTML = `
-    <header class="review-decision-head"><div><small>${run.status === "review" ? "REVIEW CHECKLIST" : applied ? "DELIVERED LOCALLY" : run.status === "pr_created" ? "DELIVERED FOR REVIEW" : "DELIVERY OPTIONS"}</small><strong>${run.status === "review" ? "Review, test, then choose what happens to the result." : applied ? "The change is in your source checkout." : run.status === "pr_created" ? "The change is on GitHub." : "The result is safe, but your source checkout is unchanged."}</strong></div><span>${Math.round(Number(run.confidence || 0) * 100)}% confidence</span></header>
+    <header class="review-decision-head"><div><small>${run.status === "review" ? "REVIEW CHECKLIST" : applied ? "DELIVERED LOCALLY" : run.status === "pr_created" ? "DELIVERED FOR REVIEW" : "DELIVERY OPTIONS"}</small><strong>${escapeHtml(run.status === "review" ? evidence.title : applied ? "The change is in your source checkout." : run.status === "pr_created" ? "The change is on GitHub." : "The result is safe, but your source checkout is unchanged.")}</strong></div><span>${escapeHtml(evidence.confidence)} confidence</span></header>
+    ${renderDecisionSummary(run)}
     <ol class="delivery-steps">
       <li><span>1</span><div><strong>Review the change</strong><p>See every changed file before deciding.</p><button class="ghost" data-review-action="view-changes" type="button">View changes</button></div></li>
       <li><span>2</span><div><strong>Test the feature</strong><p>${previewUrl ? "A task preview is available." : "No visual preview is configured for this task. Use Changes and Evidence."}</p>${previewUrl ? previewLinks(previewUrl) : `<button class="ghost" data-review-action="view-evidence" type="button">View checks and review</button>`}</div></li>
@@ -998,7 +1161,89 @@ async function reviewAction(action, button) {
     await submitReviewFeedback(prompt, button);
     return;
   }
+  if (action === "integration") {
+    await openIntegrationDialog(button);
+    return;
+  }
   await runAction(action);
+}
+
+async function openIntegrationDialog(button) {
+  if (!state.selectedId) return;
+  const originalLabel = button?.textContent;
+  try {
+    if (button) { button.disabled = true; button.textContent = "Loading..."; }
+    const preview = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/integration-candidates`);
+    state.integrationPreview = preview;
+    renderIntegrationCandidateDialog(preview);
+    $("#integrationDialog").showModal();
+  } catch (error) { toast(error.message, true); }
+  finally {
+    if (button) { button.disabled = false; button.textContent = originalLabel; }
+  }
+}
+
+function renderIntegrationCandidateDialog(preview) {
+  const candidates = preview.candidates || [];
+  const excluded = preview.excluded || [];
+  const list = $("#integrationCandidateList");
+  if (!candidates.length) {
+    list.innerHTML = `<div class="empty-list">No eligible accepted artifacts are available for this repository and branch.</div>${excluded.length ? `<p class="candidate-exclusions">${excluded.length} accepted artifact${excluded.length === 1 ? "" : "s"} excluded by delivery state, supersession, staleness, or base compatibility.</p>` : ""}`;
+    return;
+  }
+  list.innerHTML = `
+    <section class="integration-flow" aria-label="Integration delivery flow">
+      <div><strong>1. Review evidence</strong><small>Changed files and checks remain visible before selection.</small></div>
+      <div><strong>2. Choose each artifact</strong><small>Integrate now, keep for later, or supersede stale work.</small></div>
+      <div><strong>3. One durable job</strong><small>Selected artifacts become one integration task and one delivery decision.</small></div>
+    </section>
+    ${candidates.map((item) => `
+      <article class="integration-candidate" data-candidate-id="${escapeHtml(item.id)}">
+        <header><div><strong>${escapeHtml(item.title || item.id)}</strong><small>${escapeHtml(item.id)} · ${escapeHtml(String(item.artifact_sha || "").slice(0, 12))}</small></div><span>${(item.artifact_files || []).length} file${(item.artifact_files || []).length === 1 ? "" : "s"}</span></header>
+        <div class="candidate-disposition">
+          <label><input type="radio" name="disposition-${escapeHtml(item.id)}" value="integrate_now" checked> <strong>Integrate now</strong><small>Include in this one integration job.</small></label>
+          <label><input type="radio" name="disposition-${escapeHtml(item.id)}" value="keep_for_later"> <strong>Keep for later</strong><small>Leave accepted and unapplied.</small></label>
+          <label><input type="radio" name="disposition-${escapeHtml(item.id)}" value="supersede"> <strong>Supersede</strong><small>Mark stale because newer work replaces it.</small></label>
+        </div>
+        <input name="reason-${escapeHtml(item.id)}" aria-label="Disposition reason for ${escapeHtml(item.title || item.id)}" placeholder="Reason or newer task id for Keep/Supersede, optional">
+      </article>
+    `).join("")}
+    ${excluded.length ? `<p class="candidate-exclusions">${excluded.length} accepted artifact${excluded.length === 1 ? "" : "s"} excluded by construction.</p>` : ""}`;
+}
+
+async function submitIntegrationDisposition(event) {
+  if (event.submitter?.value === "cancel") return;
+  event.preventDefault();
+  const preview = state.integrationPreview;
+  const candidates = preview?.candidates || [];
+  if (!state.selectedId || !candidates.length) { toast("There are no integration candidates.", true); return; }
+  const form = event.currentTarget;
+  const submit = event.submitter;
+  const originalLabel = submit.textContent;
+  const dispositions = {};
+  let integrateCount = 0;
+  for (const item of candidates) {
+    const chosen = form.elements[`disposition-${item.id}`]?.value;
+    if (!chosen) { toast(`Choose a disposition for ${item.id}.`, true); return; }
+    if (chosen === "integrate_now") integrateCount += 1;
+    dispositions[item.id] = {
+      decision: chosen,
+      reason: form.elements[`reason-${item.id}`]?.value || "",
+    };
+  }
+  if (integrateCount === 1) { toast("Use direct Apply for a single artifact, or select at least two artifacts for integration.", true); return; }
+  try {
+    submit.disabled = true;
+    submit.textContent = "Creating...";
+    const result = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/integration`, {method: "POST", body: JSON.stringify({dispositions})});
+    $("#integrationDialog").close();
+    toast(result.integration_run ? "Integration run queued." : "Artifact dispositions recorded.");
+    await refreshRuns(); await refreshSelected();
+  } catch (error) { toast(error.message, true); }
+  finally {
+    submit.disabled = false;
+    submit.textContent = originalLabel;
+  }
 }
 
 function renderWorkflow(run) {
@@ -1154,7 +1399,10 @@ function setConnection(online) { $(".connection").classList.toggle("online", onl
 
 async function copyCommand(command) {
   try { await navigator.clipboard.writeText(command); toast(`Copied: ${command}`); }
-  catch { window.prompt("Run this command in your terminal:", command); }
+  catch {
+    $("#commandDialogText").textContent = command;
+    $("#commandDialog").showModal();
+  }
 }
 
 function shellQuote(value) {
@@ -1464,15 +1712,40 @@ async function refreshAttention() {
   $("#attentionSummary").innerHTML = ["critical", "high", "medium", "low"].map((priority) => `<div><strong>${counts[priority] || 0}</strong><span>${priority}</span></div>`).join("");
   $("#attentionList").innerHTML = state.attention.length ? state.attention.map((item) => {
     const options = (item.options || []).map((option) => `<button class="${option.id === "takeover" ? "ghost" : "primary"}" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
-    return `<article class="stack-card attention-card priority-${escapeHtml(item.priority)}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(statusLabel(item.type))}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.message)}</p><div class="card-actions">${options}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">Answer…</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></article>`;
+    const detail = item.data || {};
+    const conflicts = detail.conflicts || [];
+    const preserved = detail.preserved_branches || detail.preserved || [];
+    const conflictBody = item.type === "merge_conflict" ? `<div class="attention-conflict-list"><strong>Conflicting files</strong>${conflicts.length ? conflicts.map((file) => `<code>${escapeHtml(file)}</code>`).join("") : `<span>Unknown</span>`}<strong>Preserved branches</strong>${preserved.length ? preserved.map((branch) => `<code>${escapeHtml(branch)}</code>`).join("") : `<span>Source and integration branches are preserved.</span>`}</div>` : "";
+    const classes = `stack-card attention-card priority-${escapeHtml(item.priority)}${item.type === "merge_conflict" ? " attention-conflict" : ""}`;
+    const actionLabel = item.type === "merge_conflict" ? "Ask integration agent" : "Answer…";
+    return `<article class="${classes}"><div class="card-row"><span class="mini-status status-${item.priority === "high" || item.priority === "critical" ? "failed" : "queued"}">${escapeHtml(item.priority)} · ${escapeHtml(statusLabel(item.type))}</span><span class="run-id">${relativeTime(item.created_at)}</span></div><h3>${escapeHtml(item.type === "merge_conflict" ? "Needs You: integration conflict" : item.title)}</h3><p>${escapeHtml(item.message)}</p>${conflictBody}<div class="card-actions">${options}<button class="primary" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>${item.run_id ? `<button class="ghost" data-open-run="${escapeHtml(item.run_id)}" type="button">Open task</button>` : ""}<button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve</button></div></article>`;
   }).join("") : `<div class="attention-zero"><span class="all-clear-mark">✓</span><p class="eyebrow">ALL CLEAR</p><strong>Nothing needs you right now.</strong><p>Agents can keep working. Questions, permission requests, failures, and review gates will appear here automatically.</p><div class="empty-actions"><button class="primary" data-attention-new type="button">Start a task</button><button class="ghost" data-attention-epic type="button">Plan multi-task work</button><button class="ghost" data-open-terminals type="button">View agent terminals</button></div></div>`;
   $$('[data-attention-answer]').forEach((button) => button.addEventListener("click", () => respondAttention(button.dataset.attentionAnswer, button.dataset.answer)));
-  $$('[data-attention-custom]').forEach((button) => button.addEventListener("click", () => { const response = window.prompt("Answer the agent or add guidance:"); if (response) respondAttention(button.dataset.attentionCustom, response); }));
+  $$('[data-attention-custom]').forEach((button) => button.addEventListener("click", () => openAttentionResponseDialog(button.dataset.attentionCustom)));
   $$('[data-attention-resolve]').forEach((button) => button.addEventListener("click", async () => { await api(`/api/attention/${encodeURIComponent(button.dataset.attentionResolve)}/resolve`, {method: "POST", body: "{}"}); await refreshAttention(); }));
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
   $('[data-attention-new]')?.addEventListener("click", () => $("#newTaskButton").click());
   $('[data-attention-epic]')?.addEventListener("click", () => $("#newEpicButton").click());
   $('[data-open-terminals]')?.addEventListener("click", () => setView("sessions"));
+}
+
+function openAttentionResponseDialog(itemId) {
+  const item = state.attention.find((value) => value.id === itemId);
+  if (!item) return;
+  const form = $("#attentionResponseForm");
+  form.reset();
+  form.elements.attention_id.value = itemId;
+  $("#attentionResponseTitle").textContent = item.type === "merge_conflict" ? "Resolve integration conflict" : item.title;
+  $("#attentionResponseLead").textContent = item.type === "merge_conflict" ? "This resumes the same integration-agent context." : "Send one clear response.";
+  $("#attentionResponseMessage").textContent = item.type === "merge_conflict"
+    ? "Tell the integration agent how to preserve both sides. Do not retry Apply blindly."
+    : item.message;
+  const textarea = form.elements.response;
+  textarea.value = item.type === "merge_conflict"
+    ? "Resolve the listed integration conflicts in the existing integration worktree. Preserve the accepted artifacts and the current source branch behavior, then rerun the configured checks."
+    : "";
+  $("#attentionResponseDialog").showModal();
+  window.requestAnimationFrame(() => textarea.focus());
 }
 
 async function respondAttention(itemId, response) {
@@ -1486,13 +1759,59 @@ async function respondAttention(itemId, response) {
   } catch (error) { toast(error.message, true); }
 }
 
+function epicNodeState(run, task) {
+  const status = String(run?.status || task?.status || "queued");
+  if (["running", "starting", "checking", "reviewing", "publishing"].includes(status)) return "Running";
+  if (status === "attention") return "Needs You";
+  if (status === "blocked") return "Blocked";
+  if (status === "accepted" || status === "pr_created" || status === "completed") return "Accepted";
+  if (status === "failed" || status === "cancelled") return "Failed";
+  return "Ready";
+}
+
+function renderEpicGraph(epic) {
+  const runByKey = new Map((epic.run_ids || []).map((runId) => {
+    const run = state.runs.find((item) => item.id === runId);
+    return [run?.task_key || runId, run];
+  }));
+  const planTasks = epic.plan?.tasks || [];
+  const nodes = (epic.run_ids || []).length
+    ? (epic.run_ids || []).map((runId) => {
+        const run = state.runs.find((item) => item.id === runId) || {};
+        return {key: run.task_key || run.id || runId, title: runTitle(run, runId), depends_on: run.dependency_keys || run.depends_on || [], run};
+      })
+    : planTasks.map((task) => ({key: task.task_key, title: task.title || task.task, depends_on: task.depends_on || [], task}));
+  if (!nodes.length) return "";
+  const keys = new Set(nodes.map((node) => node.key));
+  const depthMemo = new Map();
+  const depthOf = (node) => {
+    if (depthMemo.has(node.key)) return depthMemo.get(node.key);
+    const parents = (node.depends_on || []).filter((key) => keys.has(key));
+    const depth = parents.length ? 1 + Math.max(...parents.map((parent) => depthOf(nodes.find((item) => item.key === parent)))) : 0;
+    depthMemo.set(node.key, depth);
+    return depth;
+  };
+  nodes.forEach(depthOf);
+  const maxDepth = Math.max(...nodes.map((node) => depthMemo.get(node.key) || 0), 0);
+  const edges = nodes.flatMap((node) => (node.depends_on || []).filter((parent) => keys.has(parent)).map((parent) => `${parent} -> ${node.key}`));
+  return `<div class="dag-graph" style="--dag-columns:${maxDepth + 1}" role="img" aria-label="Task dependency graph with ${nodes.length} tasks and ${edges.length} dependencies">
+    ${nodes.map((node) => {
+      const stateLabel = epicNodeState(node.run, node.task);
+      const parentRuns = (node.depends_on || []).map((key) => runByKey.get(key) || state.runs.find((run) => run.id === key)).filter(Boolean);
+      const waiting = stateLabel === "Blocked" ? parentRuns.find((run) => !["accepted", "pr_created", "completed"].includes(run.status)) : null;
+      return `<div class="dag-graph-node dag-state-${stateLabel.toLowerCase().replaceAll(" ", "-")}" style="grid-column:${(depthMemo.get(node.key) || 0) + 1}" tabindex="0">
+        <span>${escapeHtml(stateLabel)}</span><strong>${escapeHtml(node.title || node.key)}</strong><small>${escapeHtml(node.depends_on?.length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>${waiting ? `<em>Waiting for ${escapeHtml(runTitle(waiting, waiting.id))}</em>` : ""}</div>`;
+    }).join("")}
+    ${edges.length ? `<p class="dag-edge-list">Edges: ${escapeHtml(edges.join("; "))}</p>` : `<p class="dag-edge-list">No dependencies.</p>`}
+  </div><ol class="dag-linear-fallback">${nodes.map((node) => `<li><strong>${escapeHtml(node.title || node.key)}</strong><span>${escapeHtml(epicNodeState(node.run, node.task))}</span><small>${escapeHtml(node.depends_on?.length ? `Depends on ${node.depends_on.join(", ")}` : "No dependencies")}</small></li>`).join("")}</ol>`;
+}
+
 async function refreshEpics() {
   state.epics = (await api("/api/epics")).epics;
   $("#epicNavCount").textContent = state.epics.filter((epic) => ["planning", "proposed", "active"].includes(epic.status)).length || "";
   const visibleEpics = activeProject() ? state.epics.filter((epic) => epic.project_id === state.projectFilter) : state.epics;
   $("#epicList").innerHTML = visibleEpics.length ? visibleEpics.map((epic) => {
-    const tasks = epic.plan?.tasks || [];
-    const graph = tasks.length ? `<div class="dag">${tasks.map((task) => `<div class="dag-node"><div><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(task.role || "implementer")} · ${escapeHtml(task.lane || "default")}</small></div><span>${task.depends_on?.length ? `after ${escapeHtml(task.depends_on.join(", "))}` : "ready"}</span></div>`).join("")}</div>` : "";
+    const graph = renderEpicGraph(epic);
     const epicProject = projectById(epic.project_id);
     return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.plan?.summary || epic.description || "Planning…")}</p>${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${(epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("")}</div></article>`;
   }).join("") : `<div class="empty-card">No plans yet. Describe a larger feature; review the proposed tasks before anything starts.</div>`;
@@ -1789,6 +2108,20 @@ function bindDialogs() {
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_path: project.path, planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session is waiting to continue." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt is waiting on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
+  $("#integrationForm").addEventListener("submit", submitIntegrationDisposition);
+  $("#attentionResponseForm").addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const response = String(data.get("response") || "").trim();
+    if (!response) { toast("Write a response first.", true); return; }
+    try {
+      await respondAttention(String(data.get("attention_id") || ""), response);
+      $("#attentionResponseDialog").close();
+      form.reset();
+    } catch (error) { toast(error.message, true); }
+  });
   $("#assistantProvider").addEventListener("change", (event) => { syncAssistantProvider(event.currentTarget.value); renderAssistantPanel(); });
   $("#summaryAssistantProvider").addEventListener("change", (event) => { syncAssistantProvider(event.currentTarget.value); renderAssistantPanel(); });
   $$("[data-assistant-scope]").forEach((item) => item.addEventListener("change", () => renderAssistantPanel()));
@@ -1892,6 +2225,7 @@ async function init() {
     [["docker", "Docker is not installed"], ["devcontainer", "Dev Container CLI is not installed"]].forEach(([profile, message]) => { const option = $("#environmentProfile").querySelector(`option[value="${profile}"]`); if (option && !state.bootstrap.capabilities?.[profile]) { option.disabled = true; option.textContent += ` — unavailable`; option.title = message; } });
     bindDialogs();
     syncThemeButton();
+    initSidebarResize();
     $("#themeToggle").addEventListener("click", toggleTheme);
     $$(".nav-button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
     $$(".filter").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderRuns(); }));
@@ -1910,9 +2244,75 @@ async function init() {
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
     const requestedDialog = params.get("dialog"); if (requestedDialog === "task") { $("#taskPrompt").value = params.get("prompt") || ""; $("#newTaskButton").click(); scheduleTaskSkillRecommendations(); } else if (requestedDialog === "epic") $("#newEpicButton").click();
     setConnection(true);
+    if (params.get("browser-regression") === "1") runBrowserRegression().catch((error) => {
+      const node = document.createElement("pre");
+      node.id = "browserRegressionResult";
+      node.textContent = `FAIL ${error.message}`;
+      document.body.appendChild(node);
+      api("/api/inbox", {method: "POST", body: JSON.stringify({title: "FAIL browser regression", task: error.message})}).catch(() => {});
+    });
     window.setInterval(() => refreshRuns().catch(() => setConnection(false)), 3000);
     window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]).catch(() => setConnection(false)), 6000);
   } catch (error) { setConnection(false); toast(error.message, true); }
+}
+
+async function runBrowserRegression() {
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+  assert($("#sidebarResizer")?.getAttribute("aria-label") === "Resize repository sidebar", "sidebar resize handle accessible name");
+  setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+  assert(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width").trim() === `${DEFAULT_SIDEBAR_WIDTH}px`, "default sidebar width");
+  setSidebarWidth(460);
+  assert($("#sidebarResizer").getAttribute("aria-valuenow") === "460", "widened sidebar value");
+  setSidebarWidth(430);
+  assert(window.localStorage.getItem(SIDEBAR_WIDTH_KEY) === "430", "persisted sidebar width");
+  resetSidebarWidth();
+  assert($("#sidebarResizer").getAttribute("aria-valuenow") === String(DEFAULT_SIDEBAR_WIDTH), "reset sidebar width");
+  const narrow = window.matchMedia("(max-width: 760px)").matches;
+  assert(!narrow || getComputedStyle($("#sidebarResizer")).display === "none", "mobile resize handle hidden");
+
+  const accepted = state.runs.filter((run) => run.status === "accepted");
+  assert(accepted.length >= 3, "accepted artifacts available");
+  await selectRun(accepted[0].id);
+  assert($("#reviewDecisionCard").textContent.includes("Checks"), "decision evidence visible");
+  await openIntegrationDialog(document.createElement("button"));
+  const form = $("#integrationForm");
+  const cards = $$(".integration-candidate");
+  assert(cards.length >= 3, "integration candidates visible");
+  cards.forEach((card, index) => {
+    const id = card.dataset.candidateId;
+    const value = index === 0 ? "supersede" : index < 3 ? "integrate_now" : "keep_for_later";
+    form.elements[`disposition-${id}`].value = value;
+    form.elements[`reason-${id}`].value = value === "supersede" ? "browser regression stale artifact" : "";
+  });
+  await submitIntegrationDisposition({preventDefault() {}, currentTarget: form, submitter: form.querySelector('button[value="default"]')});
+  assert(!$("#integrationDialog").open, "integration dialog closed");
+  await sleep(50);
+  await refreshRuns();
+  const queued = state.runs.find((run) => run.task_key === "integration-delivery");
+  assert(queued, "integration delivery queued");
+
+  await refreshAttention();
+  const conflict = state.attention.find((item) => item.type === "merge_conflict");
+  if (conflict) {
+    assert($("#attentionList").textContent.includes("Conflicting files"), "conflict card shows files");
+    openAttentionResponseDialog(conflict.id);
+    assert($("#attentionResponseDialog").open, "native attention dialog opens");
+    $("#attentionResponseDialog").close();
+  }
+
+  const delivered = state.runs.find((run) => run.delivery?.status === "integrated_applied");
+  if (delivered) {
+    const fullDelivered = await api(`/api/runs/${encodeURIComponent(delivered.id)}`);
+    assert(fullDelivered.delivery?.integration_run_id, "source delivery provenance fanout");
+  }
+  selectProject(state.projectFilter);
+  assert($("#workView").classList.contains("active"), "navigation back to repository overview");
+  await api("/api/inbox", {method: "POST", body: JSON.stringify({title: "PASS browser regression", task: "Browser regression completed."})});
+  const node = document.createElement("pre");
+  node.id = "browserRegressionResult";
+  node.textContent = "PASS browser regression";
+  document.body.appendChild(node);
 }
 
 window.addEventListener("beforeunload", closeStream);

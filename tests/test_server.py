@@ -35,6 +35,18 @@ class DummyScheduler:
 
 
 class ServerTests(unittest.TestCase):
+    @staticmethod
+    def _git_repo(root: Path) -> Path:
+        repo = root / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "-C", str(repo), "init", "-b", "main"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "-C", str(repo), "config", "user.name", "Odysseus Test"], check=True)
+        subprocess.run(["git", "-C", str(repo), "config", "user.email", "odysseus@example.test"], check=True)
+        (repo / "README.md").write_text("base\n")
+        subprocess.run(["git", "-C", str(repo), "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", str(repo), "commit", "-m", "base"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return repo
+
     def test_port_conflict_never_starts_background_scheduler(self) -> None:
         with tempfile.TemporaryDirectory() as temp, socket.socket() as occupied:
             occupied.bind(("127.0.0.1", 0))
@@ -249,6 +261,7 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="inlineFeedback"', html)
                 self.assertIn('id="reviewDecisionCard"', html)
                 self.assertIn('id="confirmDialog"', html)
+                self.assertIn('id="integrationDialog"', html)
                 self.assertIn("Direct API: ChatGPT", html)
                 self.assertIn("Share diff/code excerpt", html)
                 self.assertIn("blank scratch workspace", html)
@@ -265,6 +278,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('["review", "failed", "attention", "accepted", "pr_created"]', app_js)
                 self.assertIn("feedbackDialog", app_js)
                 self.assertIn("Apply to repository", app_js)
+                self.assertIn("Prepare integration", app_js)
+                self.assertIn("integration-candidates", app_js)
                 self.assertIn("accepted · not applied", app_js)
                 self.assertIn("Open Changes to load the diff.", app_js)
                 self.assertIn("eventsLoadedRunId", app_js)
@@ -474,6 +489,74 @@ class ServerTests(unittest.TestCase):
                     approved = json.load(response)
                 self.assertEqual(approved["status"], "active")
                 self.assertEqual(len(approved["task_run_ids"]), 1)
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
+    def test_integration_candidate_and_disposition_endpoints_are_token_protected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._git_repo(root)
+            base_sha = subprocess.run(
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            store = RunStore(root / "state")
+            runs = []
+            for title in ("Backend", "Frontend"):
+                run = store.create({"title": title, "task": title, "project_path": str(repo), "status": "review"})
+                runs.append(
+                    store.update(
+                        run["id"],
+                        status="accepted",
+                        base_ref="main",
+                        base_sha=base_sha,
+                        artifact_sha=base_sha,
+                        artifact_files=[f"{title.lower()}.txt"],
+                        artifact_created_at="2026-08-16T00:00:00Z",
+                        delivery={**run["delivery"], "status": "not_applied", "target_branch": "main"},
+                    )
+                )
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                with urllib.request.urlopen(f"{base}/api/runs/{runs[0]['id']}/integration-candidates") as response:
+                    preview = json.load(response)
+                self.assertEqual({item["id"] for item in preview["candidates"]}, {run["id"] for run in runs})
+
+                forbidden = urllib.request.Request(
+                    f"{base}/api/runs/{runs[0]['id']}/integration",
+                    data=json.dumps({"dispositions": {}}).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(forbidden)
+                self.assertEqual(caught.exception.code, 403)
+                caught.exception.close()
+
+                request = urllib.request.Request(
+                    f"{base}/api/runs/{runs[0]['id']}/integration",
+                    data=json.dumps(
+                        {
+                            "dispositions": {
+                                runs[0]["id"]: {"decision": "integrate_now"},
+                                runs[1]["id"]: {"decision": "integrate_now"},
+                            }
+                        }
+                    ).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with urllib.request.urlopen(request) as response:
+                    result = json.load(response)
+                self.assertEqual(result["integration_run"]["task_key"], "integration-delivery")
+                self.assertEqual(set(result["integration_run"]["depends_on"]), {run["id"] for run in runs})
             finally:
                 app.stop()
                 thread.join(timeout=2)

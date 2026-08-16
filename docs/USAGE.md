@@ -160,8 +160,8 @@ The last command writes a public aggregate Markdown file and a locally ignored
 JSON receipt. For another project, use the underlying command directly:
 
 ```sh
-odysseus --state-dir ~/.odysseus proof --release 0.6.5
-odysseus --state-dir ~/.odysseus proof --release 0.6.5 --json --output proof.json
+odysseus --state-dir ~/.odysseus proof --release 0.6.12
+odysseus --state-dir ~/.odysseus proof --release 0.6.12 --json --output proof.json
 ```
 
 Classification as `observed` is necessary but not sufficient. A counted outcome
@@ -738,13 +738,16 @@ Use **Insights** in the web UI, or:
 ```sh
 bin/odysseus search "privilege escalation"
 bin/odysseus stats
+bin/odysseus resources --json
 bin/odysseus export --output odysseus-evidence.json
 ```
 
 Search covers local run snapshots, recent run events, Epics, projects,
 attention, and Inbox records. `stats` reports successful changes, observed
 tokens/tool calls/cost, interventions, CI repair loops, and high merge-risk
-tasks. Export is a portable evidence bundle; 0.4 does not import it back.
+tasks. `resources --json` is a non-destructive inventory of retained worktrees
+and runtime directories; deletion requires an explicit `resources --reclaim`.
+Export is a portable evidence bundle; 0.4 does not import it back.
 
 ## Inspect, back up, and relocate state
 
