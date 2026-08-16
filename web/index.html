@@ -63,7 +63,7 @@
           </header>
           <nav class="journey-stepper" id="journeyStepper" aria-label="How to use Odysseus">
             <button data-journey-step="1" type="button"><span class="journey-number">1</span><span><strong>Choose a repository</strong><small>Pick the code Codex should change</small></span></button>
-            <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>Describe a change</strong><small>Say what “done” should mean</small></span></button>
+            <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>New task</strong><small>Describe what the agent should change</small></span></button>
             <button data-journey-step="3" type="button"><span class="journey-number">3</span><span><strong>Follow &amp; review</strong><small>Odysseus asks only when needed</small></span></button>
           </nav>
           <section class="current-repository-hint hidden" id="currentRepositoryHint" aria-live="polite"></section>
@@ -109,7 +109,7 @@
               </div>
             </details>
           </section>
-          <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">REPOSITORIES</p><h2 id="workListTitle">Your repositories</h2></div><button class="ghost" id="workSecondaryAction" type="button">Add repository</button></div><div class="work-list" id="workList"></div></section>
+          <section class="work-section"><div class="section-heading"><div><p class="eyebrow" id="workListEyebrow">REPOSITORIES</p><h2 id="workListTitle">Your repositories</h2><p class="section-description" id="workListDescription">Repositories saved on this computer.</p></div><button class="ghost" id="workSecondaryAction" type="button">Add repository</button></div><div class="work-list" id="workList"></div></section>
         </section>
 
         <section class="view-panel collection-view" id="attentionView">
@@ -261,7 +261,7 @@
     </form></dialog>
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
-      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> DESCRIBE A CHANGE</p><h2>What should change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> NEW TASK</p><h2>What should the agent change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="dialog-intro"><strong>Choose a repository and describe one finished outcome.</strong><p>Odysseus handles the worktree, agent, checks, and review. Your source checkout stays untouched.</p></div>
       <label>Task
         <span class="field-help">Write the outcome, important constraints, and what “done” means.</span>
@@ -272,11 +272,11 @@
         <span class="field-help">The repository where this task belongs.</span>
         <select name="project_id" id="taskProjectSelect" required><option value="">Add a repository first</option></select>
       </label>
+      <label>Implementation agent
+        <span class="field-help">Choose who should perform this task. Tasks can use different agents and run in parallel.</span>
+        <select name="lane" id="laneSelect"></select>
+      </label>
       <details class="advanced"><summary>More options…</summary>
-        <label>Implementation agent
-          <span class="field-help">Leave the default unless this task needs a specific CLI.</span>
-          <select name="lane" id="laneSelect"></select>
-        </label>
         <label>Execution environment
           <span class="field-help">Repository default uses `.odysseus.json` when present. Docker is the isolated option.</span>
           <select name="environment_profile" id="environmentProfile"><option value="">Repository default — recommended</option><option value="host">Host — compatibility, not isolated</option><option value="docker">Docker — isolated command runtime</option><option value="devcontainer">Devcontainer — reviewed repository configuration</option></select>
@@ -304,7 +304,7 @@
         <div class="form-row"><label>Max tool calls <input name="max_tool_calls" type="number" min="0" value="0"></label><label>Max reported cost (USD) <input name="max_cost" type="number" min="0" step="0.01" value="0"></label></div>
       </details>
       <p class="submit-note">For a larger feature with parallel parts, close this dialog and choose <strong>Plan feature</strong>.</p>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Start task</button></div>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="primary" value="default" type="submit">Start task</button></div>
     </form></dialog>
 
     <dialog id="epicDialog"><form method="dialog" id="epicForm">

@@ -32,6 +32,12 @@ users already think: application -> Git repository -> task. The web UI uses
   longer register its directory—or an internal Odysseus worktree—as a project.
   Existing internal worktree records are hidden from the user project list;
   explicit **Track in Odysseus** still creates the durable entry.
+- **Your repositories** now explains that it is the saved local list and offers
+  a direct **Remove** action. Removing an entry never deletes its checkout or
+  files.
+- Step 2 is named **New task** everywhere. The implementation agent is visible
+  in the primary composer, and **Start & add another** queues successive tasks
+  for parallel execution without leaving the form.
 - New registrations accept only Git repositories. Legacy plain folders are
   omitted from the web UI instead of appearing as unexplained projects.
 - **Forget** removes a stale repository from Odysseus while explicitly leaving

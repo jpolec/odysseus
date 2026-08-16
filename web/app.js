@@ -345,8 +345,8 @@ function renderJourney() {
     ? `${projectName(project)} · ${project.folder_name || "local folder"}`
     : state.projects.length ? "Pick a Git repository" : "Add your first Git repository";
   $('[data-journey-step="2"] small').textContent = project
-    ? `Say what “done” means in ${projectName(project)}`
-    : "One clear, finished outcome";
+    ? `Describe what the agent should change in ${projectName(project)}`
+    : "Choose a repository, then describe one outcome";
   $('[data-journey-step="3"] small').textContent = projectAttention.length
     ? `${projectAttention.length} decision${projectAttention.length === 1 ? "" : "s"} waiting for you`
     : projectRuns.length ? "Watch progress; act only when asked" : "Odysseus runs the agent and checks";
@@ -443,27 +443,33 @@ function renderQuickStart() {
     return;
   }
   container.className = "quick-start quick-task-card";
+  const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}" ${lane === state.bootstrap.default_lane ? "selected" : ""}>${escapeHtml(lane)}</option>`).join("");
   container.innerHTML = `
     <form id="quickTaskForm">
-      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>DESCRIBE A CHANGE</span></span><h2>What should Codex change in ${escapeHtml(projectName(project))}?</h2></div><span class="safety-note">Your main checkout stays untouched</span></div>
+      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>NEW TASK</span></span><h2>What should the agent change in ${escapeHtml(projectName(project))}?</h2></div><span class="safety-note">Your main checkout stays untouched</span></div>
       <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Example: Make installation errors short and actionable, and add a regression test."></textarea>
-      <p class="quick-task-promise">Odysseus creates an isolated branch, runs the agent and checks, then brings the result back for review.</p>
-      <div class="quick-task-actions"><button class="primary" type="submit">Start task</button><button class="ghost" id="quickPlanTask" type="button">Plan larger work</button><button class="text-button" id="quickAdvancedTask" type="button">More options…</button></div>
+      <div class="quick-task-toolbar"><label><span>Agent</span><select name="lane" aria-label="Implementation agent">${laneOptions}</select></label><p><strong>${escapeHtml(state.bootstrap.max_parallel)} agents can work at once.</strong> Add more tasks; extra work waits safely in the queue.</p></div>
+      <p class="quick-task-promise">Each task gets its own branch and worktree. Odysseus runs checks and returns every result for review.</p>
+      <div class="quick-task-actions"><button class="primary" value="default" type="submit">Start task</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="text-button" id="quickPlanTask" type="button">Plan larger work</button><button class="text-button" id="quickAdvancedTask" type="button">More options…</button></div>
     </form>`;
   $("#quickTaskForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const button = event.currentTarget.querySelector('button[type="submit"]');
-    const task = String(new FormData(event.currentTarget).get("task") || "").trim();
+    const button = event.submitter;
+    const originalLabel = button.textContent;
+    const data = new FormData(event.currentTarget);
+    const task = String(data.get("task") || "").trim();
+    const addAnother = button.value === "another";
     if (!task) return;
     try {
       button.disabled = true; button.textContent = "Queueing…";
-      const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task, project_path: project.path, lane: state.bootstrap.default_lane, skill_mode: "auto"})});
-      event.currentTarget.reset();
+      const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task, project_path: project.path, lane: data.get("lane") || state.bootstrap.default_lane, skill_mode: "auto"})});
+      event.currentTarget.elements.task.value = "";
       toast(`Task queued: ${run.title}`);
       await Promise.all([refreshRuns(), refreshProjects()]);
-      await selectRun(run.id);
+      if (addAnother) window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
+      else await selectRun(run.id);
     } catch (error) { toast(error.message, true); }
-    finally { button.disabled = false; button.textContent = "Start task"; }
+    finally { button.disabled = false; button.textContent = originalLabel; }
   });
   $("#quickPlanTask").addEventListener("click", () => {
     const prompt = $("#quickTaskPrompt").value;
@@ -489,7 +495,7 @@ function renderWork() {
   const terminals = project ? projectTerminalCount(project) : state.sessions.length;
   $("#workBreadcrumb").textContent = project ? "GIT REPOSITORY" : "ODYSSEUS";
   $("#workTitle").textContent = project ? projectName(project) : (state.projects.length ? "Repositories" : "Welcome to Odysseus");
-  $("#workDescription").textContent = project ? "Tell Codex what should change. Odysseus isolates the work, verifies it, and returns it for your decision." : state.projects.length ? "Choose the repository you want Codex to change." : "Add one Git repository, describe a change, then review the result.";
+  $("#workDescription").textContent = project ? `Create tasks for ${projectName(project)}. Odysseus can run ${state.bootstrap.max_parallel} agents at once and queues the rest.` : state.projects.length ? "Choose the repository you want an agent to change." : "Add one Git repository, create a task, then review the result.";
   $("#workMeta").innerHTML = project ? `<span>${escapeHtml(projectRepository(project))}</span><span>Folder: ${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : "";
   $("#workMeta").classList.toggle("hidden", !project);
   $("#workSummary").innerHTML = [
@@ -508,6 +514,7 @@ function renderWork() {
   $("#newTaskButton").classList.toggle("hidden", !state.projects.length);
   $("#workListEyebrow").textContent = project ? "TASKS" : "REPOSITORIES";
   $("#workListTitle").textContent = project ? "Recent work" : "Your repositories";
+  $("#workListDescription").textContent = project ? "Every submitted task stays visible here." : "Saved on this computer. Remove entries you no longer want to see; files stay untouched.";
   const secondary = $("#workSecondaryAction");
   secondary.textContent = project ? "View plans" : "Add repository";
   secondary.onclick = () => project ? setView("epics") : $("#projectDialog").showModal();
@@ -516,9 +523,10 @@ function renderWork() {
     $("#workList").innerHTML = state.projects.length ? state.projects.map((item) => {
       const itemRuns = runsForProject(item.id); const itemActive = itemRuns.filter((run) => activeStatuses.has(run.status)).length; const itemNeeds = attentionForProject(item.id).length;
       const checkoutNote = projectHasDuplicateCheckout(item) ? `Local checkout · ${item.folder_name}` : `Local folder · ${item.path}`;
-      return `<button class="project-overview-card" data-work-project="${escapeHtml(item.id)}" type="button"><span class="project-glyph">${escapeHtml(projectName(item).slice(0, 1).toUpperCase())}</span><div><h3>${escapeHtml(projectName(item))}</h3><p class="repository-reference">${escapeHtml(projectRepository(item))}</p><small>${escapeHtml(checkoutNote)}</small></div><div class="project-card-signals"><span>${itemRuns.length} tasks</span><span>${itemActive} active</span>${itemNeeds ? `<span class="needs">${itemNeeds} need you</span>` : ""}</div></button>`;
+      return `<article class="project-overview-card"><button class="project-overview-main" data-work-project="${escapeHtml(item.id)}" type="button"><span class="project-glyph">${escapeHtml(projectName(item).slice(0, 1).toUpperCase())}</span><span class="project-overview-copy"><strong>${escapeHtml(projectName(item))}</strong><span class="repository-reference">${escapeHtml(projectRepository(item))}</span><small>${escapeHtml(checkoutNote)}</small></span></button><div class="project-overview-side"><div class="project-card-signals"><span>${itemRuns.length} tasks</span><span>${itemActive} active</span>${itemNeeds ? `<span class="needs">${itemNeeds} need you</span>` : ""}</div><button class="text-button danger-text" data-forget-project-inline="${escapeHtml(item.id)}" type="button">Remove</button></div></article>`;
     }).join("") : `<div class="empty-card"><strong>No repositories yet.</strong><br>Add one, then describe the first task.</div>`;
     $$('[data-work-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.workProject)));
+    $$('[data-forget-project-inline]').forEach((button) => button.addEventListener("click", () => forgetProject(button.dataset.forgetProjectInline)));
   } else {
     $("#workList").innerHTML = runs.length ? runs.map((run) => `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(run.task || run.workflow)}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span></button>`).join("") : `<div class="empty-card"><strong>No tasks in ${escapeHtml(projectName(project))}.</strong><br>Describe the first change above.</div>`;
     $$('[data-work-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.workRun)));
@@ -865,23 +873,25 @@ async function refreshProjects() {
   renderProjects(); renderRuns(); renderProjectTree(); renderWork(); updateGitHubLink();
 }
 
+async function forgetProject(identifier) {
+  const project = projectById(identifier);
+  if (!project || !window.confirm(`Remove ${projectOptionLabel(project)} from Your repositories?\n\nThe repository and every file in ${project.path} stay untouched.`)) return;
+  try {
+    await api(`/api/projects/${encodeURIComponent(project.id)}`, {method: "DELETE"});
+    if (state.projectFilter === project.id) state.projectFilter = "all";
+    await refreshProjects();
+    selectProject("all");
+    toast(`${projectName(project)} was removed from Your repositories. Its files were not changed.`);
+  } catch (error) { toast(error.message, true); }
+}
+
 function renderProjects() {
   $("#projectList").innerHTML = state.projects.length ? state.projects.map((project) => `
     <article class="collection-card"><div class="card-row"><span class="mini-status status-accepted">registered</span><span class="run-id">${escapeHtml(project.branch || "git")}</span></div>
       <h3>${escapeHtml(projectName(project))}</h3><p><strong>${escapeHtml(projectRepository(project))}</strong><br><span class="local-folder">${escapeHtml(project.path)}</span></p><div class="card-meta"><span>${escapeHtml(project.folder_name || "local checkout")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
       <div class="card-actions"><button class="ghost" data-filter-project="${escapeHtml(project.id)}" type="button">Open repository</button>${project.github_url ? `<a class="action-button" href="${escapeHtml(project.github_url)}" target="_blank" rel="noreferrer">GitHub</a>` : ""}<button class="text-button danger-text" data-forget-project="${escapeHtml(project.id)}" type="button">Forget</button></div></article>`).join("") : `<div class="empty-card">No repositories yet. Add one local Git repository to start.</div>`;
   $$('[data-filter-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.filterProject)));
-  $$('[data-forget-project]').forEach((button) => button.addEventListener("click", async () => {
-    const project = projectById(button.dataset.forgetProject);
-    if (!project || !window.confirm(`Forget ${projectOptionLabel(project)} in Odysseus?\n\nThe repository and every file in ${project.path} stay untouched.`)) return;
-    try {
-      await api(`/api/projects/${encodeURIComponent(project.id)}`, {method: "DELETE"});
-      if (state.projectFilter === project.id) state.projectFilter = "all";
-      await refreshProjects();
-      selectProject("all");
-      toast(`${projectName(project)} was removed from the list. Its files were not changed.`);
-    } catch (error) { toast(error.message, true); }
-  }));
+  $$('[data-forget-project]').forEach((button) => button.addEventListener("click", () => forgetProject(button.dataset.forgetProject)));
 }
 
 function updateGitHubLink() {
@@ -982,7 +992,48 @@ function bindDialogs() {
   $("#environmentProfile").addEventListener("change", (event) => $("#environmentOptions").classList.toggle("hidden", event.currentTarget.value !== "docker"));
   $("#untrustedProject").addEventListener("change", (event) => { if (!event.currentTarget.checked) return; const select = $("#environmentProfile"); const docker = select.querySelector('option[value="docker"]'); if (docker?.disabled) { event.currentTarget.checked = false; toast("Install Docker before running an untrusted repository.", true); return; } select.value = "docker"; select.dispatchEvent(new Event("change")); });
   $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
-  $("#taskForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } let environment; try { environment = environmentFromForm(data); } catch (error) { toast(error.message, true); return; } const payload = {task: data.get("task"), title: data.get("title"), project_path: project.path, lane: data.get("lane"), skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), environment, untrusted_project: data.get("untrusted_project") === "on", workflow: "agent-check-review", priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean), budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))}}; try { submit.disabled = true; submit.textContent = "Starting…"; const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)}); taskDialog.close(); event.currentTarget.reset(); $("#environmentOptions").classList.add("hidden"); state.taskSkillCatalog = null; state.taskSkillRecommendations = null; renderTaskSkillChoices(); renderTaskSkillRecommendations(); toast(`Task queued: ${run.title}`); await Promise.all([refreshRuns(), refreshProjects()]); await selectRun(run.id); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Start task"; } });
+  $("#taskForm").addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    const submit = event.submitter;
+    const originalLabel = submit.textContent;
+    const addAnother = submit.value === "another";
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const project = projectById(data.get("project_id"));
+    if (!project) { toast("Add a repository first.", true); return; }
+    let environment;
+    try { environment = environmentFromForm(data); }
+    catch (error) { toast(error.message, true); return; }
+    const payload = {
+      task: data.get("task"), title: data.get("title"), project_path: project.path, lane: data.get("lane"),
+      skill_mode: data.get("skill_mode"), skills: data.getAll("skills"), environment,
+      untrusted_project: data.get("untrusted_project") === "on", workflow: "agent-check-review",
+      priority: Number(data.get("priority")), max_retries: Number(data.get("max_retries")),
+      checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean),
+      budgets: {timeout_seconds: Number(data.get("timeout")), stall_seconds: Number(data.get("stall_timeout")), max_tokens: Number(data.get("max_tokens")), max_tool_calls: Number(data.get("max_tool_calls")), max_cost_usd: Number(data.get("max_cost"))},
+    };
+    try {
+      submit.disabled = true; submit.textContent = "Queueing…";
+      const run = await api("/api/runs", {method: "POST", body: JSON.stringify(payload)});
+      form.elements.task.value = "";
+      form.elements.title.value = "";
+      state.taskSkillRecommendations = null;
+      renderTaskSkillRecommendations();
+      toast(`Task queued for ${data.get("lane")}: ${run.title}`);
+      await Promise.all([refreshRuns(), refreshProjects()]);
+      if (addAnother) window.requestAnimationFrame(() => $("#taskPrompt").focus());
+      else {
+        taskDialog.close();
+        form.reset();
+        $("#environmentOptions").classList.add("hidden");
+        state.taskSkillCatalog = null;
+        renderTaskSkillChoices();
+        await selectRun(run.id);
+      }
+    } catch (error) { toast(error.message, true); }
+    finally { submit.disabled = false; submit.textContent = originalLabel; }
+  });
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_path: project.path, planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session queued for continuation." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt queued on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });

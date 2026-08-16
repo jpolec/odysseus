@@ -16,15 +16,17 @@ is also a live window into existing tmux sessions:
 discovery is automatic, while tracking and terminal handoff stay explicit.
 
 The web workbench keeps one path visible at all times: **1 Choose a repository ->
-2 Describe a change -> 3 Follow & review**. Each numbered step is also a
-shortcut to the right place. Agent selection, checks, budgets, evaluation, and
-integration evidence remain available under **More options** without occupying
-the first-use path.
+2 New task -> 3 Follow & review**. Each numbered step is also a shortcut to the
+right place. Choose an agent beside the task, then use **Start & add another**
+to queue several independent tasks without leaving the composer. Checks,
+budgets, evaluation, and integration evidence remain under **More options**.
 
 The nouns are literal: **Odysseus is the application, a repository is one local
 Git checkout, and a task is one requested change**. The Git remote supplies the
 human-facing name; the local folder and absolute path identify the exact
-checkout. Passive tmux discovery never adds repositories by itself.
+checkout. **Your repositories** is the saved local list; **Remove** forgets an
+entry without deleting its directory or files. Passive tmux discovery never
+adds repositories by itself.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·

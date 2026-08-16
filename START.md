@@ -42,7 +42,7 @@ port 8741, the CLI tries 8742, then 8743, and prints and opens the address it
 actually selected.
 
 On a fresh state, the landing page shows one persistent path: **1 Choose a
-repository -> 2 Describe a change -> 3 Follow & review**. The numbered circles are
+repository -> 2 New task -> 3 Follow & review**. The numbered circles are
 also shortcuts. Add a Git repository; registration reads metadata but does not
 modify the checkout. Readiness checks stay visible as quiet diagnostics rather
 than competing steps. Plain folders are rejected with a short error instead of
@@ -73,14 +73,18 @@ explainable evaluation. Stop with
 In the web UI:
 
 1. Select the Git repository in the Explorer.
-2. Describe one finished outcome in **What should change?**
-3. Select **Start task**.
+2. Describe one finished outcome in **What should the agent change?**
+3. Choose the implementation agent.
+4. Select **Start task**, or **Start & add another** to queue the next request
+   immediately.
 
 The large text box is the only required input. Write the desired result as you
 would to Codex, including constraints and what “done” means. The selected
-repository supplies the default agent and automatically relevant
-generic Skills. Select **More options…** only when defaults are not enough; it
-opens the full task form without losing the text you entered.
+repository supplies the default agent and automatically relevant generic
+Skills. Different tasks can use different agents. Odysseus starts as many as
+the configured parallel limit permits and leaves the remainder safely queued.
+Select **More options…** only when defaults are not enough; it opens the full
+task form without losing the text you entered.
 
 The equivalent CLI command is:
 
