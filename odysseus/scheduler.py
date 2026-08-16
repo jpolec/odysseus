@@ -30,6 +30,15 @@ SENSITIVE_VALUE_RE = re.compile(
     r"(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^,\s]+"
     r")"
 )
+AGENT_CREDIT_EXHAUSTION_RE = re.compile(
+    r"(?is)("
+    r"\binsufficient[_ -]?quota\b|"
+    r"\b(?:out of|no|not enough|insufficient|exhausted|depleted)\s+(?:api\s+)?(?:credits?|quota|balance)\b|"
+    r"\b(?:credits?|quota|usage|billing|balance).{0,100}\b(?:exceeded|exhausted|depleted|too low|insufficient|limit reached|hard limit)\b|"
+    r"\b(?:usage|spending) limit reached\b|"
+    r"\bbrak(?:uje)?\s+kredyt"
+    r")"
+)
 
 
 def _audit_text(value: Any, *, limit: int = 500) -> str:
@@ -37,6 +46,12 @@ def _audit_text(value: Any, *, limit: int = 500) -> str:
     if not text:
         return ""
     return SENSITIVE_VALUE_RE.sub("[REDACTED]", text)[:limit]
+
+
+def _agent_credit_exhaustion(output: str) -> bool:
+    """Detect non-retryable local agent failures caused by provider credits/quota."""
+
+    return bool(AGENT_CREDIT_EXHAUSTION_RE.search(output or ""))
 
 
 class Scheduler:
@@ -237,6 +252,55 @@ class Scheduler:
             last_error=reason,
         )
 
+    def _lane_options(self, current_lane: str) -> list[dict[str, str]]:
+        config = self.store.config()
+        custom = config.get("lanes") if isinstance(config.get("lanes"), dict) else {}
+        lanes = list(dict.fromkeys(["codex", "claude", *sorted(custom)]))
+        options = [
+            {"id": f"switch:{lane}", "label": f"Switch to {lane}"}
+            for lane in lanes
+            if lane and lane != current_lane
+        ][:6]
+        options.append({"id": "retry", "label": f"Retry {current_lane}"})
+        options.append({"id": "takeover", "label": "Continue in terminal"})
+        return options
+
+    def _pause_for_agent_credit_exhaustion(self, run_id: str, step: str, lane: str, result: ProcessResult) -> None:
+        output = result.output[-10_000:]
+        title = f"{lane} credits or quota exhausted"
+        message = (
+            f"The {step} agent on lane '{lane}' stopped because its provider credits, quota, "
+            "or usage limit appear to be exhausted. Odysseus paused the run instead of retrying "
+            "the same lane. Choose another lane, refill the provider quota and retry, or continue "
+            "manually in the terminal.\n\n"
+            f"Last output:\n{output}"
+        )
+        self.store.append_event(
+            run_id,
+            "agent.blocked",
+            lane,
+            {
+                "attention_type": "blocked",
+                "title": title,
+                "message": message,
+                "reason": "agent_credit_exhausted",
+                "step": step,
+                "lane": lane,
+                "returncode": result.returncode,
+                "output": output,
+                "options": self._lane_options(lane),
+                "priority": "critical",
+            },
+        )
+        self.store.transition(
+            run_id,
+            "attention",
+            event_type="run.attention",
+            worker_pid=None,
+            last_error=f"{lane} credits or quota exhausted; choose another lane or retry after refilling quota.",
+            data={"message": "Agent credits or quota exhausted.", "reason": "agent_credit_exhausted", "lane": lane},
+        )
+
     def _finish_interruption(self, run_id: str) -> None:
         run = self.store.get(run_id)
         if self._stop.is_set() and not run.get("cancel_requested"):
@@ -420,6 +484,9 @@ class Scheduler:
                 self._finish_interruption(run_id)
                 return
             if agent_result.returncode != 0:
+                if _agent_credit_exhaustion(agent_result.output):
+                    self._pause_for_agent_credit_exhaustion(run_id, "agent", str(run["lane"]), agent_result)
+                    return
                 self._fail_process(run_id, "agent", agent_result)
                 return
             if implementation_session:
@@ -565,6 +632,9 @@ class Scheduler:
                 self._finish_interruption(run_id)
                 return
             if review_result.returncode != 0:
+                if _agent_credit_exhaustion(review_result.output):
+                    self._pause_for_agent_credit_exhaustion(run_id, "review", str(run["review_lane"]), review_result)
+                    return
                 self._fail_process(run_id, "review", review_result)
                 return
             emit("step.completed", "odysseus", {"step": "review"})
@@ -1280,11 +1350,35 @@ class ReviewActions:
         return self.store.get(run_id)
 
     def answer_attention(self, item_id: str, response: str) -> dict[str, Any]:
+        pending_item = self.store.attention.get(item_id)
+        decision = response.strip()
+        if pending_item.get("type") == "blocked" and decision.startswith("switch:"):
+            lane = decision.split(":", 1)[1].strip()
+            config = self.store.config()
+            custom = config.get("lanes") if isinstance(config.get("lanes"), dict) else {}
+            lanes = set(["codex", "claude", *custom.keys()])
+            if lane not in lanes:
+                raise ValueError(f"unknown lane: {lane}")
         item = self.store.attention.respond(item_id, response)
         run_id = str(item.get("run_id") or "")
         if not run_id:
             return {"attention": item}
         run = self.store.get(run_id)
+        if item.get("type") == "blocked" and decision.startswith("switch:"):
+            lane = decision.split(":", 1)[1].strip()
+            self.store.append_event(
+                run_id,
+                "attention.answered",
+                "user",
+                {"attention_id": item_id, "response": decision},
+            )
+            resumed = self.resume(
+                run_id,
+                f"Continue this task with lane '{lane}' because the previous agent could not proceed:\n\n{item.get('message', '')}",
+                strategy="switch",
+                lane=lane,
+            )
+            return {"attention": item, "run": resumed}
         environment = run.get("environment") if isinstance(run.get("environment"), dict) else {}
         if item.get("type") == "permission_request" and environment.get("trust_status") == "pending":
             decision = response.strip().lower()
