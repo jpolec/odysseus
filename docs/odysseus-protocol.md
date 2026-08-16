@@ -109,6 +109,8 @@ The default origin is `http://127.0.0.1:8741`.
 | `POST` | `/api/runs/:id/cancel` | Request cancellation |
 | `POST` | `/api/runs/:id/accept` | Accept and create a durable local artifact commit |
 | `POST` | `/api/runs/:id/apply` | Merge an accepted artifact into its expected source branch; tracked edits and conflicts fail closed |
+| `GET` | `/api/runs/:id/integration-candidates` | Deterministically list eligible accepted artifacts for this repository and base branch |
+| `POST` | `/api/runs/:id/integration` | Record a disposition for every current candidate and queue an integration run from `integrate_now` artifacts |
 | `POST` | `/api/runs/:id/send-back` | Requeue with `{ "feedback": "..." }` |
 | `POST` | `/api/runs/:id/resume` | Continue with `{ "prompt": "...", "strategy": "resume|switch|clean", "lane": "..." }` |
 | `POST` | `/api/runs/:id/takeover` | Create/return a managed interactive tmux continuation |
@@ -223,6 +225,11 @@ lanes; unknown or malformed markers never become implicit approval.
 - `accepted` records an `artifact_sha` and `artifact_files` surface.
 - `delivery.status` distinguishes `not_applied`, `applied`, `failed`, and
   `pr_created`; Apply records the target branch and before/after commit SHAs.
+- Integration delivery requires an explicit disposition for every current
+  candidate: `integrate_now`, `keep_for_later`, or `supersede`. Stale,
+  incompatible-base, already-delivered, and superseded artifacts are excluded
+  from the candidate set. Superseded artifacts remain accepted and inspectable
+  with `integration_disposition.superseded_by` or an operator reason when given.
 - Before a downstream agent starts, artifacts are merged in `depends_on` order
   into that run's worktree. Applied sources and resulting head are recorded.
 - Pairwise file overlap produces `merge_analysis`; a real Git conflict emits
@@ -250,8 +257,10 @@ lanes; unknown or malformed markers never become implicit approval.
 Schema 4 adds `priority`, `artifact_sha`, `artifact_files`,
 `artifact_created_at`, `integration_sources`, `integration_head`,
 `merge_analysis`, `ci`, `ci_retry_active`, `github_feedback_seen`, `budgets`,
-`budget_status`, `stage`, `stage_started_at`, and `last_heartbeat`. Store open
-migrates old snapshots by adding defaults; it never rewrites event journals.
+`budget_status`, `stage`, `stage_started_at`, and `last_heartbeat`.
+Schema 11 adds `integration_disposition` for selected, deferred, and
+superseded accepted artifacts. Store open migrates old snapshots by adding
+defaults; it never rewrites event journals.
 
 Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 `skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7

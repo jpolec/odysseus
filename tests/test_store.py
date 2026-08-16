@@ -190,6 +190,8 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(migrated["schema_version"], RUN_SCHEMA_VERSION)
             self.assertEqual(migrated["depends_on"], [])
             self.assertEqual(migrated["evaluation"], {})
+            self.assertEqual(migrated["integration_disposition"]["state"], "pending")
+            self.assertEqual(migrated["integration_disposition"]["superseded_by"], "")
             self.assertEqual(
                 (store.events_dir / f"{run['id']}.ndjson").read_text(), journal_before
             )

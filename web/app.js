@@ -933,7 +933,7 @@ function renderReviewDecision(run) {
   let deliveryHelp = "";
   if (run.status === "accepted" && !applied) {
     deliveryCopy = failed ? `Apply is blocked: ${delivery.error || "inspect the repository state and try again."}` : `Accepted, but not applied to ${run.base_ref || "the source branch"}. You may also keep it as an artifact and do nothing.`;
-    deliveryActions = `<button class="primary" data-review-action="apply" type="button">${failed ? "Try apply again" : "Apply to repository"}</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+    deliveryActions = `<button class="primary" data-review-action="apply" type="button">${failed ? "Try apply again" : "Apply to repository"}</button><button class="ghost" data-review-action="integration" type="button">Prepare integration</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
     if (failed) {
       const tracked = /tracked local changes/i.test(delivery.error || "");
       const conflict = /conflict|merge was aborted/i.test(delivery.error || "");
@@ -998,7 +998,84 @@ async function reviewAction(action, button) {
     await submitReviewFeedback(prompt, button);
     return;
   }
+  if (action === "integration") {
+    await openIntegrationDialog(button);
+    return;
+  }
   await runAction(action);
+}
+
+async function openIntegrationDialog(button) {
+  if (!state.selectedId) return;
+  const originalLabel = button?.textContent;
+  try {
+    if (button) { button.disabled = true; button.textContent = "Loading..."; }
+    const preview = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/integration-candidates`);
+    state.integrationPreview = preview;
+    renderIntegrationCandidateDialog(preview);
+    $("#integrationDialog").showModal();
+  } catch (error) { toast(error.message, true); }
+  finally {
+    if (button) { button.disabled = false; button.textContent = originalLabel; }
+  }
+}
+
+function renderIntegrationCandidateDialog(preview) {
+  const candidates = preview.candidates || [];
+  const excluded = preview.excluded || [];
+  const list = $("#integrationCandidateList");
+  if (!candidates.length) {
+    list.innerHTML = `<div class="empty-list">No eligible accepted artifacts are available for this repository and branch.</div>${excluded.length ? `<p class="candidate-exclusions">${excluded.length} accepted artifact${excluded.length === 1 ? "" : "s"} excluded by delivery state, supersession, staleness, or base compatibility.</p>` : ""}`;
+    return;
+  }
+  list.innerHTML = `
+    ${candidates.map((item) => `
+      <article class="integration-candidate" data-candidate-id="${escapeHtml(item.id)}">
+        <header><div><strong>${escapeHtml(item.title || item.id)}</strong><small>${escapeHtml(item.id)} · ${escapeHtml(String(item.artifact_sha || "").slice(0, 12))}</small></div><span>${(item.artifact_files || []).length} file${(item.artifact_files || []).length === 1 ? "" : "s"}</span></header>
+        <div class="candidate-disposition">
+          <label><input type="radio" name="disposition-${escapeHtml(item.id)}" value="integrate_now" checked> Integrate now</label>
+          <label><input type="radio" name="disposition-${escapeHtml(item.id)}" value="keep_for_later"> Keep for later</label>
+          <label><input type="radio" name="disposition-${escapeHtml(item.id)}" value="supersede"> Supersede</label>
+        </div>
+        <input name="reason-${escapeHtml(item.id)}" placeholder="Newer task id or operator reason, optional">
+      </article>
+    `).join("")}
+    ${excluded.length ? `<p class="candidate-exclusions">${excluded.length} accepted artifact${excluded.length === 1 ? "" : "s"} excluded by construction.</p>` : ""}`;
+}
+
+async function submitIntegrationDisposition(event) {
+  if (event.submitter?.value === "cancel") return;
+  event.preventDefault();
+  const preview = state.integrationPreview;
+  const candidates = preview?.candidates || [];
+  if (!state.selectedId || !candidates.length) { toast("There are no integration candidates.", true); return; }
+  const form = event.currentTarget;
+  const submit = event.submitter;
+  const originalLabel = submit.textContent;
+  const dispositions = {};
+  let integrateCount = 0;
+  for (const item of candidates) {
+    const chosen = form.elements[`disposition-${item.id}`]?.value;
+    if (!chosen) { toast(`Choose a disposition for ${item.id}.`, true); return; }
+    if (chosen === "integrate_now") integrateCount += 1;
+    dispositions[item.id] = {
+      decision: chosen,
+      reason: form.elements[`reason-${item.id}`]?.value || "",
+    };
+  }
+  if (integrateCount === 1) { toast("Use direct Apply for a single artifact, or select at least two artifacts for integration.", true); return; }
+  try {
+    submit.disabled = true;
+    submit.textContent = "Creating...";
+    const result = await api(`/api/runs/${encodeURIComponent(state.selectedId)}/integration`, {method: "POST", body: JSON.stringify({dispositions})});
+    $("#integrationDialog").close();
+    toast(result.integration_run ? "Integration run queued." : "Artifact dispositions recorded.");
+    await refreshRuns(); await refreshSelected();
+  } catch (error) { toast(error.message, true); }
+  finally {
+    submit.disabled = false;
+    submit.textContent = originalLabel;
+  }
 }
 
 function renderWorkflow(run) {
@@ -1789,6 +1866,7 @@ function bindDialogs() {
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject")); $("#epicDialog").showModal(); }));
   $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_path: project.path, planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); toast("Task graph proposed. Review it before approving any work."); await refreshEpics(); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session is waiting to continue." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt is waiting on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
+  $("#integrationForm").addEventListener("submit", submitIntegrationDisposition);
   $("#assistantProvider").addEventListener("change", (event) => { syncAssistantProvider(event.currentTarget.value); renderAssistantPanel(); });
   $("#summaryAssistantProvider").addEventListener("change", (event) => { syncAssistantProvider(event.currentTarget.value); renderAssistantPanel(); });
   $$("[data-assistant-scope]").forEach((item) => item.addEventListener("change", () => renderAssistantPanel()));

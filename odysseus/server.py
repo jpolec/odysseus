@@ -34,7 +34,7 @@ from .tmux import TmuxBridge
 from .worktrees import WorktreeManager
 
 
-RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|apply|send-back|resume|takeover|draft-pr|ci-poll))?$")
+RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|apply|integration-candidates|integration|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
 PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile|skills|knowledge))?$")
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
@@ -497,6 +497,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json(self.server.app.actions.accept(run_id))
             elif action == "apply":
                 self._json(self.server.app.actions.apply(run_id))
+            elif action == "integration":
+                self._json(self.server.app.actions.create_integration_delivery(run_id, body), HTTPStatus.CREATED)
             elif action == "send-back":
                 self._json(self.server.app.actions.send_back(run_id, str(body.get("feedback", ""))))
             elif action == "resume":
@@ -609,6 +611,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._sse(run_id, parsed)
             elif action == "diff":
                 self._json(WorktreeManager.diff(self.server.app.store.get(run_id)))
+            elif action == "integration-candidates":
+                self._json(self.server.app.actions.integration_candidates(run_id))
             else:
                 self._json_error(HTTPStatus.METHOD_NOT_ALLOWED, "use POST for this action")
         except KeyError:

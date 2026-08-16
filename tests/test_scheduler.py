@@ -109,6 +109,31 @@ class SchedulerTests(unittest.TestCase):
         git(repo, "commit", "-m", "base")
         return repo
 
+    @staticmethod
+    def _accepted_artifact(
+        store: RunStore,
+        scheduler: Scheduler,
+        actions: ReviewActions,
+        repo: Path,
+        title: str,
+        filename: str,
+        *,
+        check: str = "",
+    ) -> dict:
+        run = store.create(
+            {
+                "title": title,
+                "task": f"Create {filename}",
+                "project_path": str(repo),
+                "status": "review",
+                "checks": [check] if check else [],
+            }
+        )
+        info = scheduler.worktrees.create(run, lambda *_: None)
+        store.update(run["id"], **info)
+        (Path(info["worktree_path"]) / filename).write_text(f"{filename}\n")
+        return actions.accept(run["id"])
+
     def test_agent_check_review_retries_then_waits_for_human(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -167,7 +192,7 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(published["pull_request_url"], "https://github.com/example/project/pull/1")
             self.assertEqual(published["delivery"]["status"], "pr_created")
 
-    def test_apply_queues_pending_accepted_artifacts_for_integration_delivery(self) -> None:
+    def test_apply_keeps_single_artifact_delivery_backward_compatible_with_pending_backlog(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = self._repo(root)
@@ -175,41 +200,150 @@ class SchedulerTests(unittest.TestCase):
             scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
             actions = ReviewActions(store, scheduler)
 
-            accepted_ids = []
-            for title, filename, check in (
-                ("Backend", "backend.txt", "python3 -m unittest"),
-                ("Frontend", "frontend.txt", "git diff --check"),
-            ):
-                run = store.create(
-                    {
-                        "title": title,
-                        "task": f"Create {filename}",
-                        "project_path": str(repo),
-                        "status": "review",
-                        "checks": [check],
-                    }
-                )
-                info = scheduler.worktrees.create(run, lambda *_: None)
-                store.update(run["id"], **info)
-                (Path(info["worktree_path"]) / filename).write_text(f"{filename}\n")
-                accepted = actions.accept(run["id"])
-                accepted_ids.append(accepted["id"])
+            first = self._accepted_artifact(store, scheduler, actions, repo, "Backend", "backend.txt")
+            second = self._accepted_artifact(store, scheduler, actions, repo, "Frontend", "frontend.txt")
 
-            result = actions.apply(accepted_ids[0])
+            result = actions.apply(first["id"])
+
+            self.assertEqual(result["delivery"]["status"], "applied")
+            self.assertNotIn("integration_run", result)
+            self.assertEqual(store.get(second["id"])["delivery"]["status"], "not_applied")
+            queued = [run for run in store.list() if run.get("task_key") == "integration-delivery"]
+            self.assertEqual(queued, [])
+
+    def test_integration_delivery_requires_explicit_disposition_for_current_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
+            actions = ReviewActions(store, scheduler)
+
+            accepted = [
+                self._accepted_artifact(store, scheduler, actions, repo, "Backend", "backend.txt", check="python3 -m unittest"),
+                self._accepted_artifact(store, scheduler, actions, repo, "Frontend", "frontend.txt", check="git diff --check"),
+                self._accepted_artifact(store, scheduler, actions, repo, "Docs", "docs.txt"),
+            ]
+            accepted_ids = [run["id"] for run in accepted]
+            preview = actions.integration_candidates(accepted_ids[0])
+            candidate_ids = [item["id"] for item in preview["candidates"]]
+
+            self.assertEqual(set(candidate_ids), set(accepted_ids))
+            self.assertEqual(
+                candidate_ids,
+                [item["id"] for item in actions.integration_candidates(accepted_ids[0])["candidates"]],
+            )
+            with self.assertRaisesRegex(ValueError, "provide one disposition"):
+                actions.create_integration_delivery(
+                    accepted_ids[0],
+                    {"dispositions": {accepted_ids[0]: "integrate_now", accepted_ids[1]: "integrate_now"}},
+                )
+            with self.assertRaisesRegex(ValueError, "at least two artifacts"):
+                actions.create_integration_delivery(
+                    accepted_ids[0],
+                    {
+                        "dispositions": {
+                            accepted_ids[0]: {"decision": "integrate_now"},
+                            accepted_ids[1]: {"decision": "keep_for_later"},
+                            accepted_ids[2]: {"decision": "keep_for_later"},
+                        }
+                    },
+                )
+            self.assertTrue(
+                all(store.get(run_id)["integration_disposition"]["state"] == "pending" for run_id in accepted_ids)
+            )
+
+            result = actions.create_integration_delivery(
+                accepted_ids[0],
+                {
+                    "dispositions": {
+                        accepted_ids[0]: {"decision": "integrate_now"},
+                        accepted_ids[1]: {"decision": "integrate_now"},
+                        accepted_ids[2]: {"decision": "keep_for_later", "reason": "wait for copy review"},
+                    }
+                },
+            )
             integration = result["integration_run"]
             self.assertEqual(integration["status"], "queued")
-            self.assertEqual(integration["depends_on"], accepted_ids)
+            self.assertEqual(integration["depends_on"], [run_id for run_id in candidate_ids if run_id in accepted_ids[:2]])
             self.assertEqual(integration["task_key"], "integration-delivery")
             self.assertEqual(integration["checks"], ["python3 -m unittest", "git diff --check"])
-            for run_id in accepted_ids:
+            for run_id in accepted_ids[:2]:
                 delivery = store.get(run_id)["delivery"]
                 self.assertEqual(delivery["status"], "integration_queued")
                 self.assertEqual(delivery["integration_run_id"], integration["id"])
+                events = [event["type"] for event in store.events(run_id)]
+                self.assertIn("integration.disposition_recorded", events)
+            self.assertEqual(store.get(accepted_ids[2])["delivery"]["status"], "not_applied")
+            self.assertEqual(store.get(accepted_ids[2])["integration_disposition"]["state"], "deferred")
 
-            repeated = actions.apply(accepted_ids[1])
-            self.assertNotIn("integration_run", repeated)
-            queued = [run for run in store.list() if run.get("task_key") == "integration-delivery"]
-            self.assertEqual(len(queued), 1)
+    def test_superseded_and_delivered_artifacts_are_not_candidates_and_remain_inspectable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
+            actions = ReviewActions(store, scheduler)
+
+            old_ui = self._accepted_artifact(store, scheduler, actions, repo, "Old UI", "ui-old.txt")
+            backend = self._accepted_artifact(store, scheduler, actions, repo, "Backend", "backend.txt")
+            api = self._accepted_artifact(store, scheduler, actions, repo, "API", "api.txt")
+            newer = self._accepted_artifact(store, scheduler, actions, repo, "New UI", "ui-new.txt")
+
+            actions.create_integration_delivery(
+                old_ui["id"],
+                {
+                    "dispositions": {
+                        old_ui["id"]: {"decision": "supersede", "superseded_by": newer["id"], "reason": "replaced by newer UI"},
+                        backend["id"]: {"decision": "integrate_now"},
+                        api["id"]: {"decision": "integrate_now"},
+                        newer["id"]: {"decision": "keep_for_later"},
+                    }
+                },
+            )
+
+            superseded = store.get(old_ui["id"])
+            self.assertEqual(superseded["status"], "accepted")
+            self.assertEqual(superseded["integration_disposition"]["state"], "superseded")
+            self.assertEqual(superseded["integration_disposition"]["superseded_by"], newer["id"])
+            self.assertEqual(superseded["integration_disposition"]["reason"], "replaced by newer UI")
+
+            preview = actions.integration_candidates(newer["id"])
+            candidate_ids = [item["id"] for item in preview["candidates"]]
+            self.assertNotIn(old_ui["id"], candidate_ids)
+            self.assertNotIn(backend["id"], candidate_ids)
+            self.assertNotIn(api["id"], candidate_ids)
+            excluded = {item["run_id"]: item["reason"] for item in preview["excluded"]}
+            self.assertEqual(excluded[old_ui["id"]], "superseded")
+            self.assertEqual(excluded[backend["id"]], "already_delivered")
+
+    def test_existing_accepted_backlog_is_never_silently_folded_into_new_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
+            actions = ReviewActions(store, scheduler)
+
+            old_ui = self._accepted_artifact(store, scheduler, actions, repo, "Older UI artifact", "old-ui.txt")
+            backend = self._accepted_artifact(store, scheduler, actions, repo, "Release backend", "backend.txt")
+            api = self._accepted_artifact(store, scheduler, actions, repo, "Release API", "api.txt")
+
+            result = actions.create_integration_delivery(
+                backend["id"],
+                {
+                    "dispositions": {
+                        old_ui["id"]: {"decision": "keep_for_later", "reason": "not part of this release"},
+                        backend["id"]: {"decision": "integrate_now"},
+                        api["id"]: {"decision": "integrate_now"},
+                    }
+                },
+            )
+
+            self.assertEqual(set(result["integration_run"]["depends_on"]), {backend["id"], api["id"]})
+            self.assertNotIn(old_ui["id"], result["integration_run"]["depends_on"])
+            self.assertEqual(store.get(old_ui["id"])["delivery"]["status"], "not_applied")
+            self.assertEqual(store.get(old_ui["id"])["integration_disposition"]["state"], "deferred")
 
     def test_dependency_conflict_reaches_integration_agent_worktree(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
