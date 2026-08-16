@@ -416,6 +416,11 @@
           <label>Preview ports <span class="field-help">One `NAME=CONTAINER_PORT` per line. Odysseus allocates host ports automatically.</span><textarea name="environment_ports" rows="2" placeholder="APP_PORT=3000&#10;DEBUG_PORT=9229"></textarea></label>
         </div>
         <label class="checkbox-row"><input type="checkbox" name="untrusted_project" id="untrustedProject"> Untrusted: require Docker and command approval</label>
+        <label class="checkbox-row"><input type="checkbox" name="variants_enabled" id="variantsEnabled"> Variants: run isolated candidates</label>
+        <div class="variant-options hidden" id="variantOptions">
+          <div class="form-row"><label>Candidate count <select name="variant_count"><option value="2">2 candidates</option><option value="3">3 candidates</option></select></label><label>Candidate lanes <input name="variant_lanes" placeholder="codex, claude"></label></div>
+          <label>Candidate prompts <span class="field-help">One optional instruction per candidate.</span><textarea name="variant_prompts" rows="3" placeholder="Smallest safe patch&#10;Broader maintainability pass"></textarea></label>
+        </div>
         <label>Engineering skills
           <span class="field-help">Auto, manual, or none.</span>
           <select name="skill_mode" id="taskSkillMode"><option value="auto">Auto — recommended</option><option value="manual">Choose manually</option><option value="none">None</option></select>

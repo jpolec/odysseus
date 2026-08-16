@@ -269,6 +269,30 @@ queue -> isolated worktree -> host/container environment -> implementation agent
       -> approve / feedback / terminal / draft PR
 ```
 
+For high-value or ambiguous work, explicitly opt into a Variants run instead of
+starting a normal task. One parent task queues two or three isolated candidate
+runs under the shared budget. Each candidate gets its own branch, worktree,
+prompt, checks, review, evaluation, provenance, and retained artifact; candidates
+do not share mutable worktrees or hidden intermediate answers. Odysseus compares
+tests, code quality, regression and merge risk, observed cost, change size, and
+human attention, then shows the Pareto frontier. It never applies, merges, or
+declares a single winner for you: select a candidate, queue a separate
+integration task for multiple candidates, or reject all.
+
+```sh
+bin/odysseus run \
+  --project /absolute/path/to/repository \
+  --variants 2 \
+  --variant-lane codex \
+  --variant-lane claude \
+  --check "python3 -m unittest" \
+  "Find the least risky way to replace the parser"
+
+bin/odysseus variants RUN_ID select --selected-run-id CANDIDATE_RUN_ID
+bin/odysseus variants RUN_ID combine --selected-run-id LEFT_ID --selected-run-id RIGHT_ID
+bin/odysseus variants RUN_ID reject_all --reason "Both candidates are too broad"
+```
+
 For a larger requirement:
 
 ```text

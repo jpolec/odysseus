@@ -115,6 +115,25 @@ class CLITests(unittest.TestCase):
         self.assertGreaterEqual(value["run_schema"], 1)
         self.assertGreaterEqual(value["event_schema"], 1)
 
+    def test_run_variants_flag_is_explicit_opt_in(self) -> None:
+        args = parser().parse_args(
+            [
+                "run",
+                "--variants",
+                "2",
+                "--variant-lane",
+                "codex",
+                "--variant-lane",
+                "claude",
+                "--variant-prompt",
+                "small",
+                "High value task",
+            ]
+        )
+        self.assertEqual(args.variants, 2)
+        self.assertEqual(args.variant_lane, ["codex", "claude"])
+        self.assertEqual(args.variant_prompt, ["small"])
+
     def test_source_checkout_update_defers_to_its_package_manager(self) -> None:
         args = argparse.Namespace(state_dir=Path("/tmp/unused"), check=True, edge=False, target_version=None)
         error = io.StringIO()

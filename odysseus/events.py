@@ -104,6 +104,11 @@ EVENT_TYPES = frozenset(
         "environment.approved",
         "environment.rejected",
         "resource.reclaimed",
+        "variants.started",
+        "variants.candidate_queued",
+        "variants.candidate_completed",
+        "variants.comparison_ready",
+        "variants.decision_recorded",
     }
 )
 
