@@ -877,7 +877,7 @@ class ReviewActions:
             return "stale"
         if str(candidate.get("task_key") or "") == "integration-delivery":
             return "already_delivered"
-        if delivery.get("status") in {"applied", "pr_created", "integration_queued"}:
+        if delivery.get("status") in {"applied", "pr_created", "integration_queued", "integrated_applied", "integrated_pr_created"}:
             return "already_delivered"
         if disposition.get("state") == "superseded":
             return "superseded"
@@ -901,6 +901,47 @@ class ReviewActions:
         if base_ref and not self._git_ok(project, "merge-base", "--is-ancestor", base_sha, base_ref):
             return "stale"
         return ""
+
+    def _fanout_integration_delivery(self, integration: Mapping[str, Any], delivery: Mapping[str, Any]) -> None:
+        integration_id = str(integration.get("id") or "")
+        sources = integration.get("integration_sources") if isinstance(integration.get("integration_sources"), list) else []
+        if not integration_id or not sources:
+            return
+        for source in sources:
+            source_id = str(source.get("run_id") or "")
+            if not source_id:
+                continue
+            try:
+                current = self.store.get(source_id)
+            except KeyError:
+                continue
+            previous = dict(current.get("delivery") or {})
+            source_delivery = {
+                **previous,
+                "status": "integrated_applied" if delivery.get("status") == "applied" else "integrated_pr_created",
+                "method": "integration_delivery",
+                "integration_run_id": integration_id,
+                "integration_head": str(integration.get("integration_head") or ""),
+                "target_branch": str(delivery.get("target_branch") or integration.get("base_ref") or ""),
+                "target_before_sha": str(delivery.get("target_before_sha") or ""),
+                "target_after_sha": str(delivery.get("target_after_sha") or ""),
+                "delivered_at": delivery.get("delivered_at"),
+                "error": "",
+                "url": str(delivery.get("url") or ""),
+            }
+            self.store.update(source_id, delivery=source_delivery)
+            self.store.append_event(
+                source_id,
+                "delivery.applied" if delivery.get("status") == "applied" else "pr.created",
+                "git",
+                {
+                    "method": "integration_delivery",
+                    "integration_run_id": integration_id,
+                    "integration_head": str(integration.get("integration_head") or ""),
+                    "target_branch": source_delivery["target_branch"],
+                    "target_after_sha": source_delivery["target_after_sha"],
+                },
+            )
 
     def integration_candidates(self, run_or_id: Mapping[str, Any] | str) -> dict[str, Any]:
         run = self.store.get(run_or_id) if isinstance(run_or_id, str) else dict(run_or_id)
@@ -1145,6 +1186,7 @@ class ReviewActions:
                     "already_applied": applied["already_applied"],
                 },
             )
+            self._fanout_integration_delivery(self.store.get(run_id), applied)
             self.store.attention.resolve_for_run(run_id, resolution="delivery.applied")
             return self.store.get(run_id)
 
@@ -1340,7 +1382,7 @@ class ReviewActions:
         }
         ci = dict(self.store.get(run_id).get("ci") or {})
         ci.update({"status": "pending", "summary": "Waiting for GitHub checks.", "updated_at": now_iso()})
-        return self.store.transition(
+        published = self.store.transition(
             run_id,
             "pr_created",
             pull_request_url=url,
@@ -1349,3 +1391,5 @@ class ReviewActions:
             review_status="published",
             worker_pid=None,
         )
+        self._fanout_integration_delivery(published, delivery)
+        return published

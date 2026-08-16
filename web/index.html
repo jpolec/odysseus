@@ -56,7 +56,9 @@
           <button data-open-view="projects" type="button"><span>⚙</span> Manage repositories</button>
           <button data-open-view="settings" type="button"><span>⚙</span> Settings</button>
         </section>
+        <div class="sidebar-resize-actions"><button class="ghost compact" id="resetSidebarWidth" type="button">Reset width</button></div>
       </aside>
+      <button class="sidebar-resizer" id="sidebarResizer" type="button" aria-label="Resize repository sidebar" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="520" aria-valuenow="340" title="Drag or use arrow keys to resize sidebar"></button>
 
       <section class="workspace">
         <section class="view-panel work-view active" id="workView">
@@ -487,6 +489,21 @@
       <div class="dialog-intro"><strong>Every current candidate needs an explicit choice.</strong><p>Only artifacts marked Integrate now will be composed into the integration run.</p></div>
       <div class="integration-candidate-list" id="integrationCandidateList"></div>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create integration run</button></div>
+    </form></dialog>
+
+    <dialog id="attentionResponseDialog"><form method="dialog" id="attentionResponseForm">
+      <div class="dialog-head"><div><p class="eyebrow">NEEDS YOU</p><h2 id="attentionResponseTitle">Answer request</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong id="attentionResponseLead">Send one clear response.</strong><p id="attentionResponseMessage"></p></div>
+      <input type="hidden" name="attention_id">
+      <label>Response <textarea name="response" rows="5" required placeholder="Write the decision or guidance for the agent."></textarea></label>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Send response</button></div>
+    </form></dialog>
+
+    <dialog id="commandDialog"><form method="dialog" id="commandDialogForm">
+      <div class="dialog-head"><div><p class="eyebrow">TERMINAL COMMAND</p><h2>Run this command</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-intro"><strong>Clipboard access is unavailable in this browser context.</strong><p>Terminal access remains optional for this path; this command is here when you want it.</p></div>
+      <pre class="copy-command" id="commandDialogText"></pre>
+      <div class="dialog-actions"><button class="primary" value="cancel" type="submit">Close</button></div>
     </form></dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
