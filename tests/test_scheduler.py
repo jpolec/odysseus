@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from odysseus.runners import ProcessResult
-from odysseus.scheduler import ReviewActions, Scheduler
+from odysseus.scheduler import ReviewActions, Scheduler, _agent_credit_exhaustion
 from odysseus.store import RunStore
 from odysseus.worktrees import WorktreeManager
 
@@ -125,6 +125,20 @@ class BudgetAgentRunner:
         )
         stopped = cancelled()
         return ProcessResult(130 if stopped else 0, "budget", 0.01, cancelled=stopped)
+
+
+class QuotaAgentRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, lane, worktree, prompt, *, review, emit, cancelled):  # noqa: ANN001
+        self.calls += 1
+        emit(
+            "agent.output",
+            lane,
+            {"text": "Credit balance is too low to run this model.", "stream": "stderr"},
+        )
+        return ProcessResult(1, "Credit balance is too low to run this model.", 0.01)
 
 
 class SchedulerTests(unittest.TestCase):
@@ -867,6 +881,45 @@ class SchedulerTests(unittest.TestCase):
                 store.attention.list(status="open", run_id=run["id"])[0]["type"],
                 "budget",
             )
+
+    def test_agent_credit_exhaustion_pauses_with_switch_lane_options(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            store.update_config({"lanes": {"local-gpt": {"command": "agent --prompt {prompt}"}}})
+            run = store.create({"task": "Use paid model", "project_path": str(repo), "lane": "codex"})
+            agents = QuotaAgentRunner()
+            scheduler = Scheduler(store, agent_runner=agents, poll_seconds=0.01)
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and store.get(run["id"])["status"] != "attention":
+                    time.sleep(0.02)
+            finally:
+                scheduler.stop()
+
+            paused = store.get(run["id"])
+            open_items = store.attention.list(status="open", run_id=run["id"])
+            self.assertEqual(paused["status"], "attention")
+            self.assertIn("credits or quota exhausted", paused["last_error"])
+            self.assertEqual(agents.calls, 1)
+            self.assertEqual(open_items[0]["type"], "blocked")
+            option_ids = [item["id"] for item in open_items[0]["options"]]
+            self.assertIn("switch:claude", option_ids)
+            self.assertIn("switch:local-gpt", option_ids)
+            self.assertIn("retry", option_ids)
+
+            result = ReviewActions(store, scheduler).answer_attention(open_items[0]["id"], "switch:claude")
+            self.assertEqual(result["run"]["status"], "queued")
+            self.assertEqual(result["run"]["lane"], "claude")
+            self.assertEqual(result["run"]["agent_sessions"], {})
+
+    def test_agent_credit_exhaustion_classifier_matches_vendor_messages(self) -> None:
+        self.assertTrue(_agent_credit_exhaustion("Error: insufficient_quota"))
+        self.assertTrue(_agent_credit_exhaustion("Claude AI usage limit reached."))
+        self.assertTrue(_agent_credit_exhaustion("Credit balance is too low."))
+        self.assertFalse(_agent_credit_exhaustion("transient network timeout"))
 
     def test_ignored_review_comment_records_explicit_operator_action(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
