@@ -686,6 +686,19 @@ class RunStore:
                 "run_id": str(run["id"]),
                 "epic_id": str(run.get("epic_id") or ""),
                 "project_id": str(run.get("project_id") or ""),
+                "data": {
+                    key: data.get(key)
+                    for key in (
+                        "conflicts",
+                        "preserved_branches",
+                        "dependency_run_id",
+                        "artifact_sha",
+                        "integration_head",
+                        "failed_dependencies",
+                        "missing_dependencies",
+                    )
+                    if data.get(key) not in (None, "", [])
+                },
                 "dedupe_key": hashlib.sha256(stable.encode("utf-8")).hexdigest(),
             }
         )

@@ -111,6 +111,7 @@ class AttentionQueue:
                 "title": title,
                 "message": message,
                 "options": options,
+                "data": request.get("data") if isinstance(request.get("data"), dict) else {},
                 "run_id": str(request.get("run_id") or ""),
                 "epic_id": str(request.get("epic_id") or ""),
                 "project_id": str(request.get("project_id") or ""),

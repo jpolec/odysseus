@@ -317,6 +317,55 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(excluded[old_ui["id"]], "superseded")
             self.assertEqual(excluded[backend["id"]], "already_delivered")
 
+    def test_successful_integration_delivery_fans_out_source_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store, agent_runner=FakeAgentRunner(), check_runner=FlakyCheckRunner())
+            actions = ReviewActions(store, scheduler)
+
+            backend = self._accepted_artifact(store, scheduler, actions, repo, "Backend", "backend.txt")
+            api = self._accepted_artifact(store, scheduler, actions, repo, "API", "api.txt")
+            integration = store.create(
+                {
+                    "title": "Integrate accepted artifacts",
+                    "task": "Integrate",
+                    "project_path": str(repo),
+                    "status": "accepted",
+                    "base_ref": "main",
+                }
+            )
+            store.update(
+                integration["id"],
+                status="accepted",
+                integration_sources=[
+                    {"run_id": backend["id"], "artifact_sha": backend["artifact_sha"]},
+                    {"run_id": api["id"], "artifact_sha": api["artifact_sha"]},
+                ],
+                integration_head="c" * 40,
+                artifact_sha="d" * 40,
+            )
+            applied = {
+                "status": "applied",
+                "method": "local_merge",
+                "target_branch": "main",
+                "target_before_sha": "a" * 40,
+                "target_after_sha": "b" * 40,
+                "already_applied": False,
+                "error": "",
+            }
+            with mock.patch.object(WorktreeManager, "apply_to_repository", return_value=applied):
+                actions.apply(integration["id"])
+
+            for source_id in (backend["id"], api["id"]):
+                delivery = store.get(source_id)["delivery"]
+                self.assertEqual(delivery["status"], "integrated_applied")
+                self.assertEqual(delivery["method"], "integration_delivery")
+                self.assertEqual(delivery["integration_run_id"], integration["id"])
+                self.assertEqual(delivery["integration_head"], "c" * 40)
+                self.assertEqual(delivery["target_after_sha"], "b" * 40)
+
     def test_existing_accepted_backlog_is_never_silently_folded_into_new_release(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -389,6 +438,11 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(agents.implementations, 1)
             self.assertIn("Dependency artifact integration stopped with Git merge conflicts", agents.implementation_prompt)
             self.assertEqual(finished["integration_conflicts"][0]["conflicts"], ["shared.txt"])
+            attention = store.attention.list(status="open", run_id=integration["id"])
+            self.assertEqual(len([item for item in attention if item["type"] == "merge_conflict"]), 1)
+            conflict_item = next(item for item in attention if item["type"] == "merge_conflict")
+            self.assertEqual(conflict_item["data"]["conflicts"], ["shared.txt"])
+            self.assertIn("preserved_branches", conflict_item["data"])
             self.assertEqual((Path(finished["worktree_path"]) / "shared.txt").read_text(), "resolved\n")
             self.assertIn("integration.completed", [event["type"] for event in store.events(integration["id"])])
 

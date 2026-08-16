@@ -379,6 +379,10 @@ class WorktreeManager:
                         "dependency_run_id": dependency_id,
                         "artifact_sha": sha,
                         "conflicts": [item for item in conflicts if item],
+                        "preserved_branches": [
+                            str(run.get("branch") or "integration worktree"),
+                            str(dependency.get("branch") or dependency.get("artifact_sha") or dependency_id),
+                        ],
                         "message": f"Dependency artifact {dependency_id} conflicts with the integration branch.",
                     }
                     emit("integration.conflict", "git", detail)
