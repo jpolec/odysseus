@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 from urllib import request
 
 from .events import now_iso
+from .redaction import DEFAULT_REDACTION_ENGINE
 
 if TYPE_CHECKING:
     from .store import RunStore
@@ -83,6 +84,10 @@ class NotificationManager:
             "status": run.get("status"),
             "created_at": now_iso(),
         }
+        redacted_payload, _receipt = DEFAULT_REDACTION_ENGINE.redact(payload, boundary="notification")
+        payload = redacted_payload if isinstance(redacted_payload, dict) else payload
+        title = str(payload.get("title") or title)
+        message = str(payload.get("message") or message)
         headers = {"User-Agent": "Odysseus/0.4"}
         if kind == "ntfy":
             body = message.encode("utf-8")
@@ -115,12 +120,13 @@ class NotificationManager:
                 "run_id": run.get("id"),
                 "destination": str(destination.get("name") or kind),
                 "delivered": delivered,
-                "error": error[:1000],
+                "error": str(DEFAULT_REDACTION_ENGINE.redact(error[:1000], boundary="notification_journal")[0]),
             }
         )
 
     def _record(self, value: Mapping[str, Any]) -> None:
-        line = json.dumps(dict(value), ensure_ascii=False, separators=(",", ":")) + "\n"
+        redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(dict(value), boundary="notification_journal")
+        line = json.dumps(redacted, ensure_ascii=False, separators=(",", ":")) + "\n"
         with self._lock:
             with self.journal.open("a", encoding="utf-8") as handle:
                 handle.write(line)

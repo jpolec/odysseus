@@ -32,13 +32,25 @@ class NotificationTests(unittest.TestCase):
             destination = {"type": "webhook", "name": "ops", "url": "https://secret.example.test/hook/token"}
 
             with mock.patch("odysseus.notifications.request.urlopen", return_value=Response()) as call:
-                manager._deliver(destination, run, "run.failed", {"message": "Checks failed"})
+                manager._deliver(
+                    destination,
+                    run,
+                    "run.failed",
+                    {
+                        "message": "Checks failed: Authorization: Bearer abcdefghijklmnop",
+                        "nested": {"api_key": "sk-abcdefghijklmnop1234"},
+                    },
+                )
 
             request_value = call.call_args.args[0]
-            self.assertEqual(json.loads(request_value.data)["event"], "run.failed")
+            delivered = json.loads(request_value.data)
+            self.assertEqual(delivered["event"], "run.failed")
+            self.assertIn("[REDACTED]", delivered["message"])
+            self.assertNotIn("abcdefghijklmnop", request_value.data.decode())
             journal = manager.journal.read_text()
             self.assertIn('"destination":"ops"', journal)
             self.assertNotIn("secret.example.test", journal)
+            self.assertNotIn("abcdefghijklmnop", journal)
 
 
 if __name__ == "__main__":

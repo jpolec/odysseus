@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import queue
-import re
 import shlex
 import signal
 import subprocess
@@ -16,23 +15,12 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .environments import wrap_command
+from .redaction import DEFAULT_REDACTION_ENGINE, USAGE_COUNTER_KEYS
 
 
 Emit = Callable[[str, str, Mapping[str, Any]], None]
 Cancelled = Callable[[], bool]
-SENSITIVE_KEY = re.compile(r"(?:api[_-]?key|authorization|password|passwd|secret|token|credential|cookie)", re.I)
-SENSITIVE_VALUE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]+=*|\b(?:sk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{12,}\b")
 ATTENTION_MARKER = "ODYSSEUS_ATTENTION:"
-USAGE_COUNTER_KEYS = frozenset(
-    {
-        "input_tokens",
-        "cached_input_tokens",
-        "cache_read_input_tokens",
-        "output_tokens",
-        "reasoning_output_tokens",
-        "total_tokens",
-    }
-)
 
 
 def _safe_int(value: Any) -> int:
@@ -77,14 +65,24 @@ def _extract_text(value: Any) -> str:
 
 
 def _sanitize(value: Any, *, key: str = "") -> Any:
-    if key and key.lower() not in USAGE_COUNTER_KEYS and SENSITIVE_KEY.search(key):
-        return "[REDACTED]"
     if isinstance(value, str):
-        return SENSITIVE_VALUE.sub(lambda match: f"{match.group(1) if match.lastindex else ''}[REDACTED]", value)[:20_000]
+        redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(value, boundary="runner")
+        return str(redacted)[:20_000]
     if isinstance(value, list):
         return [_sanitize(item) for item in value[:100]]
     if isinstance(value, dict):
-        return {str(item_key): _sanitize(item_value, key=str(item_key)) for item_key, item_value in list(value.items())[:100]}
+        if key and key.lower() in USAGE_COUNTER_KEYS:
+            return value
+        redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(value, boundary="runner")
+        if isinstance(redacted, dict):
+            return {str(item_key): _sanitize(item_value, key=str(item_key)) for item_key, item_value in list(redacted.items())[:100]}
+        return redacted
+    if key and key.lower() in USAGE_COUNTER_KEYS:
+        return value
+    if key:
+        redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact({key: value}, boundary="runner")
+        if isinstance(redacted, dict):
+            return redacted.get(key)
     return value
 
 
@@ -92,14 +90,15 @@ def _redact_values(value: Any, sensitive_values: Sequence[str]) -> Any:
     """Remove exact runtime credentials even when they do not match a token pattern."""
 
     secrets = [item for item in sensitive_values if len(item) >= 4]
+    engine = DEFAULT_REDACTION_ENGINE if not secrets else DEFAULT_REDACTION_ENGINE.__class__(exact_values=secrets)
     if isinstance(value, str):
-        for secret in secrets:
-            value = value.replace(secret, "[REDACTED]")
-        return value
+        redacted, _receipt = engine.redact(value, boundary="runner")
+        return redacted
     if isinstance(value, list):
         return [_redact_values(item, secrets) for item in value]
     if isinstance(value, dict):
-        return {key: _redact_values(item, secrets) for key, item in value.items()}
+        redacted, _receipt = engine.redact(value, boundary="runner")
+        return redacted
     return value
 
 
