@@ -216,6 +216,8 @@ class RunStore:
         self.runs_dir = self.root / "runs"
         self.events_dir = self.root / "events"
         self.worktrees_dir = self.root / "worktrees"
+        self._runtime_runs_signature: tuple[tuple[str, int, int], ...] | None = None
+        self._runtime_runs_cache: list[dict[str, Any]] = []
         if not readonly:
             self.root.mkdir(parents=True, exist_ok=True)
             self.runs_dir.mkdir(exist_ok=True)
@@ -462,7 +464,18 @@ class RunStore:
         HTTP and CLI readers continue to use :meth:`list`.
         """
 
-        return self._list_records(redact=False)
+        signature: list[tuple[str, int, int]] = []
+        for path in sorted(self.runs_dir.glob("*.json")):
+            try:
+                stat = path.stat()
+                signature.append((path.name, int(stat.st_mtime_ns), int(stat.st_size)))
+            except OSError:
+                signature.append((path.name, 0, 0))
+        current = tuple(signature)
+        if current != self._runtime_runs_signature:
+            self._runtime_runs_cache = self._list_records(redact=False)
+            self._runtime_runs_signature = current
+        return [dict(run) for run in self._runtime_runs_cache]
 
     def create(self, request: Mapping[str, Any]) -> dict[str, Any]:
         task = str(request.get("task", "")).strip()

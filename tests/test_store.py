@@ -194,6 +194,12 @@ class StoreTests(unittest.TestCase):
             self.assertNotIn("ghp_abcdefghijklmnop1234", json.dumps(public))
             self.assertNotIn("ghp_abcdefghijklmnop1234", json.dumps(runtime))
 
+            cached = store.runtime_runs()
+            self.assertEqual(cached[0]["status"], "queued")
+            store.update(cached[0]["id"], status="blocked")
+            refreshed = store.runtime_runs()
+            self.assertEqual(refreshed[0]["status"], "blocked")
+
     def test_durable_run_and_event_boundaries_redact_adversarial_payloads(self) -> None:
         secret = "ghp_abcdefghijklmnop1234"
         bearer = "Bearer abcdefghijklmnop"
