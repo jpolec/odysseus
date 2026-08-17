@@ -289,6 +289,11 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(set(comparison["candidate_run_ids"]), set(child_ids))
             self.assertEqual(set(comparison["pareto_frontier"]), set(child_ids))
             self.assertEqual(comparison["totals"]["artifacts"], 2)
+            self.assertEqual(comparison["totals"]["cost_observed"], 2)
+            self.assertIn("metrics", comparison["candidates"][0])
+            self.assertEqual(comparison["candidates"][0]["metrics"]["cost"]["source"], "metrics.cost_usd")
+            self.assertTrue(comparison["candidates"][0]["metrics"]["cost"]["observed"])
+            self.assertIn("usd", comparison["candidates"][0]["observed_cost"])
             self.assertIn("did not select, apply, or merge", comparison["summary"])
             self.assertFalse((repo / "small.txt").exists())
             events = [event["type"] for event in store.events(run["id"])]
