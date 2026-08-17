@@ -51,6 +51,36 @@ class AttentionTests(unittest.TestCase):
             self.assertEqual(queue.get(first["id"])["status"], "resolved")
             self.assertEqual(queue.get(second["id"])["status"], "open")
 
+    def test_review_ready_supersedes_runtime_prompts_but_keeps_evaluation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store = RunStore(Path(temp) / "state")
+            run = store.create({"task": "Reach review"})
+            store.append_event(
+                run["id"],
+                "agent.permission_request",
+                "codex",
+                {"message": "Approve command"},
+            )
+            store.append_event(
+                run["id"],
+                "evaluation.failed",
+                "odysseus",
+                {"message": "Review evidence"},
+            )
+            store.append_event(
+                run["id"],
+                "run.review_ready",
+                "odysseus",
+                {"message": "Diff ready"},
+            )
+
+            items = store.attention.list(run_id=run["id"])
+            by_type = {item["type"]: item for item in items}
+            self.assertEqual(by_type["permission_request"]["status"], "resolved")
+            self.assertEqual(by_type["permission_request"]["resolution"], "superseded_by_review")
+            self.assertEqual(by_type["evaluation_failed"]["status"], "open")
+            self.assertEqual(by_type["review"]["status"], "open")
+
     def test_inconclusive_evaluation_creates_review_item_not_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

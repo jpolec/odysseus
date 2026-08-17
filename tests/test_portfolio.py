@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from odysseus.portfolio import engineering_portfolio
 from odysseus.store import RunStore
@@ -72,6 +73,33 @@ class PortfolioTests(unittest.TestCase):
             self.assertEqual(result["metrics"]["autonomous_delivery_rate"], 0.0)
             self.assertEqual(result["metrics"]["first_pass_success_rate"], 0.0)
             self.assertEqual(result["metrics"]["human_interventions"], 1)
+
+    def test_projection_is_cached_until_durable_run_state_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "repo"
+            project.mkdir()
+            store = RunStore(root / "state")
+            now = datetime.now(timezone.utc)
+            run = store.create({"task": "Cache portfolio", "project_path": str(project)})
+            store.update(
+                run["id"],
+                status="accepted",
+                started_at=_iso(now - timedelta(minutes=2)),
+                finished_at=_iso(now),
+                delivery={"status": "applied"},
+            )
+
+            with mock.patch.object(store, "events_strict", wraps=store.events_strict) as read_events:
+                first = engineering_portfolio(store, days=7)
+                first_calls = read_events.call_count
+                second = engineering_portfolio(store, days=7)
+                self.assertEqual(second["metrics"], first["metrics"])
+                self.assertEqual(read_events.call_count, first_calls)
+
+                store.update(run["id"], status="failed", last_error="test failed")
+                engineering_portfolio(store, days=7)
+                self.assertGreater(read_events.call_count, first_calls)
 
 
 if __name__ == "__main__":

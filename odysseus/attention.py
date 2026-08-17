@@ -185,13 +185,21 @@ class AttentionQueue:
             self.store._atomic_json(self.path, values)
             return dict(item)
 
-    def resolve_for_run(self, run_id: str, *, resolution: str) -> list[str]:
+    def resolve_for_run(
+        self,
+        run_id: str,
+        *,
+        resolution: str,
+        types: set[str] | frozenset[str] | None = None,
+    ) -> list[str]:
         stamp = now_iso()
         changed: list[str] = []
         with self.store.locked():
             values = self._read()
             for item in values.values():
                 if item.get("run_id") != run_id or item.get("status") != "open":
+                    continue
+                if types is not None and str(item.get("type") or "") not in types:
                     continue
                 item.update(
                     {

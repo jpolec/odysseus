@@ -20,7 +20,7 @@ const state = {
   skillsProjectId: "", skillsCatalog: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
   selectedDecisionPaths: [],
-  workListScope: "", workListExpanded: true,
+  workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -296,7 +296,7 @@ function setView(view) {
   if (view === "settings") refreshSettings();
   if (view === "github" && project && [...$("#githubProject").options].some((option) => option.value === project.id)) $("#githubProject").value = project.id;
   if (view === "insights") refreshInsights();
-  if (view === "portfolio") refreshPortfolio();
+  if (view === "portfolio") { renderPortfolioPreview(); refreshPortfolio(); }
   if (view === "work") renderWork();
   updateGitHubLink();
 }
@@ -345,6 +345,17 @@ function groupAttention(items = state.attention) {
   });
 }
 function attentionTaskCount(items = state.attention) { return groupAttention(items).length; }
+function relevantAttentionItems(items) {
+  const staleAtReview = new Set(["question", "permission_request", "blocked", "decision_required", "stalled", "budget"]);
+  const finished = new Set(["accepted", "pr_created", "completed", "cancelled", "rejected"]);
+  return items.filter((item) => {
+    const run = item.run_id ? state.runs.find((candidate) => candidate.id === item.run_id) : null;
+    if (!run) return true;
+    if (finished.has(run.status)) return false;
+    if (run.status === "review" && staleAtReview.has(item.type)) return false;
+    return true;
+  });
+}
 function agentLaneOptions(selected = "", includeAuto = false) {
   const automatic = includeAuto ? `<option value="auto" ${selected === "auto" ? "selected" : ""}>Auto — recommended</option>` : "";
   const manual = (state.bootstrap?.lanes || []).map((lane) => `<option value="${escapeHtml(lane)}" ${lane === selected ? "selected" : ""}>${escapeHtml(lane)}</option>`).join("");
@@ -1077,7 +1088,7 @@ function renderWork() {
     $$('[data-work-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.workProject)));
     $$('[data-forget-project-inline]').forEach((button) => button.addEventListener("click", () => forgetProject(button.dataset.forgetProjectInline)));
   } else {
-    $("#workList").innerHTML = runs.length ? runs.map((run) => { const deliveryState = run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "Delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "Integration blocked" : run.status === "accepted" ? "Accepted · not delivered" : statusLabel(run.status); const tone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status); return `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button"><div><h3>${escapeHtml(run.title)}</h3><p>${escapeHtml(runActionLine(run))}</p></div><span>${relativeTime(run.updated_at)} ago</span><span class="mini-status ${tone}">${escapeHtml(deliveryState)}</span></button>`; }).join("") : `<div class="empty-card"><strong>No tasks yet.</strong><br>Describe the first change above.</div>`;
+    $("#workList").innerHTML = runs.length ? runs.map((run) => { const deliveryState = run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "Delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "Integration blocked" : run.status === "accepted" ? "Accepted · not delivered" : statusLabel(run.status); const tone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status); return `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button" title="${escapeHtml(runActionLine(run))}"><span class="mini-status ${tone}">${escapeHtml(deliveryState)}</span><time class="work-task-time">${escapeHtml(relativeTime(run.updated_at))}</time><h3>${escapeHtml(run.title)}</h3></button>`; }).join("") : `<div class="empty-card"><strong>No tasks yet.</strong><br>Describe the first change above.</div>`;
     $$('[data-work-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.workRun)));
   }
   $("#workStatusStrip [data-status-focus]")?.addEventListener("click", () => $("#repositoryStatusView")?.scrollIntoView({behavior: "smooth", block: "start"}));
@@ -2179,10 +2190,13 @@ function attentionItemLabel(item) {
 
 function renderAttentionEvent(item) {
   const options = item.options || [];
-  const primaryOption = options.find((option) => option.id !== "takeover") || options[0];
-  const extraOptions = options.filter((option) => option !== primaryOption);
-  const actionLabel = item.type === "merge_conflict" ? "Resolve integration" : "Answer";
-  const primary = primaryOption
+  const primaryOption = item.type === "permission_request" ? null : (options.find((option) => option.id !== "takeover") || options[0]);
+  const extraOptions = item.type === "permission_request" ? [] : options.filter((option) => option !== primaryOption && option.id !== "takeover");
+  const handledByGroup = ["review", "review_ready", "evaluation_failed", "evaluation_review", "permission_request"].includes(item.type) && item.run_id && !primaryOption;
+  const actionLabel = item.type === "merge_conflict" ? "Resolve integration" : item.type === "question" ? "Answer" : "Give guidance";
+  const primary = handledByGroup
+    ? ""
+    : primaryOption
     ? `<button class="primary" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(primaryOption.id)}" type="button">${escapeHtml(primaryOption.label)}</button>`
     : `<button class="primary" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button>`;
   const extras = extraOptions.map((option) => `<button class="ghost" data-attention-answer="${escapeHtml(item.id)}" data-answer="${escapeHtml(option.id)}" type="button">${escapeHtml(option.label)}</button>`).join("");
@@ -2191,11 +2205,11 @@ function renderAttentionEvent(item) {
   const preserved = detail.preserved_branches || detail.preserved || [];
   const conflictBody = item.type === "merge_conflict" ? `<div class="attention-conflict-list"><strong>Conflicting files</strong>${conflicts.length ? conflicts.map((file) => `<code>${escapeHtml(file)}</code>`).join("") : `<span>Unknown</span>`}<strong>Preserved branches</strong>${preserved.length ? preserved.map((branch) => `<code>${escapeHtml(branch)}</code>`).join("") : `<span>Source and integration branches are preserved.</span>`}</div>` : "";
   const message = item.type === "merge_conflict" ? "Prerequisite: resolve listed files." : item.message;
-  return `<section class="attention-group-event"><div class="attention-event-head"><strong>${escapeHtml(attentionItemLabel(item))}</strong><span>${escapeHtml(relativeTime(item.created_at))} ago</span></div><p>${escapeHtml(message)}</p>${conflictBody}<div class="attention-event-actions">${primary}<details class="card-more-actions"><summary>More</summary><div>${extras}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button><button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve decision</button></div></details></div></section>`;
+  return `<section class="attention-group-event"><div class="attention-event-copy"><div class="attention-event-head"><strong>${escapeHtml(attentionItemLabel(item))}</strong><span>${escapeHtml(relativeTime(item.created_at))} ago</span></div><p title="${escapeHtml(message)}">${escapeHtml(message)}</p>${conflictBody}</div><div class="attention-event-actions">${primary}<details class="card-more-actions"><summary>More</summary><div>${extras}<button class="ghost" data-attention-custom="${escapeHtml(item.id)}" type="button">${escapeHtml(actionLabel)}</button><button class="ghost" data-attention-resolve="${escapeHtml(item.id)}" type="button">Resolve decision</button></div></details></div></section>`;
 }
 
 async function refreshAttention() {
-  state.attention = (await api("/api/attention?status=open")).items;
+  state.attention = relevantAttentionItems((await api("/api/attention?status=open")).items);
   const groups = groupAttention();
   const highPriority = groups.filter((group) => ["critical", "high"].includes(group.priority)).length;
   const multiple = groups.filter((group) => group.items.length > 1).length;
@@ -2212,7 +2226,7 @@ async function refreshAttention() {
     const first = group.items[0];
     const title = run ? runTitle(run) : (first.title || "Decision required");
     const classes = `stack-card attention-card attention-group priority-${escapeHtml(group.priority)}${group.items.some((item) => item.type === "merge_conflict") ? " attention-conflict" : ""}`;
-    return `<article class="${classes}"><div class="card-row"><span class="mini-status status-${group.priority === "high" || group.priority === "critical" ? "failed" : "queued"}">${escapeHtml(group.priority)}</span><span class="run-id">${group.items.length} decision${group.items.length === 1 ? "" : "s"}</span></div><h3>${escapeHtml(title)}</h3><div class="attention-group-events">${group.items.map(renderAttentionEvent).join("")}</div>${group.run_id ? `<div class="attention-group-footer"><button class="ghost" data-open-run="${escapeHtml(group.run_id)}" type="button">Open task</button></div>` : ""}</article>`;
+    return `<article class="${classes}"><header class="attention-group-head"><span class="mini-status status-${group.priority === "high" || group.priority === "critical" ? "failed" : "queued"}">${escapeHtml(group.priority)}</span><h3 title="${escapeHtml(title)}">${escapeHtml(title)}</h3><span class="run-id">${group.items.length} decision${group.items.length === 1 ? "" : "s"}</span>${group.run_id ? `<button class="ghost compact" data-open-run="${escapeHtml(group.run_id)}" type="button">Open task</button>` : ""}</header><div class="attention-group-events">${group.items.map(renderAttentionEvent).join("")}</div></article>`;
   }).join("") : `<div class="attention-zero"><span class="all-clear-mark">✓</span><p class="eyebrow">ALL CLEAR</p><strong>Nothing needs you.</strong><p>${escapeHtml(UI_COPY.noAction)}.</p><div class="empty-actions"><button class="primary" data-attention-new type="button">Start a task</button><button class="ghost" data-attention-epic type="button">Plan work</button><button class="ghost" data-open-terminals type="button">Terminals</button></div></div>`;
   $$('[data-attention-answer]').forEach((button) => button.addEventListener("click", () => respondAttention(button.dataset.attentionAnswer, button.dataset.answer)));
   $$('[data-attention-custom]').forEach((button) => button.addEventListener("click", () => openAttentionResponseDialog(button.dataset.attentionCustom)));
@@ -2516,6 +2530,43 @@ function portfolioMetric(label, value, note, tone = "") {
   return `<article class="portfolio-kpi ${escapeHtml(tone)}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><p>${escapeHtml(note)}</p></article>`;
 }
 
+function renderPortfolioPreview() {
+  const days = Number($("#portfolioWindow")?.value || 7);
+  const cutoff = Date.now() - days * 86400000;
+  const runs = state.runs.filter((run) => run.kind !== "tmux" && new Date(run.created_at || 0).getTime() >= cutoff);
+  const started = runs.filter((run) => run.started_at);
+  const delivered = started.filter((run) => run.status === "pr_created" || deliveredDeliveryStatuses.has(run.delivery?.status));
+  const blocked = state.runs.filter((run) => ["blocked", "failed", "attention"].includes(run.status));
+  const agentBuckets = new Map();
+  started.forEach((run) => {
+    const lane = run.lane || "unknown";
+    const bucket = agentBuckets.get(lane) || {agent: lane, started: 0, delivered: 0};
+    bucket.started += 1;
+    if (run.status === "pr_created" || deliveredDeliveryStatuses.has(run.delivery?.status)) bucket.delivered += 1;
+    agentBuckets.set(lane, bucket);
+  });
+  const agents = [...agentBuckets.values()].sort((left, right) => right.delivered - left.delivered);
+  $("#portfolioKpis").innerHTML = [
+    portfolioMetric("Tasks started", compactNumber(started.length), `${days}-day snapshot`),
+    portfolioMetric("Delivered", compactNumber(delivered.length), "integrated or PR delivered", "positive"),
+    portfolioMetric("Autonomous delivery", "Calculating…", "reading durable decisions"),
+    portfolioMetric("First-pass success", "Calculating…", "reading retries and repairs"),
+    portfolioMetric("Human interventions", "Calculating…", "reading operator actions"),
+    portfolioMetric("Median delivery time", "Calculating…", "reading completed runs"),
+    portfolioMetric("Median cost / delivery", "Calculating…", "unknown cost stays unknown"),
+    portfolioMetric("Engineer-hours saved", "—", "requires configured baseline"),
+    portfolioMetric("Active repositories", compactNumber(new Set(started.map((run) => run.project_id).filter(Boolean)).size), "with started work in window"),
+    portfolioMetric("Currently blocked", compactNumber(blocked.length), "open across all repositories", blocked.length ? "danger" : "positive"),
+  ].join("");
+  $("#portfolioAgentCount").textContent = `${agents.length} agent${agents.length === 1 ? "" : "s"}`;
+  $("#portfolioAgentTable").innerHTML = agents.length ? `<thead><tr><th>Worker</th><th>Delivered</th><th>Observed runs</th><th>Outcome detail</th></tr></thead><tbody>${agents.map((row) => `<tr><td><strong>${escapeHtml(row.agent)}</strong></td><td>${escapeHtml(row.delivered)}</td><td><span class="sample-badge ${row.started < 5 ? "low" : ""}">N=${escapeHtml(row.started)}${row.started < 5 ? " · low" : ""}</span></td><td>Calculating…</td></tr>`).join("")}</tbody>` : `<tbody><tr><td>No started agent runs in this window.</td></tr></tbody>`;
+  $("#portfolioFailureCount").textContent = "Loading attribution…";
+  $("#portfolioFailures").innerHTML = `<div class="portfolio-empty">Reading failure evidence…</div>`;
+  $("#portfolioBlockers").innerHTML = blocked.length ? blocked.slice(0, 20).map((run) => `<button class="portfolio-blocker" data-portfolio-run="${escapeHtml(run.id)}" type="button"><span class="mini-status status-${escapeHtml(run.status)}">${escapeHtml(run.status)}</span><strong>${escapeHtml(runTitle(run))}</strong><small>${escapeHtml(run.last_error || run.blocked_reason || "Operator action required")}</small><em>Open →</em></button>`).join("") : `<div class="portfolio-empty"><strong>Nothing is blocked.</strong><span>Odysseus will surface the next decision here.</span></div>`;
+  $$('[data-portfolio-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.portfolioRun)));
+  $("#portfolioMethod").textContent = "Snapshot ready. Audited outcome metrics are still loading…";
+}
+
 function renderPortfolio(payload) {
   state.portfolio = payload;
   const metrics = payload.metrics || {};
@@ -2548,9 +2599,12 @@ function renderPortfolio(payload) {
 }
 
 async function refreshPortfolio() {
+  if (state.portfolioLoading) return;
+  state.portfolioLoading = true;
   const days = Number($("#portfolioWindow")?.value || 7);
   try { renderPortfolio(await api(`/api/portfolio?days=${days}`)); }
-  catch (error) { $("#portfolioKpis").innerHTML = `<div class="portfolio-loading error">${escapeHtml(error.message)}</div>`; }
+  catch (error) { $("#portfolioMethod").textContent = `Detailed outcome analysis unavailable: ${error.message}. Snapshot metrics remain visible.`; }
+  finally { state.portfolioLoading = false; }
 }
 
 async function refreshInsights() {
@@ -2854,7 +2908,7 @@ async function init() {
     $(".brand").addEventListener("click", (event) => { event.preventDefault(); setView("portfolio"); });
     $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#refreshPortfolio").addEventListener("click", refreshPortfolio); $("#portfolioWindow").addEventListener("change", refreshPortfolio); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
     document.addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#globalSearch").focus(); } });
-    await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns();
+    await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns(); await refreshAttention();
     const params = new URLSearchParams(location.search);
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
     else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["portfolio", "work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github", "settings"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView(state.runs.length ? "portfolio" : "work"); } }
@@ -2900,6 +2954,11 @@ async function runBrowserRegression() {
     assert($("#workListToggle").getAttribute("aria-expanded") === "false", "recent work exposes collapsed state");
     $("#workListToggle").click();
     assert(!$("#workListPanel").classList.contains("hidden"), "recent work can be expanded");
+    const recentRow = $(".work-task-row");
+    if (recentRow) {
+      assert(recentRow.querySelector(":scope > .mini-status") && recentRow.querySelector(":scope > time") && recentRow.querySelector(":scope > h3"), "recent work is a status-time-title row");
+      assert(narrow || recentRow.getBoundingClientRect().height <= 44, "recent work remains one line on desktop");
+    }
     if (!narrow) {
       const columns = getComputedStyle($(".repository-status-grid")).gridTemplateColumns.split(" ").map(Number.parseFloat);
       assert(columns.length >= 2 && columns[0] > columns[1], "dependency graph is wider than the Gantt timeline");
@@ -2985,6 +3044,7 @@ async function runBrowserRegression() {
   assert(queued, "integration delivery queued");
 
   await refreshAttention();
+  assert(!state.attention.some((item) => item.type === "permission_request" && state.runs.find((run) => run.id === item.run_id)?.status === "review"), "review hides superseded runtime permissions");
   const conflict = state.attention.find((item) => item.type === "merge_conflict");
   if (conflict) {
     assert($("#attentionList").textContent.includes("Conflicting files"), "conflict card shows files");

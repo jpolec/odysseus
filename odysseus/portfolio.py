@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import copy
+import threading
+import weakref
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import TYPE_CHECKING, Any, Mapping
@@ -16,6 +19,9 @@ CORRECTIVE_USER_EVENTS = frozenset(
     {"attention.answered", "attention.resolved", "review.sent_back", "run.cancel_requested"}
 )
 RETRY_EVENTS = frozenset({"workflow.retry", "review.sent_back", "ci.retry_queued", "ci.retry_pushed"})
+
+_PORTFOLIO_CACHE_LOCK = threading.Lock()
+_PORTFOLIO_CACHE: weakref.WeakKeyDictionary[RunStore, dict[str, Any]] = weakref.WeakKeyDictionary()
 
 
 def _time(value: Any) -> datetime | None:
@@ -90,7 +96,41 @@ def _rate(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 4) if denominator else None
 
 
+def _portfolio_signature(store: RunStore, days: int) -> tuple[Any, ...]:
+    def fingerprint(path: Any) -> tuple[str, int, int]:
+        try:
+            stat = path.stat()
+            return (path.name, int(stat.st_mtime_ns), int(stat.st_size))
+        except OSError:
+            return (path.name, 0, 0)
+
+    return (
+        days,
+        fingerprint(store.config_path),
+        tuple(fingerprint(path) for path in sorted(store.runs_dir.glob("*.json"))),
+    )
+
+
 def engineering_portfolio(store: RunStore, *, days: int = 7) -> dict[str, Any]:
+    """Return one cached projection per durable run-state generation.
+
+    The first calculation validates the full relevant journals. Concurrent UI
+    refreshes then reuse that auditable result until a run or portfolio setting
+    changes, preventing open browser tabs from repeatedly rescanning journals.
+    """
+
+    window_days = max(1, min(int(days or 7), 365))
+    signature = _portfolio_signature(store, window_days)
+    with _PORTFOLIO_CACHE_LOCK:
+        cached = _PORTFOLIO_CACHE.get(store)
+        if cached and cached.get("signature") == signature:
+            return copy.deepcopy(cached["payload"])
+        payload = _engineering_portfolio_uncached(store, days=window_days)
+        _PORTFOLIO_CACHE[store] = {"signature": signature, "payload": payload}
+        return copy.deepcopy(payload)
+
+
+def _engineering_portfolio_uncached(store: RunStore, *, days: int = 7) -> dict[str, Any]:
     """Return auditable, windowed lead metrics without inventing missing cost data."""
 
     window_days = max(1, min(int(days or 7), 365))

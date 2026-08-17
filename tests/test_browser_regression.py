@@ -129,6 +129,16 @@ class BrowserRegressionTests(unittest.TestCase):
                 metrics={"cost_observed": False, "session_usage": {"agent": {"input_tokens": 10, "output_tokens": 5}}},
                 artifact_files=["review.py"],
             )
+            store.attention.create(
+                {
+                    "type": "permission_request",
+                    "priority": "high",
+                    "title": "Stale runtime permission",
+                    "message": "This no longer blocks a task that reached review.",
+                    "run_id": review["id"],
+                    "project_id": review["project_id"],
+                }
+            )
             accepted = []
             for title in ("Stale UI", "Backend", "API", "Docs"):
                 run = store.create({"title": title, "task": title, "project_path": str(repo), "status": "review"})

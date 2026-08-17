@@ -770,6 +770,25 @@ class RunStore:
     ) -> None:
         """Project normalized exceptional events into the operator queue."""
 
+        if event_type == "run.review_ready":
+            # A task that reached review no longer needs earlier runtime
+            # questions or permission prompts. Keep evaluation findings: they
+            # remain relevant evidence for the review decision.
+            self.attention.resolve_for_run(
+                str(run["id"]),
+                resolution="superseded_by_review",
+                types=frozenset(
+                    {
+                        "question",
+                        "permission_request",
+                        "blocked",
+                        "decision_required",
+                        "stalled",
+                        "budget",
+                    }
+                ),
+            )
+
         mapping = {
             "run.review_ready": ("review", "medium", "Review ready"),
             "run.failed": ("blocked", "high", "Task failed"),
