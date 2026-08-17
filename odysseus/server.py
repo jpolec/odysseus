@@ -25,6 +25,7 @@ from .ci import CIWatcher
 from .economics import economics_csv, economics_ndjson, outcome_economics
 from .planner import EpicPlanner
 from .portfolio import engineering_portfolio
+from .redaction import DEFAULT_REDACTION_ENGINE
 from .runners import AgentRunner, _extract_text, _sanitize
 from .scheduler import ReviewActions, Scheduler
 from .search import search, statistics
@@ -1036,7 +1037,15 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         return host in {"127.0.0.1", "localhost", "::1"}
 
     def _json(self, value: Mapping[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
-        payload = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(value, boundary="http_json")
+        if (
+            isinstance(value, Mapping)
+            and isinstance(redacted, dict)
+            and value.get("name") == "Odysseus"
+            and "token" in value
+        ):
+            redacted["token"] = value["token"]
+        payload = json.dumps(redacted, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
@@ -1048,7 +1057,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _text(self, value: str, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
-        payload = value.encode("utf-8")
+        redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(value, boundary="http_text")
+        payload = str(redacted).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
@@ -1089,7 +1099,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 events = self.server.app.store.events(run_id, after=after, limit=250)
                 for event in events:
                     after = int(event["seq"])
-                    payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+                    redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(event, boundary="sse_event")
+                    payload = json.dumps(redacted, ensure_ascii=False, separators=(",", ":"))
                     frame = f"id: {after}\nevent: odysseus\ndata: {payload}\n\n".encode("utf-8")
                     self.wfile.write(frame)
                 if events:

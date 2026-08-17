@@ -82,6 +82,8 @@ class AttentionQueue:
             raise ValueError(f"unsupported attention priority: {priority}")
         title = str(request.get("title") or "Operator decision required").strip()
         message = str(request.get("message") or "").strip()
+        title = str(self.store.redaction.redact(title, boundary="attention")[0])
+        message = str(self.store.redaction.redact(message, boundary="attention")[0])
         raw_options = request.get("options") or []
         if not isinstance(raw_options, list):
             raise ValueError("attention options must be a list")
@@ -90,12 +92,22 @@ class AttentionQueue:
             if isinstance(option, str):
                 value = option.strip()
                 if value:
-                    options.append({"id": value, "label": value})
+                    options.append(
+                        {
+                            "id": str(self.store.redaction.redact(value, boundary="attention")[0]),
+                            "label": str(self.store.redaction.redact(value, boundary="attention")[0]),
+                        }
+                    )
             elif isinstance(option, dict):
                 option_id = str(option.get("id") or option.get("value") or index + 1).strip()
                 label = str(option.get("label") or option.get("description") or option_id).strip()
                 if option_id and label:
-                    options.append({"id": option_id, "label": label})
+                    options.append(
+                        {
+                            "id": str(self.store.redaction.redact(option_id, boundary="attention")[0]),
+                            "label": str(self.store.redaction.redact(label, boundary="attention")[0]),
+                        }
+                    )
         stamp = now_iso()
         dedupe_key = str(request.get("dedupe_key") or "").strip()
         with self.store.locked():
@@ -112,7 +124,10 @@ class AttentionQueue:
                 "title": title,
                 "message": message,
                 "options": options,
-                "data": request.get("data") if isinstance(request.get("data"), dict) else {},
+                "data": self.store.redaction.redact(
+                    request.get("data") if isinstance(request.get("data"), dict) else {},
+                    boundary="attention",
+                )[0],
                 "run_id": str(request.get("run_id") or ""),
                 "epic_id": str(request.get("epic_id") or ""),
                 "project_id": str(request.get("project_id") or ""),
@@ -129,7 +144,7 @@ class AttentionQueue:
         return record
 
     def respond(self, item_id: str, response: str) -> dict[str, Any]:
-        answer = response.strip()
+        answer = str(self.store.redaction.redact(response.strip(), boundary="attention_response")[0])
         if not answer:
             raise ValueError("attention response is required")
         stamp = now_iso()

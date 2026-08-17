@@ -170,6 +170,54 @@ class StoreTests(unittest.TestCase):
             )
             self.assertEqual(store.get(run["id"])["metrics"]["input_tokens"], 0)
 
+    def test_durable_run_and_event_boundaries_redact_adversarial_payloads(self) -> None:
+        secret = "ghp_abcdefghijklmnop1234"
+        bearer = "Bearer abcdefghijklmnop"
+        env_value = "OPENAI_API_KEY=sk-abcdefghijklmnop1234"
+        traceback = "Traceback (most recent call last):\n  RuntimeError: password=supersecretvalue"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create(
+                {
+                    "title": f"Fix leak {secret}",
+                    "task": f"Handle nested {secret}",
+                    "project_path": str(project),
+                    "checks": [f"curl -H 'Authorization: {bearer}'"],
+                    "environment": {"allow_env": ["SERVICE_TOKEN"]},
+                }
+            )
+            store.update(
+                run["id"],
+                last_error=traceback,
+                check_results=[{"command": "cat .env", "output": env_value}],
+                review_summary={"nested": {"api_key": "plain-api-key-value"}},
+            )
+            store.append_event(
+                run["id"],
+                "agent.tool.completed",
+                "codex",
+                {
+                    "tool": "shell",
+                    "command": f"cat .env && echo {secret}",
+                    "aggregated_output": f"{env_value}\nAuthorization: {bearer}\n{traceback}",
+                    "nested": {"api_key": "plain-api-key-value"},
+                },
+            )
+
+            persisted = (store.runs_dir / f"{run['id']}.json").read_text(encoding="utf-8")
+            journal = (store.events_dir / f"{run['id']}.ndjson").read_text(encoding="utf-8")
+            combined = persisted + journal + json.dumps(store.get(run["id"])) + json.dumps(store.events(run["id"]))
+
+            for leaked in (secret, "sk-abcdefghijklmnop1234", "abcdefghijklmnop", "supersecretvalue", "plain-api-key-value"):
+                self.assertNotIn(leaked, combined)
+            self.assertNotIn(secret.lower().replace("_", "-"), run["id"].lower())
+            self.assertIn("[REDACTED]", combined)
+            self.assertIn("redaction_receipt", persisted)
+            self.assertIn("redaction_receipt", journal)
+
     def test_schema_two_snapshot_migrates_forward_without_rewriting_events(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

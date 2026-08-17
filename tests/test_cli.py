@@ -13,6 +13,7 @@ from odysseus import __version__
 from odysseus.cli import (
     _running_odysseus_url,
     cmd_doctor,
+    cmd_export,
     cmd_serve,
     cmd_update,
     cmd_version,
@@ -114,6 +115,38 @@ class CLITests(unittest.TestCase):
         self.assertEqual(value["version"], __version__)
         self.assertGreaterEqual(value["run_schema"], 1)
         self.assertGreaterEqual(value["event_schema"], 1)
+
+    def test_export_redacts_nested_state_and_events(self) -> None:
+        from odysseus.store import RunStore
+
+        secret = "ghp_abcdefghijklmnop1234"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": f"Export {secret}", "project_path": str(project)})
+            store.append_event(
+                run["id"],
+                "agent.output",
+                "codex",
+                {"text": f"OPENAI_API_KEY=sk-abcdefghijklmnop1234\nAuthorization: Bearer abcdefghijklmnop"},
+            )
+            args = argparse.Namespace(
+                state_dir=store.root,
+                format="json",
+                output=None,
+                view="lead",
+                privacy="full",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cmd_export(args), 0)
+            payload = output.getvalue()
+
+        self.assertIn("[REDACTED]", payload)
+        for leaked in (secret, "sk-abcdefghijklmnop1234", "abcdefghijklmnop"):
+            self.assertNotIn(leaked, payload)
 
     def test_run_variants_flag_is_explicit_opt_in(self) -> None:
         args = parser().parse_args(

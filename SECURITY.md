@@ -53,9 +53,14 @@ commands run in disposable containers and should persist only into the task
 worktree or per-run home. Automatic service sidecars, disk quotas, image
 signature policy, and stronger outbound allowlists are not yet implemented.
 
-Common credential-shaped fields and token patterns are redacted from normalized
-vendor telemetry before it is persisted. This is defense in depth, not a reason
-to put secrets in prompts or shell commands.
+Common credential-shaped fields, env-file assignments, authorization headers,
+private-key blocks, URL credentials, token patterns, and configured runtime
+credential values are redacted by the central RedactionEngine before current
+run snapshots, append-only events, agent/check telemetry, notifications,
+exports, proof inputs, and browser/SSE event responses cross durable or UI
+boundaries. Redaction receipts record only the ruleset version and redacted
+field classes, never the material that was removed. This is defense in depth,
+not a reason to put secrets in prompts or shell commands.
 
 Accepting a task creates a local commit on its Odysseus task branch and does not
 update the operator's source checkout. Downstream artifact composition runs

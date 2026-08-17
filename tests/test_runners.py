@@ -136,9 +136,19 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(events[-1][1]["tool"], "Bash")
 
     def test_telemetry_redacts_common_secrets(self) -> None:
-        value = _sanitize({"api_key": "secret", "command": "curl -H 'Authorization: Bearer abcdefghijklmnop'"})
+        value = _sanitize(
+            {
+                "api_key": "secret",
+                "command": "curl -H 'Authorization: Bearer abcdefghijklmnop'",
+                "output": "OPENAI_API_KEY=sk-abcdefghijklmnop1234\nTraceback: password=supersecretvalue",
+                "nested": {"token": "ghp_abcdefghijklmnop1234"},
+            }
+        )
         self.assertEqual(value["api_key"], "[REDACTED]")
         self.assertNotIn("abcdefghijklmnop", value["command"])
+        self.assertNotIn("sk-abcdefghijklmnop1234", value["output"])
+        self.assertNotIn("supersecretvalue", value["output"])
+        self.assertEqual(value["nested"]["token"], "[REDACTED]")
 
     def test_allowlisted_runtime_value_is_redacted_from_events_and_result(self) -> None:
         credential = "ordinary-value-not-matching-a-token-pattern"

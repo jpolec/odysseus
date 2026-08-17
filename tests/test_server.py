@@ -314,6 +314,54 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
+    def test_http_and_sse_event_boundaries_are_redacted(self) -> None:
+        secret = "ghp_abcdefghijklmnop1234"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": f"Stream {secret}", "project_path": str(project)})
+            store.append_event(
+                run["id"],
+                "agent.tool.completed",
+                "codex",
+                {
+                    "tool": "shell",
+                    "command": f"printf {secret}",
+                    "output": f"OPENAI_API_KEY=sk-abcdefghijklmnop1234\nAuthorization: Bearer abcdefghijklmnop",
+                    "nested": {"password": "traceback-secret"},
+                },
+            )
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/runs/{run['id']}") as response:
+                    run_payload = response.read().decode()
+                with urllib.request.urlopen(f"{base}/api/runs/{run['id']}/events") as response:
+                    events_payload = response.read().decode()
+                with urllib.request.urlopen(f"{base}/api/runs/{run['id']}/stream?after=1", timeout=2) as response:
+                    lines = []
+                    while len(lines) < 4:
+                        line = response.readline().decode()
+                        if not line:
+                            break
+                        lines.append(line)
+                        if line.startswith("data: "):
+                            break
+                stream_payload = "".join(lines)
+                combined = run_payload + events_payload + stream_payload
+                for leaked in (secret, "sk-abcdefghijklmnop1234", "abcdefghijklmnop", "traceback-secret"):
+                    self.assertNotIn(leaked, combined)
+                self.assertIn("[REDACTED]", combined)
+                self.assertIn("redaction_receipt", events_payload)
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_ui_bootstrap_and_token_protected_create(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

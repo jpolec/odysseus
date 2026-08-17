@@ -9,6 +9,7 @@ import statistics as stats
 from typing import TYPE_CHECKING, Any
 
 from .events import now_iso
+from .redaction import REDACTION_RULESET_VERSION
 
 if TYPE_CHECKING:
     from .store import RunStore
@@ -350,6 +351,7 @@ def production_proof(
         "release": release or "all",
         "evidence_filter": "kind=task AND provenance.evidence_class=observed",
         "eligibility_policy": ELIGIBILITY_POLICY,
+        "redaction": {"ruleset_version": REDACTION_RULESET_VERSION},
         "attention_measurement": (
             "explicit source=user actions; timing is Needs You open-to-answered latency, "
             "not active human work time"

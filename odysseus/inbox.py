@@ -46,6 +46,8 @@ class Inbox:
             title = task.splitlines()[0][:100] if task else "Follow-up"
         if not task:
             task = title
+        title = str(self.store.redaction.redact(title, boundary="inbox")[0])
+        task = str(self.store.redaction.redact(task, boundary="inbox")[0])
         stamp = now_iso()
         item_id = f"followup-{stamp.replace(':', '').replace('-', '')[:15]}-{secrets.token_hex(2)}"
         record = {
@@ -71,11 +73,12 @@ class Inbox:
         allowed = {"status", "priority", "title", "task"}
         if set(changes) - allowed:
             raise ValueError("unsupported inbox change")
+        redacted_changes = self.store.redaction.redact(changes, boundary="inbox")[0]
         with self.store.locked():
             values = self._read()
             if item_id not in values:
                 raise KeyError(item_id)
-            values[item_id].update(changes)
+            values[item_id].update(redacted_changes if isinstance(redacted_changes, dict) else changes)
             values[item_id]["updated_at"] = now_iso()
             self.store._atomic_json(self.path, values)
             return dict(values[item_id])

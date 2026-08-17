@@ -22,6 +22,7 @@ from .notifications import NotificationManager
 from .outcome_router import OutcomeRouter
 from .project_knowledge import ProjectKnowledge
 from .projects import ProjectRegistry
+from .redaction import DEFAULT_REDACTION_ENGINE
 from .skills import SkillRegistry, VALID_TASK_MODES
 from .variants import normalize_variants_request
 
@@ -175,6 +176,7 @@ def _run_defaults() -> dict[str, Any]:
             "decided_at": None,
         },
         "outcome_routing": {},
+        "redaction_receipt": {},
     }
 
 
@@ -231,6 +233,7 @@ class RunStore:
         self.epics = EpicStore(self)
         self.notifications = NotificationManager(self)
         self.outcome_router = OutcomeRouter(self)
+        self.redaction = DEFAULT_REDACTION_ENGINE
         if migrate and not readonly:
             self._migrate_runs()
 
@@ -262,7 +265,7 @@ class RunStore:
                     run["schema_version"] = RUN_SCHEMA_VERSION
                     changed = True
                 if changed:
-                    self._atomic_json(path, run)
+                    self._atomic_json(path, self._redact_snapshot(run))
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -301,6 +304,44 @@ class RunStore:
                 os.unlink(tmp_name)
             except FileNotFoundError:
                 pass
+
+    def _redact_snapshot(self, run: Mapping[str, Any]) -> dict[str, Any]:
+        previous = run.get("redaction_receipt") if isinstance(run.get("redaction_receipt"), dict) else {}
+        previous_classes = previous.get("redacted_field_classes") if isinstance(previous, dict) else []
+        if not isinstance(previous_classes, list):
+            previous_classes = []
+        value, receipt = self.redaction.redact(dict(run), boundary="run_snapshot")
+        if not isinstance(value, dict):
+            raise RuntimeError("redacted run snapshot must be an object")
+        value["redaction_receipt"] = {
+            **receipt.to_dict(),
+            "redacted_field_classes": sorted(
+                {
+                    *receipt.redacted_field_classes,
+                    *[str(item) for item in previous_classes if isinstance(item, str)],
+                }
+            ),
+        }
+        return value
+
+    def _redact_event_record(self, event: Mapping[str, Any]) -> dict[str, Any]:
+        previous = event.get("redaction_receipt") if isinstance(event.get("redaction_receipt"), dict) else {}
+        previous_classes = previous.get("redacted_field_classes") if isinstance(previous, dict) else []
+        if not isinstance(previous_classes, list):
+            previous_classes = []
+        value, receipt = self.redaction.redact(dict(event), boundary="event")
+        if not isinstance(value, dict):
+            raise RuntimeError("redacted event must be an object")
+        value["redaction_receipt"] = {
+            **receipt.to_dict(),
+            "redacted_field_classes": sorted(
+                {
+                    *receipt.redacted_field_classes,
+                    *[str(item) for item in previous_classes if isinstance(item, str)],
+                }
+            ),
+        }
+        return value
 
     def config(self) -> dict[str, Any]:
         with self.locked():
@@ -395,7 +436,7 @@ class RunStore:
             raise RuntimeError(f"invalid run record: {path}")
         for key, default in _run_defaults().items():
             value.setdefault(key, default)
-        return value
+        return self._redact_snapshot(value)
 
     def list(self) -> list[dict[str, Any]]:
         runs: list[dict[str, Any]] = []
@@ -407,13 +448,14 @@ class RunStore:
             if isinstance(value, dict):
                 for key, default in _run_defaults().items():
                     value.setdefault(key, default)
-                runs.append(value)
+                runs.append(self._redact_snapshot(value))
         return sorted(runs, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
     def create(self, request: Mapping[str, Any]) -> dict[str, Any]:
         task = str(request.get("task", "")).strip()
         if not task:
             raise ValueError("task is required")
+        task = str(self.redaction.redact(task, boundary="run_request")[0])
         project = Path(str(request.get("project_path", "."))).expanduser().resolve()
         if not project.is_dir():
             raise ValueError(f"project directory does not exist: {project}")
@@ -423,6 +465,7 @@ class RunStore:
         compact_stamp = stamp.replace("-", "").replace(":", "").replace("T", "-")[:15]
         raw_title = request.get("title")
         title = (str(raw_title).strip() if raw_title is not None else "") or task.splitlines()[0][:100]
+        title = str(self.redaction.redact(title, boundary="run_request")[0])
         run_id = f"{compact_stamp}-{_slug(title)}-{secrets.token_hex(2)}"
         checks = request.get("checks", [])
         if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
@@ -636,7 +679,7 @@ class RunStore:
             "outcome_routing": outcome_routing,
         }
         with self.locked():
-            self._atomic_json(self._path(run_id), run)
+            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         if initial_status == "queued":
             self.append_event(run_id, "run.queued", "odysseus", {"title": title})
         if context_receipt:
@@ -680,7 +723,7 @@ class RunStore:
             run = self.get(run_id)
             run.update(changes)
             run["updated_at"] = now_iso()
-            self._atomic_json(self._path(run_id), run)
+            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         return run
 
     def mutate(self, run_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
@@ -688,7 +731,7 @@ class RunStore:
             run = self.get(run_id)
             change(run)
             run["updated_at"] = now_iso()
-            self._atomic_json(self._path(run_id), run)
+            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         return run
 
     def append_event(
@@ -701,8 +744,10 @@ class RunStore:
         with self.locked():
             run = self.get(run_id)
             seq = int(run.get("event_seq", 0)) + 1
-            event = Event(run_id=run_id, type=event_type, source=source, data=data or {}, seq=seq)
+            redacted_data, redaction_receipt = self.redaction.redact(data or {}, boundary="event")
+            event = Event(run_id=run_id, type=event_type, source=source, data=redacted_data, seq=seq)
             value = event.to_dict()
+            value["redaction_receipt"] = redaction_receipt.to_dict()
             line = json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n"
             path = self._events_path(run_id)
             with path.open("a", encoding="utf-8") as handle:
@@ -711,10 +756,10 @@ class RunStore:
                 os.fsync(handle.fileno())
             run["event_seq"] = seq
             run["updated_at"] = event.ts
-            self._aggregate_event(run, event_type, data or {})
-            self._atomic_json(self._path(run_id), run)
-        self._route_attention(run, event_type, data or {})
-        self.notifications.notify(run, event_type, data or {})
+            self._aggregate_event(run, event_type, redacted_data)
+            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
+        self._route_attention(run, event_type, redacted_data)
+        self.notifications.notify(run, event_type, redacted_data)
         return value
 
     def _route_attention(
@@ -862,7 +907,7 @@ class RunStore:
                 except json.JSONDecodeError:
                     continue
                 if int(value.get("seq", 0)) > after:
-                    values.append(value)
+                    values.append(self._redact_event_record(value))
                     if len(values) >= limit:
                         break
         return values
@@ -903,7 +948,7 @@ class RunStore:
                 if str(value.get("run_id") or "") != run_id:
                     raise RuntimeError(f"event run id does not match journal: {path}:{number}")
                 previous_seq = seq
-                values.append(value)
+                values.append(self._redact_event_record(value))
         if previous_seq != int(run.get("event_seq", 0) or 0):
             raise RuntimeError(
                 f"event journal tail {previous_seq} does not match run sequence "
@@ -938,7 +983,7 @@ class RunStore:
             run["cancel_requested"] = False
             run["started_at"] = run.get("started_at") or now_iso()
             run["updated_at"] = now_iso()
-            self._atomic_json(self._path(run_id), run)
+            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         self.append_event(run_id, "run.started", "odysseus", {"worker_pid": os.getpid()})
         return self.get(run_id)
 

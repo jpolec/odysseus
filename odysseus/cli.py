@@ -25,6 +25,7 @@ from .lifecycle import ResourceLifecycle
 from .lifecycle import ServerLease
 from .planner import EpicPlanner
 from .proof import production_proof, proof_markdown
+from .redaction import DEFAULT_REDACTION_ENGINE
 from .resources import resource_path
 from .search import search, statistics
 from .scheduler import ReviewActions, Scheduler
@@ -35,7 +36,8 @@ from .tmux import TmuxBridge
 
 
 def _print_json(value: Any) -> None:
-    print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
+    redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(value, boundary="cli_json")
+    print(json.dumps(redacted, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _store(
@@ -305,7 +307,8 @@ def cmd_show(args: argparse.Namespace) -> int:
 def cmd_events(args: argparse.Namespace) -> int:
     events = _store(args).events(args.run_id, after=args.after)
     for event in events:
-        print(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+        redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(event, boundary="cli_event")
+        print(json.dumps(redacted, ensure_ascii=False, separators=(",", ":")))
     return 0
 
 
@@ -620,6 +623,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     if args.format in {"csv", "ndjson"}:
         economics = outcome_economics(store, privacy=args.privacy)
         encoded = economics_csv(economics, view=args.view) if args.format == "csv" else economics_ndjson(economics, view=args.view)
+        encoded = str(DEFAULT_REDACTION_ENGINE.redact(encoded, boundary="cli_export")[0])
         if args.output:
             target = Path(args.output).expanduser()
             target.write_text(encoded, encoding="utf-8")
@@ -638,7 +642,8 @@ def cmd_export(args: argparse.Namespace) -> int:
         "stats": statistics(store),
         "outcome_economics": outcome_economics(store, privacy=args.privacy),
     }
-    encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    redacted_payload, _receipt = DEFAULT_REDACTION_ENGINE.redact(payload, boundary="cli_export")
+    encoded = json.dumps(redacted_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.output:
         target = Path(args.output).expanduser()
         target.write_text(encoded, encoding="utf-8")
