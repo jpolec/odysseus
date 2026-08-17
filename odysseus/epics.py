@@ -420,7 +420,11 @@ class EpicStore:
                 self.store.append_event(run_id, "run.queued", "odysseus", {"reason": "dependencies_complete"})
                 unblocked.append(run_id)
 
-        current = [self.store.get(run_id) for run_id in runs_by_id]
+        current = (
+            [self.store.get(run_id) for run_id in runs_by_id]
+            if runs is None
+            else [dict(run) for run in runs_by_id.values()]
+        )
         if current and all(run.get("status") in EPIC_FINAL_STATUSES for run in current):
             status = "failed" if any(run.get("status") in DEPENDENCY_FAILED_STATUSES for run in current) else "completed"
             if epic.get("status") != status:

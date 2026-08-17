@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from odysseus.epics import CycleError
 from odysseus.store import RunStore
@@ -88,6 +89,19 @@ class EpicTests(unittest.TestCase):
             )
             self.assertIsNotNone(store.claim(mapping["first"], max_parallel=4))
             self.assertIsNone(store.claim(mapping["second"], max_parallel=4))
+
+    def test_refresh_all_reuses_the_scheduler_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, project = self._store(Path(temp))
+            epic = store.epics.create({"title": "Snapshot", "project_path": str(project)})
+            store.epics.create_task_batch(
+                epic["id"],
+                [{"task_key": "root", "task": "Root"}],
+            )
+            runs = store.runtime_runs()
+
+            with patch.object(store, "get", side_effect=AssertionError("unexpected run reload")):
+                self.assertEqual(store.epics.refresh_all(runs=runs), [])
 
     def test_legacy_epic_tasks_remain_unclassified(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
