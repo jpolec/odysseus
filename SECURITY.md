@@ -1,5 +1,9 @@
 # Security
 
+The detailed threat model is maintained in
+[docs/security/threat-model.md](docs/security/threat-model.md). This page is
+the operational summary for the current release.
+
 ## Local default
 
 Odysseus binds to `127.0.0.1`, validates loopback Host and Origin headers, sends
