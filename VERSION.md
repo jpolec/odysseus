@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- Nothing yet.
+- CI and release governance are now explicit and mechanically checked: fast PR
+  CI, Security, Installer Smoke, Main Proof, and Release Proof have stable
+  required-check names, pinned GitHub Actions, shared release-consistency
+  verification, documented branch-protection expectations, and release assets
+  for SHA-256 sums, SPDX SBOM, and SLSA-style provenance metadata.
 
 ## Current version
 

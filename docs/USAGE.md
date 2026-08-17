@@ -172,6 +172,20 @@ remain unobserved; draft PRs are not accepted changes; explicit operator actions
 are distinct from Needs You response latency. A proof below 20 eligible outcomes is marked
 insufficient; add `--require-sufficient` when publication should fail closed.
 
+## CI and release gates
+
+Repository branch protection for `main` should require `Fast CI / unit`,
+`Fast CI / compatibility (3.10)`, `Security / security`, `Installer Smoke /
+installer-smoke`, and `Main Proof / release-proof`. Keep required reviews and
+conversation resolution enabled, block force-pushes, and avoid administrator
+bypass outside a recorded incident.
+
+Tag releases are built by `Release Proof / release-proof` and published only by
+the separate `Release Proof / publish-release` job. The tag name must match the
+runtime/package version and the tagged commit must already be in `main`.
+Published release assets include the source archive, wheel, `SHA256SUMS`,
+`SBOM.spdx.json`, and `PROVENANCE.json`.
+
 ## Run an autonomous task
 
 ### From the web UI
