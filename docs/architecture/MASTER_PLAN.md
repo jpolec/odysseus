@@ -46,6 +46,15 @@ identified, test-linked invariants in `docs/architecture/invariants.md`.
 18. I18 Every final outcome has lineage to a requirement and artifact.
 19. I19 Every autonomous decision is explainable from stored evidence.
 20. I20 State can be reconstructed after arbitrary process death.
+21. I21 Artifact bytes always match their immutable content hash.
+22. I22 Approval applies to exactly one artifact, evidence, and contract tuple.
+23. I23 Secrets never cross the durable persistence boundary unredacted.
+24. I24 Historical domain-event bytes are never rewritten during schema evolution.
+25. I25 Duplicate inbound or outbound messages cannot cause duplicate logical effects.
+
+After I21–I25 are incorporated, the core architecture is frozen. New work must
+strengthen implementation, proof, operations, and dogfooding rather than add
+more control-plane concepts without a demonstrated gap.
 
 ## Canonical object graph
 
@@ -128,6 +137,87 @@ tracks prepared, executing, effect_observed, committed, failed, and unknown.
 Unknown is not retried blindly: a reconciler queries the external system and
 records the observed receipt.
 
+Inbound webhooks use a verified WebhookEnvelope containing provider delivery
+ID, signature result, receipt time, payload hash, and the single processed
+event/command ID. Deduplication is enforced at the command boundary, so N
+deliveries cause one logical transition. Outbound messages use the same
+idempotent outbox/action-ledger guarantees.
+
+### Artifact integrity and SHA-bound human decisions
+
+ArtifactStore is content-addressed and immutable. A worktree or temporary path
+is never the long-term source of artifact truth. A stored object is addressed
+by hash and contains a manifest, complete diff/source payload where applicable,
+metadata, and provenance.
+
+```text
+sha256:ab7...
+  +-- manifest.json
+  +-- diff.patch
+  +-- source.tar.zst
+  +-- metadata.json
+  +-- provenance.json
+```
+
+Artifact records bind artifact ID/type, content and manifest hashes, creating
+run, source HEAD, parent artifact, execution-environment hash, size, and
+timestamp. Every read verifies bytes against the content hash. ArtifactSet and
+MilestoneCandidate reference ArtifactStore objects rather than mutable paths.
+
+A ReviewDecision binds exactly one `artifact_sha`, `evidence_bundle_hash`,
+`contract_version`, and `plan_version`, together with actor and decision time.
+Changing any member makes the approval stale and requires a new decision.
+Repair can never inherit approval for the pre-repair candidate.
+
+### Cancellation and compensation
+
+Cancellation is a durable workflow, not process termination. It distinguishes
+stopping future execution from compensating committed effects:
+
+```text
+CancelRequested -> CancelAccepted -> CancellationInProgress
+                -> Cancelled | CancellationFailed
+
+CommittedAction -> CompensationRequested -> Compensating
+                -> Compensated | CompensationFailed
+```
+
+CompensationPolicy is action-specific and records whether compensation is
+possible, automatic, or approval-gated. PR closure, deployment rollback,
+credential revocation, resource cleanup, and preservation of evidence/artifacts
+are explicit decisions. Irreversible effects remain recorded rather than being
+described as undone.
+
+### Durable sensitive-data boundary
+
+RedactionEngine runs before every persistent or browser-stream boundary for
+context, agent/tool events, commands, logs, evidence, and artifact metadata.
+RedactionReceipt records ruleset version, redacted fields/classes, and detection
+source without recording the secret. Secret-shaped values, `.env` contents,
+credentials in tracebacks, and sensitive customer data must not enter journal,
+projection, EvidenceBundle, export, notification, or UI events unredacted.
+
+`docs/security/threat-model.md` defines trust boundaries. The human and kernel
+are trusted; repository content, agent output, CI output, webhook payloads, and
+external MCP are untrusted. Skills are reviewed but only partially trusted.
+The model explicitly covers prompt injection in AGENTS/README, malicious build
+and test scripts, dependency hooks, filesystem/credential access, data
+exfiltration, forged callbacks, and poisoned evidence.
+
+### Event evolution and lifecycle
+
+Canonical historical event bytes are immutable across upgrades. A versioned
+upcaster chain translates old envelopes into the current domain representation
+at read/projection time. Migrations may add new projections/checkpoints but do
+not rewrite old journal records.
+
+RetentionPolicy, reachability-based GarbageCollector, and OrphanScanner manage
+worktrees, CAS artifacts, containers/images, logs, validation outputs,
+screenshots, variants, counterfactuals, projections, and journals. Objects
+reachable from an OutcomeRecord, active plan, pending review/repair, retention
+hold, or referenced EvidenceBundle cannot be deleted. Lifecycle states are
+hot, warm, archived, and deletable; age alone is insufficient.
+
 ### Outcome semantics
 
 One generic success flag is replaced by orthogonal axes:
@@ -206,6 +296,33 @@ of placing global provider/cloud tokens in a worker environment. Sidecars such
 as databases, browsers, Redis, and mock services receive ResourceLeases with
 namespace, credentials reference, expiry, and teardown state.
 
+Capability policy is enforced by a concrete RuntimeProfile: rootless user,
+read-only root filesystem, no-new-privileges, dropped Linux capabilities,
+seccomp, PID/CPU/RAM/disk/wall-clock quotas, egress deny-by-default with DNS and
+host allowlists, digest-pinned container images, and optional signature policy.
+The profile receipt binds image digest, filesystem/resource/network policy,
+and empty-by-default secret set. A declared capability without runtime
+enforcement is reported as degraded isolation, not as a security guarantee.
+
+ExecutionEnvironmentReceipt records OS, architecture, container digest,
+runtime and tool versions, dependency-lock hash, environment-policy hash, and
+network-policy hash. Artifact SHA plus environment receipt makes execution and
+validation materially reproducible.
+
+### Human attention and evaluator calibration
+
+AttentionReceipt records actor, change, activity class, source (UI/CLI/API),
+active interval, and active seconds for review, question answering, plan edit,
+manual fix, override, and approval. Browser-open time and Needs You queue age
+are never counted as active attention. UI interaction windows use inactivity
+cutoffs and explicit activation/submission boundaries.
+
+EvaluatorCalibration tracks false-accept/false-reject rate, judge disagreement,
+and evidence-score-to-healthy-outcome calibration. Periodic blind human samples
+hide agent/model/cost identity from quality judges; cost and latency enter only
+the subsequent Pareto decision. Evidence score remains heuristic until enough
+outcomes support calibration.
+
 ### Vendor-neutral agent execution
 
 AgentAdapter exposes capabilities, start, resume, interrupt, cancel, health,
@@ -213,6 +330,11 @@ usage, events, checkpoint, and permission requests. A provider manifest states
 support for resume, structured events, usage, tool interception, worktrees,
 containers, and checkpoints. Provider-specific branching stays inside
 adapters/integrations rather than scheduler policy.
+
+A minimal adapter boundary (`start`, `interrupt`, `cancel`, `health`, `usage`,
+and `events`) is introduced by 0.12 at the latest, before leases, policy,
+routing, and telemetry accumulate more provider conditionals. Full checkpoint,
+remote-worker, gateway, and ecosystem capabilities remain a later extension.
 
 ### Routing and learning
 
@@ -232,6 +354,18 @@ recommendation and uncertainty, actual selection, selection source, mode,
 reason, and eventual outcome link. Telemetry covers tokens/cache, cost,
 latency, tools, retries, interventions, validation/repairs, integration,
 deployment, health, and revert.
+
+Minimal RouteObservation is recorded from 0.8.2 onward, before routing is
+trusted to decide. It captures task class, selected agent/model/skills,
+selection source, start/end, tokens, cost observability, and result. This early
+history later upcasts into RouteReceipt rather than being discarded.
+
+RouteReceipt additionally records `selection_propensity`, `advisor_version`,
+`policy_version`, `model_version`, `feature_schema_version`, and
+`utility_profile_version`. Deterministic selection has propensity 1.0; any
+future controlled exploration logs the probability with which the chosen route
+was assigned. These fields make off-policy evaluation and causal analysis
+possible without pretending historical human choices were randomized.
 
 Router v1 remains transparent heuristics and repository aggregates. Statistical
 v2 comes only after trustworthy OutcomeRecords and should use a modest
@@ -267,6 +401,12 @@ API. The domain layer has no filesystem, git, network, tmux, or Docker IO.
 Frontend modularization keeps browser-native JavaScript and zero runtime
 dependencies while splitting API, state, pages, components, events, and router.
 
+ControlPlaneSLO makes operational correctness measurable: command append p95,
+projection lag p95, startup/recovery ceiling, replay throughput floor, Mission
+Control query p95, memory footprint, and journal growth. Initial releases may
+publish measured baselines rather than hard promises, but regression gates use
+the same versioned measurement protocol.
+
 ## Verification strategy
 
 - Every invariant has at least one automated test and a stable test reference.
@@ -279,6 +419,11 @@ dependencies while splitting API, state, pages, components, events, and router.
 - Fault injection uses real process death at every durable-write/effect window.
 - Benchmarks compare Codex and Claude standalone versus with Odysseus across
   bugfix, feature, refactor, migration, test repair, and architectural change.
+
+Every BenchmarkSuite is versioned and binds task IDs, repository commit,
+contract versions, execution-environment digest, provider/model versions, and
+scoring version. Longitudinal results are compared only when those inputs are
+compatible; a model/task/scoring change cannot masquerade as product progress.
 
 North-star reporting is healthy changes per active human minute, accompanied
 by compute, first-pass healthy rate, regressions, reverts, recovery, and median
@@ -297,10 +442,15 @@ attention; UI focus/review/answer/override intervals are measured separately.
 3. Replace Pareto scalar assumptions with nullable observed metrics.
 4. Add Pareto hard constraints, missing-evidence incomparability, uncertainty
    shape, and property tests.
-5. Pass exact-commit installer, upgrade/rollback, demo, HTTP, browser, package,
+5. Publish the explicit threat model and enforce/test redaction before every
+   existing durable event, log, notification, export, and UI-stream boundary.
+6. Persist minimal RouteObservation with selection source/propensity and
+   versioned advisor/policy/model/feature metadata; it observes but does not
+   expand autonomous routing authority.
+7. Pass exact-commit installer, upgrade/rollback, demo, HTTP, browser, package,
    security, state verification, and release proof; publish docs/screenshots.
 
-Dependencies: 3 -> 4; 1, 2, and 4 -> 5.
+Dependencies: 3 -> 4; 1, 2, 4, 5, and 6 -> 7.
 
 ### 0.9.0 — durable kernel
 
@@ -309,6 +459,8 @@ Dependencies: 3 -> 4; 1, 2, and 4 -> 5.
 3. Deterministic projections/checkpoints and migrations from existing runs.
 4. Replay, replay-until-event, rebuild-projections, and verify-state v2.
 5. Journal hash chain and corruption/tamper tests.
+6. Immutable historical event upcasters and schema-evolution proof.
+7. Baseline command/projection/replay/recovery/query SLO measurements.
 
 ### 0.9.1 — runtime correctness
 
@@ -316,13 +468,15 @@ Dependencies: 3 -> 4; 1, 2, and 4 -> 5.
 2. Stale-worker and duplicate-claim concurrency tests.
 3. Failpoint framework and crash matrix.
 4. Recovery proof across journal, projection, artifact, and worker windows.
+5. Durable cancellation state and fencing-aware worker stop semantics.
 
 ### 0.9.2 — durable effects
 
 1. Outbox and ActionRecord including UNKNOWN.
 2. Git apply/merge/push integration through the action ledger.
 3. GitHub PR reconciler and duplicate-effect tests.
-4. Webhook/notification reconciler.
+4. Signed/deduplicated WebhookEnvelope and notification reconciler.
+5. CompensationPolicy and explicit compensated/failed/irreversible outcomes.
 
 ### 0.10.0 — outcome model
 
@@ -330,7 +484,9 @@ Dependencies: 3 -> 4; 1, 2, and 4 -> 5.
 2. Immutable OutcomeRecord and lineage receipts.
 3. Publication/integration/deployment receipts.
 4. ObservationWindow, HealthSignal, revert/rollback tracking.
-5. Outcome portfolio and healthy-change economics.
+5. AttentionReceipt and active-human-time economics.
+6. Reachability retention, Artifact/Evidence lifecycle, GC, and orphan scan.
+7. Outcome portfolio and healthy-change economics.
 
 ### 0.10.1 — routing instrumentation
 
@@ -338,23 +494,29 @@ Dependencies: 3 -> 4; 1, 2, and 4 -> 5.
 2. RouteReceipt and eventual OutcomeRecord link.
 3. RoutingAdvisor, RoutingPolicyEngine, ExecutionResolver boundaries.
 4. Transparent shadow/recommend mode and coverage/drift gates.
-5. SkillReceipt and non-causal effectiveness reporting.
+5. Propensity/version provenance migration from RouteObservation.
+6. SkillReceipt and non-causal effectiveness reporting.
 
 ### 0.11.0 — contract and typed plan
 
 1. ChangeProposal intake shared by human, issue, incident, ADR, and API.
 2. ChangeContractVersion with amendment approval.
 3. Immutable PlanVersion and typed PlanNode.
-4. Plan budgets, reservations, admission control, and typed RetryPolicy.
-5. Plan-level Mission Control and controls.
+4. ReviewDecision bound to artifact/evidence/contract/plan tuple with automatic
+   stale-approval invalidation.
+5. Plan budgets, reservations, admission control, and typed RetryPolicy.
+6. Plan-level Mission Control and controls.
 
 ### 0.11.1 — immutable validation
 
-1. ArtifactSet and MilestoneCandidate.
-2. Read-only ValidationRun against exact SHA and contract version.
+1. Content-addressed ArtifactStore, verified artifact bytes, ArtifactSet, and
+   MilestoneCandidate.
+2. ExecutionEnvironmentReceipt and read-only ValidationRun against exact SHA
+   and contract version.
 3. Structured Finding and EvidenceBundle.
 4. Scoped RepairNode and affected-validation rerun.
-5. End-to-end contract/plan/validation/delivery proof.
+5. Evaluator calibration and blind quality samples.
+6. End-to-end contract/plan/validation/delivery proof.
 
 ### 0.12.0 — governance
 
@@ -362,7 +524,8 @@ Dependencies: 3 -> 4; 1, 2, and 4 -> 5.
 2. PolicyReceipt and approval gates.
 3. Secret Broker interface and scoped credential leases.
 4. Runtime/ResourceLease policies.
-5. One Command API shared by CLI, UI, REST, and later MCP.
+5. Minimal AgentAdapter boundary for start/interrupt/cancel/health/usage/events.
+6. One Command API shared by CLI, UI, REST, and later MCP.
 
 ### 0.13.0 — flight recorder
 
@@ -381,7 +544,7 @@ Dependencies: 3 -> 4; 1, 2, and 4 -> 5.
 
 ### 0.15.0 — ecosystem
 
-1. Agent Adapter Protocol and capability manifests.
+1. Full Agent Adapter ecosystem, capability manifests, checkpoints, and gateways.
 2. Read-only MCP, then governed writes through the same Command API.
 3. Remote workers only after leases/fencing/reconciliation are proven locally.
 4. External observability and selected GitHub/Jira/Linear/Sentry integrations.
