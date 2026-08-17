@@ -389,6 +389,7 @@ class ServerTests(unittest.TestCase):
                 self.assertEqual(bootstrap["assistant"]["openai"]["model_env"], "ODYSSEUS_ASSISTANT_OPENAI_MODEL")
                 self.assertEqual(bootstrap["assistant"]["openai"]["mode"], "direct_api")
                 self.assertIn("anthropic", bootstrap["assistant"])
+                self.assertEqual(bootstrap["intake"]["connectors"]["github_issue"]["credential_storage"], "external:gh")
                 self.assertTrue(bootstrap["working_directory"])
                 self.assertIsInstance(bootstrap["current_repository"], dict)
                 self.assertEqual(bootstrap["test_capabilities"], {})

@@ -21,6 +21,7 @@ USAGE_COUNTER_KEYS = frozenset(
         "max_tokens",
     }
 )
+SAFE_METADATA_KEYS = frozenset({"credential_storage"})
 SENSITIVE_KEY = re.compile(
     r"(?:api[_-]?key|authorization|auth[_-]?token|password|passwd|secret|token|credential|cookie|private[_-]?key)",
     re.I,
@@ -71,7 +72,7 @@ class RedactionEngine:
         )
 
     def _redact(self, value: Any, classes: set[str], *, key: str) -> Any:
-        if key and key.lower() not in USAGE_COUNTER_KEYS and SENSITIVE_KEY.search(key):
+        if key and key.lower() not in USAGE_COUNTER_KEYS | SAFE_METADATA_KEYS and SENSITIVE_KEY.search(key):
             classes.add(_class_for_key(key))
             return REDACTED
         if isinstance(value, str):
