@@ -20,6 +20,7 @@ const state = {
   skillsProjectId: "", skillsCatalog: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
   selectedDecisionPaths: [],
+  workListScope: "", workListExpanded: true,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -1005,6 +1006,17 @@ function renderQuickStart() {
   });
 }
 
+function setWorkListExpanded(expanded) {
+  state.workListExpanded = !!expanded;
+  const panel = $("#workListPanel");
+  const button = $("#workListToggle");
+  if (!panel || !button) return;
+  panel.classList.toggle("hidden", !state.workListExpanded);
+  button.setAttribute("aria-expanded", String(state.workListExpanded));
+  const noun = activeProject() ? "tasks" : "repositories";
+  button.textContent = state.workListExpanded ? `Hide ${noun}` : `Show ${noun}`;
+}
+
 function renderWork() {
   const project = activeProject();
   const runs = project ? runsForProject(project.id) : state.runs;
@@ -1034,7 +1046,7 @@ function renderWork() {
     [needs, "Needs you", needs ? "decisions waiting" : "nothing waiting"],
     [project ? terminals : complete, project ? "Terminals" : "Completed", project ? "agent panes" : "accepted changes"],
   ].map(([value, label, note]) => `<div class="work-stat"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
-  $("#workSummary").classList.toggle("hidden", !project);
+  $("#workSummary").classList.toggle("hidden", !!project);
   $("#journeyStepper").classList.toggle("hidden", !!project);
   renderJourney();
   renderCurrentRepositoryHint();
@@ -1046,6 +1058,12 @@ function renderWork() {
   $("#workListEyebrow").textContent = project ? "TASKS" : "REPOSITORIES";
   $("#workListTitle").textContent = project ? "Recent work" : "Your repositories";
   $("#workListDescription").textContent = project ? "Latest tasks for this repository." : "Saved local checkouts.";
+  const workListScope = project?.id || "all-repositories";
+  if (state.workListScope !== workListScope) {
+    state.workListScope = workListScope;
+    state.workListExpanded = !project;
+  }
+  setWorkListExpanded(state.workListExpanded);
   const secondary = $("#workSecondaryAction");
   secondary.textContent = project ? "View plans" : "Add repository";
   secondary.onclick = () => project ? setView("epics") : $("#projectDialog").showModal();
@@ -2832,6 +2850,7 @@ async function init() {
     $$(".task-section-tab").forEach((button) => button.addEventListener("click", () => activateTaskSection(button.dataset.section)));
     $("#allWorkButton").addEventListener("click", () => selectProject("all")); $("#sidebarAttentionButton").addEventListener("click", () => setView("attention")); $("#backToProject").addEventListener("click", () => selectProject(state.selected?.project_id || state.projectFilter));
     $("#parallelLabel").addEventListener("click", () => setView("settings"));
+    $("#workListToggle").addEventListener("click", () => setWorkListExpanded(!state.workListExpanded));
     $(".brand").addEventListener("click", (event) => { event.preventDefault(); setView("portfolio"); });
     $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#refreshPortfolio").addEventListener("click", refreshPortfolio); $("#portfolioWindow").addEventListener("change", refreshPortfolio); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
     document.addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#globalSearch").focus(); } });
@@ -2869,8 +2888,23 @@ async function runBrowserRegression() {
   assert(window.localStorage.getItem(SIDEBAR_WIDTH_KEY) === "430", "persisted sidebar width");
   resetSidebarWidth();
   assert($("#sidebarResizer").getAttribute("aria-valuenow") === String(DEFAULT_SIDEBAR_WIDTH), "reset sidebar width");
+  assert(!$("#resetSidebarWidth"), "sidebar has no redundant reset-width button");
   const narrow = window.matchMedia("(max-width: 760px)").matches;
   assert(!narrow || getComputedStyle($("#sidebarResizer")).display === "none", "mobile resize handle hidden");
+
+  if (state.projects.length) {
+    selectProject(state.projects[0].id);
+    await sleep(80);
+    assert($("#workSummary").classList.contains("hidden"), "repository page does not repeat delivery metrics");
+    assert($("#workListPanel").classList.contains("hidden"), "recent work starts folded for a repository");
+    assert($("#workListToggle").getAttribute("aria-expanded") === "false", "recent work exposes collapsed state");
+    $("#workListToggle").click();
+    assert(!$("#workListPanel").classList.contains("hidden"), "recent work can be expanded");
+    if (!narrow) {
+      const columns = getComputedStyle($(".repository-status-grid")).gridTemplateColumns.split(" ").map(Number.parseFloat);
+      assert(columns.length >= 2 && columns[0] > columns[1], "dependency graph is wider than the Gantt timeline");
+    }
+  }
 
   $("#newTaskButton").click();
   await sleep(50);
