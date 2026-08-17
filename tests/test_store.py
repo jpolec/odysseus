@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from odysseus.projects import repository_identity
 from odysseus.store import RUN_SCHEMA_VERSION, RunStore
@@ -169,6 +170,29 @@ class StoreTests(unittest.TestCase):
                 },
             )
             self.assertEqual(store.get(run["id"])["metrics"]["input_tokens"], 0)
+
+    def test_scheduler_runtime_scan_reuses_redacted_persisted_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            store.create(
+                {
+                    "task": "Never persist ghp_abcdefghijklmnop1234",
+                    "project_path": str(project),
+                }
+            )
+
+            with mock.patch.object(store, "_redact_snapshot", wraps=store._redact_snapshot) as redact:
+                public = store.list()
+                self.assertGreater(redact.call_count, 0)
+                redact.reset_mock()
+                runtime = store.runtime_runs()
+                self.assertEqual(redact.call_count, 0)
+
+            self.assertNotIn("ghp_abcdefghijklmnop1234", json.dumps(public))
+            self.assertNotIn("ghp_abcdefghijklmnop1234", json.dumps(runtime))
 
     def test_durable_run_and_event_boundaries_redact_adversarial_payloads(self) -> None:
         secret = "ghp_abcdefghijklmnop1234"

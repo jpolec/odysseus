@@ -438,7 +438,7 @@ class RunStore:
             value.setdefault(key, default)
         return self._redact_snapshot(value)
 
-    def list(self) -> list[dict[str, Any]]:
+    def _list_records(self, *, redact: bool) -> list[dict[str, Any]]:
         runs: list[dict[str, Any]] = []
         for path in self.runs_dir.glob("*.json"):
             try:
@@ -448,8 +448,21 @@ class RunStore:
             if isinstance(value, dict):
                 for key, default in _run_defaults().items():
                     value.setdefault(key, default)
-                runs.append(self._redact_snapshot(value))
+                runs.append(self._redact_snapshot(value) if redact else value)
         return sorted(runs, key=lambda item: str(item.get("created_at", "")), reverse=True)
+
+    def list(self) -> list[dict[str, Any]]:
+        return self._list_records(redact=True)
+
+    def runtime_runs(self) -> list[dict[str, Any]]:
+        """Load persisted run state for the trusted scheduler without re-redacting it.
+
+        The durable write boundary already redacts snapshots. Avoiding another
+        recursive regex pass on every scheduler tick keeps an idle server idle;
+        HTTP and CLI readers continue to use :meth:`list`.
+        """
+
+        return self._list_records(redact=False)
 
     def create(self, request: Mapping[str, Any]) -> dict[str, Any]:
         task = str(request.get("task", "")).strip()

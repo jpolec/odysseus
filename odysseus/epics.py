@@ -351,22 +351,32 @@ class EpicStore:
             if state[key] == 0:
                 visit(key)
 
-    def refresh_all(self) -> list[str]:
+    def refresh_all(self, *, runs: list[Mapping[str, Any]] | None = None) -> list[str]:
         unblocked: list[str] = []
         for epic in self.list():
             if epic.get("status") in {"active", "failed"}:
-                unblocked.extend(self.refresh_dag(str(epic["id"])))
+                unblocked.extend(self.refresh_dag(str(epic["id"]), runs=runs))
         return unblocked
 
-    def refresh_dag(self, epic_id: str) -> list[str]:
+    def refresh_dag(
+        self,
+        epic_id: str,
+        *,
+        runs: list[Mapping[str, Any]] | None = None,
+    ) -> list[str]:
         epic = self.get(epic_id)
-        runs = {str(run["id"]): run for run in self.runs(epic_id)}
+        if runs is None:
+            epic_runs = self.runs(epic_id)
+        else:
+            run_ids = {str(value) for value in epic.get("run_ids") or []}
+            epic_runs = [dict(run) for run in runs if str(run.get("id") or "") in run_ids]
+        runs_by_id = {str(run["id"]): run for run in epic_runs}
         unblocked: list[str] = []
-        for run_id, run in runs.items():
+        for run_id, run in runs_by_id.items():
             if run.get("status") != "blocked":
                 continue
             dependencies = [str(item) for item in run.get("depends_on") or []]
-            dependency_runs = [runs.get(item) or self._optional_run(item) for item in dependencies]
+            dependency_runs = [runs_by_id.get(item) or self._optional_run(item) for item in dependencies]
             missing = [dependencies[index] for index, value in enumerate(dependency_runs) if value is None]
             failed = [
                 str(value["id"])
@@ -410,7 +420,7 @@ class EpicStore:
                 self.store.append_event(run_id, "run.queued", "odysseus", {"reason": "dependencies_complete"})
                 unblocked.append(run_id)
 
-        current = [self.store.get(run_id) for run_id in runs]
+        current = [self.store.get(run_id) for run_id in runs_by_id]
         if current and all(run.get("status") in EPIC_FINAL_STATUSES for run in current):
             status = "failed" if any(run.get("status") in DEPENDENCY_FAILED_STATUSES for run in current) else "completed"
             if epic.get("status") != status:

@@ -118,12 +118,13 @@ class Scheduler:
     def _loop(self) -> None:
         while not self._stop.is_set():
             self._reap_and_cancel()
-            self._advance_variant_parents()
-            self.store.epics.refresh_all()
+            runtime_runs = self.store.runtime_runs()
+            self._advance_variant_parents(runtime_runs)
+            self.store.epics.refresh_all(runs=runtime_runs)
             config = self.store.config()
             available = int(config["max_parallel"]) - self.active_count()
             if available > 0:
-                queued = [run for run in self.store.list() if run.get("status") == "queued"]
+                queued = [run for run in runtime_runs if run.get("status") == "queued"]
                 queued.sort(
                     key=lambda run: (
                         -int(run.get("priority", 50)),
@@ -169,8 +170,8 @@ class Scheduler:
                 for run_id in finished:
                     self._active.pop(run_id, None)
 
-    def _advance_variant_parents(self) -> None:
-        for run in self.store.list():
+    def _advance_variant_parents(self, runs: list[Mapping[str, Any]] | None = None) -> None:
+        for run in runs if runs is not None else self.store.runtime_runs():
             if run.get("workflow") != "variants" or run.get("status") != "waiting_variants":
                 continue
             run_id = str(run["id"])
