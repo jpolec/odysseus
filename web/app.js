@@ -119,7 +119,6 @@ function initSidebarResize() {
     if (event.key === "End") { event.preventDefault(); setSidebarWidth(MAX_SIDEBAR_WIDTH); }
     if (event.key === "Enter" || event.key === " ") { event.preventDefault(); resetSidebarWidth(); }
   });
-  $("#resetSidebarWidth")?.addEventListener("click", resetSidebarWidth);
 }
 
 function relativeTime(iso) {
