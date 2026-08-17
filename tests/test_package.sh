@@ -27,6 +27,30 @@ if ! UV_CACHE_DIR="$TEMP_ROOT/uv-cache" uv build "$REPOSITORY_ROOT" --out-dir "$
 fi
 WHEEL="$(find "$TEMP_ROOT/dist" -name '*.whl' -print -quit)"
 test -n "$WHEEL"
+python3 "$REPOSITORY_ROOT/scripts/build-release-assets.py" --dist-dir "$TEMP_ROOT/dist" --output-dir "$TEMP_ROOT/release-assets" >/dev/null
+test -f "$TEMP_ROOT/release-assets/SHA256SUMS"
+test -f "$TEMP_ROOT/release-assets/SBOM.spdx.json"
+test -f "$TEMP_ROOT/release-assets/PROVENANCE.json"
+python3 - "$TEMP_ROOT/dist" "$TEMP_ROOT/release-assets" "$EXPECTED_VERSION" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+dist = Path(sys.argv[1])
+assets = Path(sys.argv[2])
+version = sys.argv[3]
+sbom = json.loads((assets / "SBOM.spdx.json").read_text(encoding="utf-8"))
+provenance = json.loads((assets / "PROVENANCE.json").read_text(encoding="utf-8"))
+assert sbom["spdxVersion"] == "SPDX-2.3", sbom
+assert sbom["packages"][0]["versionInfo"] == version, sbom
+assert provenance["predicateType"] == "https://slsa.dev/provenance/v1", provenance
+for line in (assets / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
+    digest, name = line.split("  ", 1)
+    path = dist / name if (dist / name).exists() else assets / name
+    assert path.is_file(), name
+    assert digest == hashlib.sha256(path.read_bytes()).hexdigest(), name
+PY
 
 export UV_CACHE_DIR="$TEMP_ROOT/uv-cache"
 export UV_TOOL_DIR="$TEMP_ROOT/uv-tools"

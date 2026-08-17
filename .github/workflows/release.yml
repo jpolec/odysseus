@@ -1,4 +1,4 @@
-name: Release
+name: Release Proof
 
 on:
   push:
@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   prove-and-build:
+    name: release-proof
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -36,26 +37,20 @@ jobs:
       - name: Build source and wheel artifacts
         run: |
           uv build
-          python3 - <<'PY'
-          import hashlib
-          from pathlib import Path
-
-          files = sorted(Path("dist").iterdir())
-          Path("SHA256SUMS").write_text(
-              "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n" for path in files),
-              encoding="utf-8",
-          )
-          PY
+          python3 scripts/build-release-assets.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-${{ github.ref_name }}
           path: |
             dist/*
             SHA256SUMS
+            SBOM.spdx.json
+            PROVENANCE.json
           if-no-files-found: error
           retention-days: 7
 
   publish:
+    name: publish-release
     needs: prove-and-build
     runs-on: ubuntu-latest
     permissions:

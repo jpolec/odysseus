@@ -269,6 +269,13 @@ and operator response latency is not mislabeled as active human time. JSON uses
 opaque receipt IDs; Markdown is the public aggregate. See
 [PRODUCTION_PROOF.md](PRODUCTION_PROOF.md).
 
+Release governance is documented in [PROOF.md](PROOF.md): pull requests should
+require `Fast CI / unit`, `Fast CI / compatibility (3.10)`, `Security /
+security`, and `Installer Smoke / installer-smoke`; pushes to `main` must also
+pass `Main Proof / release-proof`. Tag releases run `Release Proof /
+release-proof`, publish only after proof, and ship source/wheel artifacts with
+`SHA256SUMS`, `SBOM.spdx.json`, and `PROVENANCE.json`.
+
 ## Where tasks come from
 
 | Source | What happens |
@@ -678,6 +685,7 @@ bin/odysseus search "failing browser test"
 bin/odysseus stats
 bin/odysseus resources
 bin/odysseus version
+bin/odysseus proof --release 0.8.1
 bin/odysseus update --check
 bin/odysseus rollback
 bin/odysseus export --output odysseus-state.json

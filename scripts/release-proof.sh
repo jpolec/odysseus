@@ -23,6 +23,7 @@ printf '%s\n' '[1/9] Static, shell, browser prerequisite, and repository checks'
 node --check web/app.js
 python3 -m py_compile odysseus/*.py scripts/*.py
 bash -n install.sh scripts/*.sh tests/test_install.sh tests/test_package.sh tests/test_upgrade.sh
+python3 scripts/verify-release-consistency.py >/dev/null
 git diff --check
 BROWSER=''
 for candidate in chromium chromium-browser google-chrome google-chrome-stable; do
