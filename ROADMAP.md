@@ -1,5 +1,9 @@
 # Odysseus roadmap
 
+The architecture and release DAG from 0.8.x through the outcome-driven control
+plane is maintained in
+[`docs/architecture/MASTER_PLAN.md`](docs/architecture/MASTER_PLAN.md).
+
 Odysseus is moving from a session manager to an engineering control plane. The
 organizing metric is **Human Attention per Successful Change**: more accepted,
 verified software with fewer minutes spent supervising routine agent work.

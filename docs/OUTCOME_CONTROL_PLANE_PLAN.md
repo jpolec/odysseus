@@ -1,5 +1,9 @@
 # Outcome-driven control plane: gap analysis and implementation DAG
 
+The canonical multi-release execution plan now lives in
+[`architecture/MASTER_PLAN.md`](architecture/MASTER_PLAN.md). This document
+retains the original post-0.8 repository gap analysis and reuse decisions.
+
 This document records the repository inspection behind the post-0.8 roadmap.
 It is intentionally reuse-first: existing run snapshots, append-only event
 journals, Epics, worktrees, Scheduler, Evaluation Engine, CI watcher, Skills,
