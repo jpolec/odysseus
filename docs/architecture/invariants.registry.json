@@ -1,0 +1,252 @@
+[
+  {
+    "id": "I01",
+    "title": "Journal is canonical.",
+    "status": "partial",
+    "current_guarantee": "Runs persist an append-only NDJSON event journal beside a JSON run snapshot. Release proof and strict event reads treat the journal as required evidence, but the 0.8 runtime has not moved all command state to an event-sourced journal.",
+    "test_references": [
+      "tests/test_store.py::StoreTests.test_run_and_events_are_durable_json_and_ndjson",
+      "tests/test_proof.py::ProductionProofTests.test_deleted_journal_event_is_rejected"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I02",
+    "title": "A snapshot is a deterministic projection of the journal.",
+    "status": "planned",
+    "current_guarantee": "Planned for the 0.9 kernel. Not a current 0.8 guarantee; current run JSON snapshots are durable compatibility records, not complete deterministic projections rebuilt solely from the journal.",
+    "test_references": [],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I03",
+    "title": "Every command is idempotent.",
+    "status": "partial",
+    "current_guarantee": "Several delivery and worktree operations are idempotent in 0.8, including repeated worktree creation, repeated local artifact application, duplicate intake observations, and integrated delivery no-ops. There is not yet a single idempotent command layer for every command.",
+    "test_references": [
+      "tests/test_worktrees.py::WorktreeTests.test_task_gets_branch_worktree_and_review_diff",
+      "tests/test_worktrees.py::WorktreeTests.test_apply_to_repository_merges_complete_artifact_and_is_idempotent",
+      "tests/test_scheduler.py::SchedulerTests.test_integrated_delivery_statuses_do_not_duplicate_delivery_actions",
+      "tests/test_intake.py::IntakeTests.test_github_issue_normalizes_redacts_and_proposes_gated_epic"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I04",
+    "title": "Every external side effect has durable intent before execution.",
+    "status": "partial",
+    "current_guarantee": "0.8 records some operator intent before side effects, such as integration dispositions before an integration task is queued. The durable outbox for all external writes is planned and is not a current guarantee.",
+    "test_references": [
+      "tests/test_scheduler.py::SchedulerTests.test_integration_delivery_requires_explicit_disposition_for_current_candidates"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I05",
+    "title": "Every external side effect is reconcilable.",
+    "status": "partial",
+    "current_guarantee": "0.8 reconciles selected effects, such as draft PR CI status polling, but does not maintain a universal action ledger with unknown-effect reconciliation for every external write.",
+    "test_references": [
+      "tests/test_ci.py::CIWatcherTests.test_failed_ci_resumes_original_run_then_records_green"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I06",
+    "title": "At most one valid worker lease exists for a node.",
+    "status": "partial",
+    "current_guarantee": "0.8 has a single-server state-directory lease and scheduler claim limits, but not the planned per-node WorkerLease with lease IDs and fencing epochs.",
+    "test_references": [
+      "tests/test_lifecycle.py::LifecycleLeaseTests.test_only_one_server_can_own_a_state_directory",
+      "tests/test_store.py::StoreTests.test_claim_enforces_global_parallel_limit"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I07",
+    "title": "An old worker cannot commit after lease takeover.",
+    "status": "planned",
+    "current_guarantee": "Planned for the 0.9 kernel. Not a current 0.8 guarantee; current workers do not carry fenced lease epochs on every mutation.",
+    "test_references": [],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I08",
+    "title": "Accepted is not Published.",
+    "status": "enforced",
+    "current_guarantee": "Accepting a reviewed run records a local artifact and leaves delivery as not_applied. Applying locally or creating a draft PR is a separate explicit action.",
+    "test_references": [
+      "tests/test_scheduler.py::SchedulerTests.test_agent_check_review_retries_then_waits_for_human"
+    ],
+    "planned_target_release": ""
+  },
+  {
+    "id": "I09",
+    "title": "Published is not Integrated.",
+    "status": "partial",
+    "current_guarantee": "0.8 keeps draft PR delivery statuses distinct from integrated delivery statuses, but there is no full publication and integration object model yet.",
+    "test_references": [
+      "tests/test_scheduler.py::SchedulerTests.test_delivery_status_matrix_controls_integration_candidates",
+      "tests/test_scheduler.py::SchedulerTests.test_successful_integration_delivery_fans_out_source_provenance"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I10",
+    "title": "Integrated is not Deployed.",
+    "status": "planned",
+    "current_guarantee": "Planned for a deployment-capable release after the 0.9 kernel. Not a current 0.8 guarantee; 0.8 does not model deployment as a first-class state transition.",
+    "test_references": [],
+    "planned_target_release": "post-0.9 deployment milestone"
+  },
+  {
+    "id": "I11",
+    "title": "Deployed is not Healthy.",
+    "status": "planned",
+    "current_guarantee": "Planned for a deployment-observation release after the 0.9 kernel. Not a current 0.8 guarantee; 0.8 does not model health observation windows as first-class outcome evidence.",
+    "test_references": [],
+    "planned_target_release": "post-0.9 observation milestone"
+  },
+  {
+    "id": "I12",
+    "title": "A validator validates an immutable artifact SHA.",
+    "status": "planned",
+    "current_guarantee": "Planned for the 0.9 kernel. Not a current 0.8 guarantee; current proof requires ordered verifier evidence before artifact acceptance, but validators do not yet receive immutable artifact SHAs through a read-only validation object.",
+    "test_references": [],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I13",
+    "title": "A validator cannot mutate the candidate it validates.",
+    "status": "planned",
+    "current_guarantee": "Planned for the 0.9 kernel. Not a current 0.8 guarantee; current validation is not isolated through immutable artifact inputs and read-only candidate mounts.",
+    "test_references": [],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I14",
+    "title": "A router recommendation is not a routing decision.",
+    "status": "enforced",
+    "current_guarantee": "The outcome router can produce a recommendation while leaving the applied lane at the operator default. Automatic routing records when the recommendation is actually applied.",
+    "test_references": [
+      "tests/test_outcome_router.py::OutcomeRouterTests.test_recommendation_explains_evidence_and_counterfactual_without_applying_lane",
+      "tests/test_outcome_router.py::OutcomeRouterTests.test_shadow_recommendation_is_stored_but_lane_remains_default",
+      "tests/test_outcome_router.py::OutcomeRouterTests.test_auto_route_applies_eligible_recommendation_and_records_reason"
+    ],
+    "planned_target_release": ""
+  },
+  {
+    "id": "I15",
+    "title": "Missing evidence is not successful evidence.",
+    "status": "enforced",
+    "current_guarantee": "Production proof excludes queued or manually edited terminal records that lack ordered agent, verifier, artifact, and terminal evidence. A failed final verifier makes the attempted acceptance ineligible.",
+    "test_references": [
+      "tests/test_proof.py::ProductionProofTests.test_queued_or_manually_accepted_records_do_not_become_evidence",
+      "tests/test_proof.py::ProductionProofTests.test_acceptance_requires_last_verifier_then_artifact_then_outcome"
+    ],
+    "planned_target_release": ""
+  },
+  {
+    "id": "I16",
+    "title": "A missing metric is not zero.",
+    "status": "enforced",
+    "current_guarantee": "Missing cost telemetry remains None or Unknown in proof and portfolio calculations instead of being counted as zero cost.",
+    "test_references": [
+      "tests/test_proof.py::ProductionProofTests.test_pr_is_not_acceptance_and_missing_cost_is_not_zero",
+      "tests/test_portfolio.py::PortfolioTests.test_windowed_metrics_keep_unknown_cost_and_sample_size_honest"
+    ],
+    "planned_target_release": ""
+  },
+  {
+    "id": "I17",
+    "title": "A child policy can restrict but never widen a parent policy.",
+    "status": "planned",
+    "current_guarantee": "Planned for the 0.9 policy model. Not a current 0.8 guarantee; 0.8 does not implement hierarchical policy composition with parent-child widening checks.",
+    "test_references": [],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I18",
+    "title": "Every final outcome has lineage to a requirement and artifact.",
+    "status": "partial",
+    "current_guarantee": "0.8 records provenance, context receipts, source documents, artifact SHAs, and proof receipts for observed runs. It does not yet have immutable ChangeContractVersion and OutcomeRecord lineage for every final outcome.",
+    "test_references": [
+      "tests/test_project_knowledge.py::ProjectKnowledgeTests.test_context_receipt_freezes_exact_project_and_skill_snapshots",
+      "tests/test_project_knowledge.py::ProjectKnowledgeTests.test_project_decisions_link_adr_to_epic_tasks_context_and_economics",
+      "tests/test_proof.py::ProductionProofTests.test_only_observed_release_runs_contribute_to_production_metrics"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I19",
+    "title": "Every autonomous decision is explainable from stored evidence.",
+    "status": "partial",
+    "current_guarantee": "Outcome routing stores recommendation evidence, counterfactuals, fallback reasons, and applied-lane reasons. A universal explanation envelope for every autonomous decision is planned.",
+    "test_references": [
+      "tests/test_outcome_router.py::OutcomeRouterTests.test_recommendation_explains_evidence_and_counterfactual_without_applying_lane",
+      "tests/test_outcome_router.py::OutcomeRouterTests.test_auto_route_applies_eligible_recommendation_and_records_reason"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I20",
+    "title": "State can be reconstructed after arbitrary process death.",
+    "status": "partial",
+    "current_guarantee": "0.8 stores durable JSON snapshots and NDJSON journals, verifies state, rejects corrupt records, and records crash recovery evidence. Full arbitrary-process-death replay from the canonical journal is planned.",
+    "test_references": [
+      "tests/test_state.py::StateVerificationTests.test_valid_state_scans_run_and_event_journal",
+      "tests/test_state.py::StateVerificationTests.test_corrupt_json_and_ndjson_are_never_silently_skipped",
+      "tests/test_proof.py::ProductionProofTests.test_only_observed_release_runs_contribute_to_production_metrics"
+    ],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I21",
+    "title": "Artifact bytes always match their immutable content hash.",
+    "status": "planned",
+    "current_guarantee": "Planned for the 0.9 content-addressed ArtifactStore. Not a current 0.8 guarantee; current accepted artifacts are Git commits identified by artifact_sha, not immutable CAS objects with byte verification on every read.",
+    "test_references": [],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I22",
+    "title": "Approval applies to exactly one artifact, evidence, and contract tuple.",
+    "status": "planned",
+    "current_guarantee": "Planned for the 0.9 ReviewDecision model. Not a current 0.8 guarantee; 0.8 approval records an accepted artifact, but does not bind a formal artifact_sha, evidence_bundle_hash, contract_version, and plan_version tuple.",
+    "test_references": [],
+    "planned_target_release": "0.9 kernel"
+  },
+  {
+    "id": "I23",
+    "title": "Secrets never cross the durable persistence boundary unredacted.",
+    "status": "partial",
+    "current_guarantee": "0.8 redacts selected external issue evidence and assistant shared context, and tolerates redacted vendor usage. A complete redaction engine before every durable and browser-stream boundary is planned.",
+    "test_references": [
+      "tests/test_intake.py::IntakeTests.test_github_issue_normalizes_redacts_and_proposes_gated_epic",
+      "tests/test_server.py::ServerTests.test_ui_bootstrap_and_token_protected_create"
+    ],
+    "planned_target_release": "0.9 security boundary"
+  },
+  {
+    "id": "I24",
+    "title": "Historical domain-event bytes are never rewritten during schema evolution.",
+    "status": "enforced",
+    "current_guarantee": "Existing event journal bytes remain unchanged when an old run snapshot is migrated forward.",
+    "test_references": [
+      "tests/test_store.py::StoreTests.test_schema_two_snapshot_migrates_forward_without_rewriting_events"
+    ],
+    "planned_target_release": ""
+  },
+  {
+    "id": "I25",
+    "title": "Duplicate inbound or outbound messages cannot cause duplicate logical effects.",
+    "status": "partial",
+    "current_guarantee": "0.8 deduplicates selected inbound observations and attention items, and avoids duplicate delivery actions for integrated statuses. Universal inbound and outbound message idempotency is planned.",
+    "test_references": [
+      "tests/test_attention.py::AttentionTests.test_queue_orders_priority_deduplicates_and_records_answer",
+      "tests/test_intake.py::IntakeTests.test_github_issue_normalizes_redacts_and_proposes_gated_epic",
+      "tests/test_scheduler.py::SchedulerTests.test_integrated_delivery_statuses_do_not_duplicate_delivery_actions"
+    ],
+    "planned_target_release": "0.9 kernel"
+  }
+]
