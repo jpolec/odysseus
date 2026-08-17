@@ -96,7 +96,7 @@ def _rate(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 4) if denominator else None
 
 
-def _portfolio_signature(store: RunStore, days: int) -> tuple[Any, ...]:
+def _portfolio_generation(store: RunStore) -> tuple[Any, ...]:
     def fingerprint(path: Any) -> tuple[str, int, int]:
         try:
             stat = path.stat()
@@ -105,7 +105,6 @@ def _portfolio_signature(store: RunStore, days: int) -> tuple[Any, ...]:
             return (path.name, 0, 0)
 
     return (
-        days,
         fingerprint(store.config_path),
         tuple(fingerprint(path) for path in sorted(store.runs_dir.glob("*.json"))),
     )
@@ -120,13 +119,17 @@ def engineering_portfolio(store: RunStore, *, days: int = 7) -> dict[str, Any]:
     """
 
     window_days = max(1, min(int(days or 7), 365))
-    signature = _portfolio_signature(store, window_days)
+    generation = _portfolio_generation(store)
     with _PORTFOLIO_CACHE_LOCK:
         cached = _PORTFOLIO_CACHE.get(store)
-        if cached and cached.get("signature") == signature:
-            return copy.deepcopy(cached["payload"])
+        if not cached or cached.get("generation") != generation:
+            cached = {"generation": generation, "payloads": {}}
+            _PORTFOLIO_CACHE[store] = cached
+        payloads = cached["payloads"]
+        if window_days in payloads:
+            return copy.deepcopy(payloads[window_days])
         payload = _engineering_portfolio_uncached(store, days=window_days)
-        _PORTFOLIO_CACHE[store] = {"signature": signature, "payload": payload}
+        payloads[window_days] = payload
         return copy.deepcopy(payload)
 
 

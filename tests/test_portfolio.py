@@ -97,9 +97,16 @@ class PortfolioTests(unittest.TestCase):
                 self.assertEqual(second["metrics"], first["metrics"])
                 self.assertEqual(read_events.call_count, first_calls)
 
+                engineering_portfolio(store, days=30)
+                second_window_calls = read_events.call_count
+                self.assertGreater(second_window_calls, first_calls)
+                engineering_portfolio(store, days=7)
+                engineering_portfolio(store, days=30)
+                self.assertEqual(read_events.call_count, second_window_calls)
+
                 store.update(run["id"], status="failed", last_error="test failed")
                 engineering_portfolio(store, days=7)
-                self.assertGreater(read_events.call_count, first_calls)
+                self.assertGreater(read_events.call_count, second_window_calls)
 
 
 if __name__ == "__main__":
