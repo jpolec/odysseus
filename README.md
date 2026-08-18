@@ -206,6 +206,14 @@ Open <http://127.0.0.1:8742/>. The disposable state demonstrates multiple
 repositories, a planned task DAG, Needs You, merge risk, artifact composition, a failed CI
 repair loop, tool telemetry, checks, evaluation, search, and outcome metrics.
 
+### Watch the 90-second walkthrough
+
+[![Watch the Odysseus 90-second walkthrough](docs/demo/odysseus-90s-poster.png)](docs/demo/odysseus-90s.mp4)
+
+[Watch the MP4](docs/demo/odysseus-90s.mp4) — repositories → outcome → plan →
+Needs You → independent review → explicit delivery → engineering portfolio.
+The film uses deterministic demo data and spends no model tokens.
+
 Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 
 ```sh
@@ -217,6 +225,16 @@ Repositories, Repository, Attention, Review, Delivery, Integration, CI repair,
 Context Receipt, New task, and Settings—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
+
+Reproduce the 90-second walkthrough with local Chrome/Chromium, Node.js, and
+ffmpeg:
+
+```sh
+scripts/capture-web-demo.sh
+```
+
+It writes the H.264 film and its README poster to `docs/demo/`, then removes
+the isolated browser profile, frames, and disposable Odysseus state.
 
 ### Start with the outcome
 

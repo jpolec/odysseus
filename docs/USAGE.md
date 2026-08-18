@@ -145,6 +145,19 @@ Generate repeatable 1440×1000 web screenshots with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
+Generate the repeatable 90-second product walkthrough with local
+Chrome/Chromium, Node.js, and ffmpeg:
+
+```sh
+scripts/capture-web-demo.sh
+```
+
+The recorder starts a disposable no-token demo, verifies the expected content
+for every scene, captures the real browser surface, and writes
+`docs/demo/odysseus-90s.mp4` plus its poster. Set
+`ODYSSEUS_VIDEO_FPS` to trade smoothness for capture time; the published film
+uses 6 fps because the decision surfaces are intentionally mostly static.
+
 ## Dogfood and measure a release
 
 This repository ships a reviewed `.odysseus.json` check contract and a wrapper
