@@ -259,7 +259,8 @@ class StoreTests(unittest.TestCase):
 
             persisted = (store.runs_dir / f"{run['id']}.json").read_text(encoding="utf-8")
             journal = (store.events_dir / f"{run['id']}.ndjson").read_text(encoding="utf-8")
-            combined = persisted + journal + json.dumps(store.get(run["id"])) + json.dumps(store.events(run["id"]))
+            canonical = store.kernel.stream_path(run["id"]).read_text(encoding="utf-8")
+            combined = persisted + journal + canonical + json.dumps(store.get(run["id"])) + json.dumps(store.events(run["id"]))
 
             for leaked in (secret, "sk-abcdefghijklmnop1234", "abcdefghijklmnop", "supersecretvalue", "plain-api-key-value"):
                 self.assertNotIn(leaked, combined)

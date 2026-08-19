@@ -23,6 +23,7 @@ from .ci import CIWatcher
 from .economics import economics_csv, economics_ndjson, outcome_economics
 from .lifecycle import ResourceLifecycle
 from .lifecycle import ServerLease
+from .kernel import EVENT_ENVELOPE_SCHEMA_VERSION, EventKernel
 from .planner import EpicPlanner
 from .proof import production_proof, proof_markdown
 from .redaction import DEFAULT_REDACTION_ENGINE
@@ -511,13 +512,49 @@ def cmd_state_verify(args: argparse.Namespace) -> int:
     elif result["valid"]:
         print(
             f"State is valid: {result['runs']} runs, {result['events']} events, "
-            f"{result['epics']} epics ({result['root']})"
+            f"{result['stream_events']} canonical events, {result['epics']} epics ({result['root']})"
         )
+        for warning in result.get("warnings", []):
+            print(f"  warning: {warning}")
     else:
         print(f"State verification failed: {result['root']}", file=sys.stderr)
         for error in result["errors"]:
             print(f"  - {error}", file=sys.stderr)
     return 0 if result["valid"] else 1
+
+
+def cmd_replay(args: argparse.Namespace) -> int:
+    kernel = EventKernel(args.state_dir, readonly=True)
+    projection = kernel.replay(args.run_id, until_event=args.until_event)
+    if not projection:
+        raise KeyError(args.run_id)
+    if args.json:
+        _print_json(projection)
+    else:
+        events = kernel.read(args.run_id)
+        version = min(args.until_event, len(events)) if args.until_event else len(events)
+        print(f"Run: {args.run_id}")
+        print(f"Stream version: {version}")
+        print(f"Status: {projection.get('status', 'unknown')}")
+        print(f"Projection: {json.dumps(projection, ensure_ascii=False, sort_keys=True)}")
+    return 0
+
+
+def cmd_rebuild_projections(args: argparse.Namespace) -> int:
+    server_lock = Path(args.state_dir).expanduser() / "runtime" / "server.lock"
+    if server_lock.exists() and not args.dry_run:
+        raise RuntimeError("stop the Odysseus server before rebuilding projections")
+    kernel = EventKernel(args.state_dir, readonly=args.dry_run)
+    result = kernel.rebuild_all(run_id=args.run_id or "", dry_run=args.dry_run)
+    if args.json:
+        _print_json(result)
+    else:
+        action = "Verified" if args.dry_run else "Rebuilt"
+        print(
+            f"{action} {result['runs']} projections from {result['events']} canonical events "
+            f"in {result['elapsed_seconds']:.6f}s."
+        )
+    return 0
 
 
 def cmd_proof(args: argparse.Namespace) -> int:
@@ -562,6 +599,7 @@ def cmd_version(args: argparse.Namespace) -> int:
         "version": __version__,
         "run_schema": RUN_SCHEMA_VERSION,
         "event_schema": EVENT_SCHEMA_VERSION,
+        "canonical_event_schema": EVENT_ENVELOPE_SCHEMA_VERSION,
         "installation": "managed" if manifest else "package-or-checkout",
         "channel": str(manifest.get("channel") or ""),
         "ref": str(manifest.get("ref") or ""),
@@ -905,6 +943,18 @@ def parser() -> argparse.ArgumentParser:
     state_verify.add_argument("--migrate", action="store_true", help="migrate supported older records after a clean scan")
     state_verify.add_argument("--json", action="store_true")
     state_verify.set_defaults(func=cmd_state_verify)
+
+    replay_parser = sub.add_parser("replay", help="reconstruct one run from its canonical event stream")
+    replay_parser.add_argument("run_id")
+    replay_parser.add_argument("--until-event", type=int, help="stop after one canonical stream version")
+    replay_parser.add_argument("--json", action="store_true")
+    replay_parser.set_defaults(func=cmd_replay)
+
+    rebuild_parser = sub.add_parser("rebuild-projections", help="rebuild replaceable run snapshots from canonical streams")
+    rebuild_parser.add_argument("--run-id", default="")
+    rebuild_parser.add_argument("--dry-run", action="store_true", help="verify replay without writing snapshots")
+    rebuild_parser.add_argument("--json", action="store_true")
+    rebuild_parser.set_defaults(func=cmd_rebuild_projections)
 
     proof_parser = sub.add_parser("proof", help="produce an honest receipt from explicitly observed agent runs")
     proof_parser.add_argument("--release", default=__version__, help="release label to aggregate")

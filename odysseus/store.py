@@ -18,6 +18,7 @@ from .environments import normalize_environment_request
 from .attention import AttentionQueue
 from .epics import EpicStore, VALID_ROLES
 from .inbox import Inbox
+from .kernel import EventKernel, KernelIntegrityError
 from .notifications import NotificationManager
 from .outcome_router import OutcomeRouter
 from .project_knowledge import ProjectKnowledge
@@ -67,7 +68,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 13
+RUN_SCHEMA_VERSION = 14
 ROUTE_OBSERVATION_FORMAT = "odysseus-route-observation-v1"
 ROUTE_OBSERVATION_FEATURE_SCHEMA_VERSION = "outcome-router-features-v1"
 ROUTE_OBSERVATION_POLICY_VERSION = "outcome-routing-policy-v1"
@@ -337,6 +338,8 @@ class RunStore:
         self.config_path = self.root / "config.json"
         if not readonly and not self.config_path.exists():
             self._atomic_json(self.config_path, DEFAULT_CONFIG)
+        self.redaction = DEFAULT_REDACTION_ENGINE
+        self.kernel = EventKernel(self.root, readonly=readonly)
         self.projects = ProjectRegistry(self)
         self.knowledge = ProjectKnowledge(self)
         self.skills = SkillRegistry(self)
@@ -345,7 +348,6 @@ class RunStore:
         self.epics = EpicStore(self)
         self.notifications = NotificationManager(self)
         self.outcome_router = OutcomeRouter(self)
-        self.redaction = DEFAULT_REDACTION_ENGINE
         if migrate and not readonly:
             self._migrate_runs()
 
@@ -353,15 +355,30 @@ class RunStore:
         """Upgrade old snapshots in place while preserving append-only journals."""
 
         with self.locked():
+            for stream in self.kernel.streams_dir.glob("*.ndjson"):
+                path = self.runs_dir / f"{stream.stem}.json"
+                if not path.exists():
+                    self.kernel.rebuild(stream.stem)
             for path in self.runs_dir.glob("*.json"):
                 try:
-                    run = json.loads(path.read_text(encoding="utf-8"))
+                    disk_run = json.loads(path.read_text(encoding="utf-8"))
                 except OSError as exc:
                     raise RuntimeError(f"cannot read run record: {path}") from exc
                 except json.JSONDecodeError as exc:
-                    raise RuntimeError(f"corrupt run record: {path}") from exc
-                if not isinstance(run, dict):
+                    if not self.kernel.has_stream(path.stem):
+                        raise RuntimeError(f"corrupt run record: {path}") from exc
+                    disk_run = {}
+                if not isinstance(disk_run, dict):
                     raise RuntimeError(f"invalid run record: {path}")
+                if self.kernel.has_stream(path.stem):
+                    try:
+                        run = self.kernel.replay(path.stem)
+                    except KernelIntegrityError as exc:
+                        raise RuntimeError(f"invalid canonical stream for {path.stem}: {exc}") from exc
+                    if not run:
+                        raise RuntimeError(f"empty canonical stream for {path.stem}")
+                else:
+                    run = dict(disk_run)
                 schema_version = _safe_int(run.get("schema_version"))
                 if schema_version > RUN_SCHEMA_VERSION:
                     raise RuntimeError(
@@ -380,8 +397,24 @@ class RunStore:
                 if observation and run.get("route_observation") != observation:
                     run["route_observation"] = observation
                     changed = True
-                if changed:
-                    self._atomic_json(path, self._redact_snapshot(run))
+                snapshot = self._redact_snapshot(run)
+                if not self.kernel.has_stream(path.stem):
+                    self.kernel.append_run(
+                        path.stem,
+                        event_type="projection.imported",
+                        actor="migration",
+                        projection=snapshot,
+                    )
+                elif changed:
+                    self.kernel.append_run(
+                        path.stem,
+                        event_type="projection.migrated",
+                        actor="migration",
+                        projection=snapshot,
+                    )
+                if snapshot != disk_run:
+                    self._atomic_json(path, snapshot)
+                self._reconcile_domain_journal(path.stem)
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -420,6 +453,64 @@ class RunStore:
                 os.unlink(tmp_name)
             except FileNotFoundError:
                 pass
+
+    def _persist_run(
+        self,
+        run: Mapping[str, Any],
+        *,
+        event_type: str,
+        actor: str = "odysseus",
+        domain_event: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.readonly:
+            raise RuntimeError("state is open read-only")
+        run_id = str(run.get("id") or "")
+        if not run_id:
+            raise ValueError("run id is required")
+        snapshot = self._redact_snapshot(run)
+        self.kernel.append_run(
+            run_id,
+            event_type=event_type,
+            actor=actor,
+            projection=snapshot,
+            domain_event=domain_event,
+        )
+        self._atomic_json(self._path(run_id), snapshot)
+        return snapshot
+
+    def _reconcile_domain_journal(self, run_id: str) -> None:
+        canonical = self.kernel.domain_events(run_id)
+        if not canonical:
+            return
+        path = self._events_path(run_id)
+        tail = 0
+        if path.exists():
+            try:
+                for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                    if not line.strip():
+                        continue
+                    value = json.loads(line)
+                    seq = value.get("seq") if isinstance(value, dict) else None
+                    if not isinstance(seq, int) or seq != tail + 1:
+                        raise RuntimeError(f"cannot reconcile non-contiguous event journal: {path}:{number}")
+                    tail = seq
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"cannot reconcile corrupt event journal: {path}") from exc
+        pending = sorted(
+            (event for event in canonical if isinstance(event.get("seq"), int) and int(event["seq"]) > tail),
+            key=lambda event: int(event["seq"]),
+        )
+        if not pending:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            for event in pending:
+                if int(event["seq"]) != tail + 1:
+                    raise RuntimeError(f"canonical event journal recovery has a gap for {run_id}")
+                handle.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+                tail += 1
+            handle.flush()
+            os.fsync(handle.fileno())
 
     def _redact_snapshot(self, run: Mapping[str, Any]) -> dict[str, Any]:
         previous = run.get("redaction_receipt") if isinstance(run.get("redaction_receipt"), dict) else {}
@@ -820,7 +911,7 @@ class RunStore:
         }
         run["route_observation"] = _route_observation_for(run)
         with self.locked():
-            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
+            self._persist_run(run, event_type="run.created")
         if initial_status == "queued":
             self.append_event(run_id, "run.queued", "odysseus", {"title": title})
         if context_receipt:
@@ -865,7 +956,7 @@ class RunStore:
             run.update(changes)
             run["updated_at"] = now_iso()
             run["route_observation"] = _route_observation_for(run)
-            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
+            self._persist_run(run, event_type="state.changed")
         return run
 
     def mutate(self, run_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
@@ -874,7 +965,7 @@ class RunStore:
             change(run)
             run["updated_at"] = now_iso()
             run["route_observation"] = _route_observation_for(run)
-            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
+            self._persist_run(run, event_type="state.changed")
         return run
 
     def append_event(
@@ -893,15 +984,23 @@ class RunStore:
             value["redaction_receipt"] = redaction_receipt.to_dict()
             line = json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n"
             path = self._events_path(run_id)
-            with path.open("a", encoding="utf-8") as handle:
-                handle.write(line)
-                handle.flush()
-                os.fsync(handle.fileno())
             run["event_seq"] = seq
             run["updated_at"] = event.ts
             self._aggregate_event(run, event_type, redacted_data)
             run["route_observation"] = _route_observation_for(run)
-            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
+            snapshot = self._redact_snapshot(run)
+            self.kernel.append_run(
+                run_id,
+                event_type=event_type,
+                actor=source,
+                projection=snapshot,
+                domain_event=value,
+            )
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+                handle.flush()
+                os.fsync(handle.fileno())
+            self._atomic_json(self._path(run_id), snapshot)
         self._route_attention(run, event_type, redacted_data)
         self.notifications.notify(run, event_type, redacted_data)
         return value
@@ -1151,7 +1250,7 @@ class RunStore:
             run["started_at"] = run.get("started_at") or now_iso()
             run["updated_at"] = now_iso()
             run["route_observation"] = _route_observation_for(run)
-            self._atomic_json(self._path(run_id), self._redact_snapshot(run))
+            self._persist_run(run, event_type="state.changed")
         self.append_event(run_id, "run.started", "odysseus", {"worker_pid": os.getpid()})
         return self.get(run_id)
 

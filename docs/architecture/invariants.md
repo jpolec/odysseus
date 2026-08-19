@@ -6,7 +6,7 @@ Status: published registry for the frozen I01-I25 invariant set from
 This document separates current guarantees from planned architecture. An
 invariant marked `enforced` is backed by at least one focused automated test in
 the machine-readable registry. An invariant marked `partial` describes current
-0.8 behavior that supports part of the invariant, but it is not a complete
+behavior that supports part of the invariant, but it is not a complete
 current guarantee. An invariant marked `planned` is target architecture only
 and must not be described as implemented until it has focused automated tests.
 
@@ -14,8 +14,8 @@ Machine-readable registry: `docs/architecture/invariants.registry.json`.
 
 | ID | Invariant | Status | Current guarantee or release target |
 | --- | --- | --- | --- |
-| I01 | Journal is canonical. | partial | NDJSON journals are durable and required by proof, but the full event-sourced journal is targeted for the 0.9 kernel. |
-| I02 | A snapshot is a deterministic projection of the journal. | planned | Planned for the 0.9 kernel. Not a current 0.8 guarantee. |
+| I01 | Journal is canonical. | enforced | Every run-state transition is appended and fsynced to a hash-chained EventEnvelope v2 stream before the replaceable projection. |
+| I02 | A snapshot is a deterministic projection of the journal. | enforced | Run projections rebuild bit-for-bit from canonical streams and are verified against projection/checkpoint hashes. |
 | I03 | Every command is idempotent. | partial | Selected operations are idempotent; the universal command layer is targeted for the 0.9 kernel. |
 | I04 | Every external side effect has durable intent before execution. | partial | Some operator decisions are recorded before effects; the durable outbox is targeted for the 0.9 kernel. |
 | I05 | Every external side effect is reconcilable. | partial | Selected effects are reconciled; universal action reconciliation is targeted for the 0.9 kernel. |
@@ -33,11 +33,11 @@ Machine-readable registry: `docs/architecture/invariants.registry.json`.
 | I17 | A child policy can restrict but never widen a parent policy. | planned | Planned for the 0.9 policy model. Not a current 0.8 guarantee. |
 | I18 | Every final outcome has lineage to a requirement and artifact. | partial | Context receipts, source documents, artifact SHAs, and proof receipts provide partial lineage; full OutcomeRecord lineage is targeted for the 0.9 kernel. |
 | I19 | Every autonomous decision is explainable from stored evidence. | partial | Outcome routing explanations are stored; universal decision explanation is targeted for the 0.9 kernel. |
-| I20 | State can be reconstructed after arbitrary process death. | partial | Durable snapshots, journals, and verification exist; full replay after arbitrary death is targeted for the 0.9 kernel. |
+| I20 | State can be reconstructed after arbitrary process death. | partial | Run state and missing operator events recover after canonical fsync crash windows; other stores and external side effects still need the command/outbox releases. |
 | I21 | Artifact bytes always match their immutable content hash. | planned | Planned for the 0.9 content-addressed ArtifactStore. Not a current 0.8 guarantee. |
 | I22 | Approval applies to exactly one artifact, evidence, and contract tuple. | planned | Planned for the 0.9 ReviewDecision model. Not a current 0.8 guarantee. |
 | I23 | Secrets never cross the durable persistence boundary unredacted. | partial | Selected redaction boundaries exist; the complete durable redaction engine is targeted for the 0.9 security boundary. |
-| I24 | Historical domain-event bytes are never rewritten during schema evolution. | enforced | Snapshot migration preserves existing event journal bytes. |
+| I24 | Historical domain-event bytes are never rewritten during schema evolution. | enforced | Historical canonical envelopes are upcast at read time and their on-disk bytes remain unchanged. |
 | I25 | Duplicate inbound or outbound messages cannot cause duplicate logical effects. | partial | Selected inbound and delivery duplicates are deduplicated; universal message idempotency is targeted for the 0.9 kernel. |
 
 ## Registry rules

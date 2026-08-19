@@ -278,6 +278,37 @@ timing, token counters, cost observability, result, and an upcast pointer for
 future RouteReceipt conversion. It observes current routing behavior only; it
 does not create new autonomous routing authority.
 
+Schema 14 makes the JSON run record a compatibility projection of a canonical
+per-run stream under `streams/RUN_ID.ndjson`. Every state transition appends
+and fsyncs an `odysseus-event-envelope-v2` record before the projection is
+replaced. The envelope carries a contiguous `stream_version`, unique event and
+command IDs, correlation/causation fields, actor, immutable projection patch,
+projection hash, previous-event hash, and event hash. Checkpoints under
+`checkpoints/runs/` accelerate appends but are disposable and verified against
+the stream tail and materialized projection.
+
+The canonical stream is distinct from the compact operator activity journal
+under `events/`: the former reconstructs state, while the latter is the
+normalized UI/proof activity feed. When a process dies after canonical fsync
+but before the activity feed or projection write, opening the writable store
+replays the stream, rebuilds the projection, and reconciles the missing
+activity record. Historical schemas are upcast at read time; existing
+canonical bytes are never rewritten.
+
+Operators can inspect or recover state with:
+
+```sh
+odysseus replay RUN_ID
+odysseus replay RUN_ID --until-event 42
+odysseus rebuild-projections --dry-run
+odysseus rebuild-projections
+odysseus state verify --json
+```
+
+`rebuild-projections` refuses a live server-owned state directory. Rebuild and
+verification receipts expose processed event counts, elapsed time, and replay
+throughput so recovery cost remains observable.
+
 Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 `skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7
 adds `knowledge_selected` and the explainable `skill_routing` record. Context

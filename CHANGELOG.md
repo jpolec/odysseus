@@ -20,6 +20,24 @@ No unreleased user-facing changes yet.
 
 ## 2026-08-19
 
+### [0.9.0](https://github.com/jpolec/odysseus/releases/tag/v0.9.0) — Durable event kernel and replay
+
+- Made a per-run EventEnvelope v2 stream the canonical source for run state;
+  run JSON is now a deterministic, replaceable projection.
+- Added contiguous stream versions, SHA-256 hash chaining, projection hashes,
+  checkpoints, immutable schema upcasting, and strict tamper detection.
+- Added `odysseus replay RUN_ID`, historical `--until-event` replay, and
+  `odysseus rebuild-projections` with dry-run and machine-readable modes.
+- Extended `odysseus state verify` to validate canonical streams, projection
+  equality, checkpoints, legacy state, and measured replay throughput.
+- Added journal-first crash recovery that repairs a missing/stale projection
+  and reconciles an operator event written only to the canonical stream before
+  process death.
+- Added focused deletion, corruption, crash-window, migration, historical
+  replay, state verification, and bit-for-bit rebuild tests.
+- Kept repository-only hidden files out of public release checksums, SBOM, and
+  provenance so every listed subject is an uploaded asset.
+
 ### [0.8.2](https://github.com/jpolec/odysseus/releases/tag/v0.8.2) — Correctness and trust foundations
 
 - Repositioned Odysseus as the free, local delivery system for coding agents:

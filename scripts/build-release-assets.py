@@ -40,7 +40,10 @@ def build_release_metadata(dist_dir: Path, output_dir: Path) -> list[Path]:
     dist_dir = dist_dir.resolve()
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    artifacts = sorted(path for path in dist_dir.iterdir() if path.is_file())
+    # Only public package payloads belong in the release manifest. Repository
+    # keep-files such as ``dist/.gitignore`` are not uploaded by ``dist/*`` and
+    # must never appear in checksums, SBOM subjects, or provenance.
+    artifacts = sorted(path for path in dist_dir.iterdir() if path.is_file() and not path.name.startswith("."))
     if not artifacts:
         raise SystemExit(f"no release artifacts found in {dist_dir}")
 

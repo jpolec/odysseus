@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
 from .events import EVENT_SCHEMA_VERSION
 from .epics import EPIC_SCHEMA_VERSION
+from .kernel import EventKernel, KernelIntegrityError
 from .store import RUN_SCHEMA_VERSION
 
 
@@ -85,11 +87,24 @@ def verify_state(root: Path | str) -> dict[str, Any]:
 
     state_root = Path(root).expanduser()
     errors: list[str] = []
-    counts = {"runs": 0, "events": 0, "epics": 0, "json_files": 0, "ndjson_files": 0}
+    counts = {
+        "runs": 0,
+        "events": 0,
+        "epics": 0,
+        "json_files": 0,
+        "ndjson_files": 0,
+        "streams": 0,
+        "stream_events": 0,
+        "checkpoints": 0,
+        "legacy_runs": 0,
+    }
+    warnings: list[str] = []
     if not state_root.exists():
-        return {"valid": True, "root": str(state_root), "errors": [], **counts}
+        return {"valid": True, "root": str(state_root), "errors": [], "warnings": [], **counts}
     if not state_root.is_dir():
-        return {"valid": False, "root": str(state_root), "errors": [f"{state_root}: not a directory"], **counts}
+        return {"valid": False, "root": str(state_root), "errors": [f"{state_root}: not a directory"], "warnings": [], **counts}
+
+    run_records: dict[str, dict[str, Any]] = {}
 
     for name in JSON_OBJECT_FILES:
         path = state_root / name
@@ -111,6 +126,7 @@ def verify_state(root: Path | str) -> dict[str, Any]:
                 continue
             if name == "runs":
                 counts["runs"] += 1
+                run_records[path.stem] = value
                 if str(value.get("id") or "") != path.stem:
                     errors.append(f"{path}: run id does not match file name")
                 version = value.get("schema_version")
@@ -145,4 +161,41 @@ def verify_state(root: Path | str) -> dict[str, Any]:
             counts["ndjson_files"] += 1
             _verify_ndjson(path, errors, counts)
 
-    return {"valid": not errors, "root": str(state_root), "errors": errors, **counts}
+    kernel = EventKernel(state_root, readonly=True)
+    canonical_started = time.monotonic()
+    stream_names: set[str] = set()
+    if kernel.streams_dir.exists():
+        if not kernel.streams_dir.is_dir():
+            errors.append(f"{kernel.streams_dir}: expected a directory")
+        else:
+            for path in sorted(kernel.streams_dir.glob("*.ndjson")):
+                counts["streams"] += 1
+                counts["ndjson_files"] += 1
+                stream_names.add(path.stem)
+                try:
+                    events = kernel.read(path.stem)
+                    counts["stream_events"] += len(events)
+                    projection = run_records.get(path.stem)
+                    if projection is None:
+                        errors.append(f"{path}: canonical stream has no materialized run projection")
+                        continue
+                    result = kernel.verify_projection(path.stem, projection)
+                    for message in result["errors"]:
+                        errors.append(f"{path}: {message}")
+                    if kernel.checkpoint_path(path.stem).exists():
+                        counts["checkpoints"] += 1
+                except (KernelIntegrityError, KeyError, RuntimeError) as exc:
+                    errors.append(f"{path}: {exc}")
+    for run_id in sorted(set(run_records) - stream_names):
+        counts["legacy_runs"] += 1
+        warnings.append(f"run:{run_id} has no canonical stream; open state with migration before relying on replay")
+
+    canonical_elapsed = max(0.0, time.monotonic() - canonical_started)
+    counts["canonical_verify_seconds"] = round(canonical_elapsed, 6)
+    counts["replay_events_per_second"] = (
+        round(counts["stream_events"] / canonical_elapsed, 2)
+        if counts["stream_events"] and canonical_elapsed
+        else None
+    )
+
+    return {"valid": not errors, "root": str(state_root), "errors": errors, "warnings": warnings, **counts}

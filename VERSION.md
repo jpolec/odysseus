@@ -11,9 +11,9 @@ paths.
 
 ## Current stable release
 
-**0.8.2 — 2026-08-19**
+**0.9.0 — 2026-08-19**
 
-[Odysseus 0.8.2](https://github.com/jpolec/odysseus/releases/tag/v0.8.2)
+[Odysseus 0.9.0](https://github.com/jpolec/odysseus/releases/tag/v0.9.0)
 is the latest stable release. Its tag binds the exact source revision and its
 release proof covers the complete automated suite, install and upgrade,
 packaged `uvx` boot, real-browser smoke, HTTP health, recovery, credentials,
@@ -144,6 +144,21 @@ Completed, accepted, integrated, and delivered are separate states.
 - Provide local search, outcome statistics, evidence export, production proof,
   and privacy-reduced proof receipts over complete eligible journals.
 
+### Durable state and replay
+
+- Append every run-state transition to a canonical, fsynced EventEnvelope v2
+  stream before updating its replaceable JSON projection.
+- Bind contiguous stream versions into a SHA-256 hash chain and verify event,
+  projection, and checkpoint hashes without mutating the evidence.
+- Reconstruct a current or historical run with `odysseus replay`, and rebuild
+  missing or stale projections with `odysseus rebuild-projections`.
+- Recover an operator activity event and run projection after a process dies
+  between the canonical append and the compatibility-journal/snapshot writes.
+- Read historical envelope schemas through immutable upcasters rather than
+  rewriting canonical bytes during an upgrade.
+- Report canonical replay throughput in state verification and projection
+  rebuild receipts instead of hiding the cost of recovery.
+
 ### Installation and operation
 
 - Run with Python 3.10+ and no Python runtime dependencies or database.
@@ -176,10 +191,11 @@ No later state is inferred merely because an earlier state is present.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.8.2` |
-| Run snapshot schema | `13` |
+| Application version | `0.9.0` |
+| Run snapshot schema | `14` |
 | Epic snapshot schema | `3` |
-| Event envelope version | `1` |
+| Canonical state event envelope | `2` |
+| Operator activity event envelope | `1` |
 | Context receipt | `context-receipt-v1` |
 | State export | `odysseus-state-v1` |
 | Python | `3.10+` |
@@ -224,7 +240,7 @@ model.
 - The stdlib HTTP service is a single-operator local/private control plane, not
   a multi-tenant application server.
 - Remote distributed workers, organization RBAC, and learned autonomous
-  routing are not part of 0.8.2.
+  routing are not part of 0.9.0.
 - Repository knowledge is explicit and provenance-bound; a native semantic
   context graph is planned but not included in this release.
 

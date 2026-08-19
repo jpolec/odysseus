@@ -14,6 +14,8 @@ from odysseus.cli import (
     _running_odysseus_url,
     cmd_doctor,
     cmd_export,
+    cmd_rebuild_projections,
+    cmd_replay,
     cmd_serve,
     cmd_update,
     cmd_version,
@@ -38,7 +40,7 @@ class CLITests(unittest.TestCase):
         args = parser().parse_args(["start", "--port", "9911"])
         self.assertEqual(args.port, 9911)
         self.assertEqual(args.func.__name__, "cmd_serve")
-        self.assertEqual(__version__, "0.8.2")
+        self.assertEqual(__version__, "0.9.0")
 
     def test_start_chooses_the_next_port_when_the_requested_port_is_busy(self) -> None:
         class FakeHTTPD:
@@ -96,7 +98,7 @@ class CLITests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 result = cmd_doctor(human_args)
-            self.assertIn("Odysseus 0.8.2", output.getvalue())
+            self.assertIn("Odysseus 0.9.0", output.getvalue())
             self.assertIn("Git", output.getvalue())
             self.assertIn(result, {0, 1})
 
@@ -115,6 +117,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual(value["version"], __version__)
         self.assertGreaterEqual(value["run_schema"], 1)
         self.assertGreaterEqual(value["event_schema"], 1)
+        self.assertEqual(value["canonical_event_schema"], 2)
 
     def test_export_redacts_nested_state_and_events(self) -> None:
         from odysseus.store import RunStore
@@ -166,6 +169,29 @@ class CLITests(unittest.TestCase):
         self.assertEqual(args.variants, 2)
         self.assertEqual(args.variant_lane, ["codex", "claude"])
         self.assertEqual(args.variant_prompt, ["small"])
+
+    def test_replay_and_rebuild_projection_commands_use_canonical_stream(self) -> None:
+        from odysseus.store import RunStore
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "CLI replay fixture", "project_path": str(project)})
+            replay_args = argparse.Namespace(state_dir=store.root, run_id=run["id"], until_event=None, json=True)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cmd_replay(replay_args), 0)
+            self.assertEqual(__import__("json").loads(output.getvalue())["id"], run["id"])
+
+            (store.runs_dir / f"{run['id']}.json").unlink()
+            rebuild_args = argparse.Namespace(state_dir=store.root, run_id=run["id"], dry_run=False, json=True)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(cmd_rebuild_projections(rebuild_args), 0)
+            self.assertEqual(__import__("json").loads(output.getvalue())["runs"], 1)
+            self.assertTrue((store.runs_dir / f"{run['id']}.json").is_file())
 
     def test_source_checkout_update_defers_to_its_package_manager(self) -> None:
         args = argparse.Namespace(state_dir=Path("/tmp/unused"), check=True, edge=False, target_version=None)

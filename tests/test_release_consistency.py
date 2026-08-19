@@ -34,6 +34,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
             sdist = dist / f"odysseus_agents-{__version__}.tar.gz"
             wheel.write_bytes(b"wheel")
             sdist.write_bytes(b"sdist")
+            (dist / ".gitignore").write_text("*\n!.gitignore\n", encoding="utf-8")
 
             generated = module.build_release_metadata(dist, root)
 
@@ -48,6 +49,7 @@ class ReleaseConsistencyTests(unittest.TestCase):
             self.assertEqual({subject["name"] for subject in provenance["subject"]}, {wheel.name, sdist.name})
             expected_names = {wheel.name, sdist.name, "SBOM.spdx.json", "PROVENANCE.json"}
             self.assertEqual({line.split("  ", 1)[1] for line in sums}, expected_names)
+            self.assertNotIn(".gitignore", (root / "SHA256SUMS").read_text(encoding="utf-8"))
             for line in sums:
                 digest, name = line.split("  ", 1)
                 target = dist / name if (dist / name).exists() else root / name

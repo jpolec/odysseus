@@ -37,7 +37,7 @@ class StateVerificationTests(unittest.TestCase):
             self.assertFalse(result["valid"])
             self.assertEqual(len(result["errors"]), 2)
 
-    def test_newer_run_schema_is_rejected_before_migration(self) -> None:
+    def test_tampered_projection_is_rejected_then_repaired_from_canonical_stream(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             project = Path(temp) / "repo"
             project.mkdir()
@@ -50,8 +50,9 @@ class StateVerificationTests(unittest.TestCase):
             path.write_text(json.dumps(value), encoding="utf-8")
 
             self.assertFalse(verify_state(root)["valid"])
-            with self.assertRaisesRegex(RuntimeError, "supports up to"):
-                RunStore(root)
+            repaired = RunStore(root).get(run["id"])
+            self.assertEqual(repaired["schema_version"], RUN_SCHEMA_VERSION)
+            self.assertTrue(verify_state(root)["valid"])
 
 
 if __name__ == "__main__":

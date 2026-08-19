@@ -2,21 +2,24 @@
   {
     "id": "I01",
     "title": "Journal is canonical.",
-    "status": "partial",
-    "current_guarantee": "Runs persist an append-only NDJSON event journal beside a JSON run snapshot. Release proof and strict event reads treat the journal as required evidence, but the 0.8 runtime has not moved all command state to an event-sourced journal.",
+    "status": "enforced",
+    "current_guarantee": "Every run-state transition is appended and fsynced to a hash-chained EventEnvelope v2 stream before its replaceable JSON projection is written.",
     "test_references": [
-      "tests/test_store.py::StoreTests.test_run_and_events_are_durable_json_and_ndjson",
-      "tests/test_proof.py::ProductionProofTests.test_deleted_journal_event_is_rejected"
+      "tests/test_kernel.py::EventKernelTests.test_stream_is_hash_chained_and_replays_exact_projection",
+      "tests/test_kernel.py::EventKernelTests.test_process_death_after_stream_fsync_recovers_projection"
     ],
-    "planned_target_release": "0.9 kernel"
+    "planned_target_release": ""
   },
   {
     "id": "I02",
     "title": "A snapshot is a deterministic projection of the journal.",
-    "status": "planned",
-    "current_guarantee": "Planned for the 0.9 kernel. Not a current 0.8 guarantee; current run JSON snapshots are durable compatibility records, not complete deterministic projections rebuilt solely from the journal.",
-    "test_references": [],
-    "planned_target_release": "0.9 kernel"
+    "status": "enforced",
+    "current_guarantee": "Run JSON snapshots are deterministic, replaceable projections that rebuild bit-for-bit from the canonical stream and are verified against stream and checkpoint hashes.",
+    "test_references": [
+      "tests/test_kernel.py::EventKernelTests.test_deleted_projection_rebuilds_bit_for_bit_from_stream",
+      "tests/test_kernel.py::EventKernelTests.test_stream_is_hash_chained_and_replays_exact_projection"
+    ],
+    "planned_target_release": ""
   },
   {
     "id": "I03",
@@ -192,13 +195,12 @@
     "id": "I20",
     "title": "State can be reconstructed after arbitrary process death.",
     "status": "partial",
-    "current_guarantee": "0.8 stores durable JSON snapshots and NDJSON journals, verifies state, rejects corrupt records, and records crash recovery evidence. Full arbitrary-process-death replay from the canonical journal is planned.",
+    "current_guarantee": "0.9 reconstructs run projections and missing operator activity records after a process dies following canonical fsync. Other state stores and external side effects remain outside this guarantee until the idempotent command and outbox releases.",
     "test_references": [
-      "tests/test_state.py::StateVerificationTests.test_valid_state_scans_run_and_event_journal",
-      "tests/test_state.py::StateVerificationTests.test_corrupt_json_and_ndjson_are_never_silently_skipped",
-      "tests/test_proof.py::ProductionProofTests.test_only_observed_release_runs_contribute_to_production_metrics"
+      "tests/test_kernel.py::EventKernelTests.test_process_death_after_stream_fsync_recovers_projection",
+      "tests/test_kernel.py::EventKernelTests.test_crash_before_domain_journal_and_snapshot_is_reconciled"
     ],
-    "planned_target_release": "0.9 kernel"
+    "planned_target_release": "0.9.1 command API and 0.9.3 durable effects"
   },
   {
     "id": "I21",
@@ -231,9 +233,9 @@
     "id": "I24",
     "title": "Historical domain-event bytes are never rewritten during schema evolution.",
     "status": "enforced",
-    "current_guarantee": "Existing event journal bytes remain unchanged when an old run snapshot is migrated forward.",
+    "current_guarantee": "Historical canonical event envelopes remain byte-identical while older schemas are upcast into the current representation at read time.",
     "test_references": [
-      "tests/test_store.py::StoreTests.test_schema_two_snapshot_migrates_forward_without_rewriting_events"
+      "tests/test_kernel.py::EventKernelTests.test_v1_envelope_upcasts_without_rewriting_historical_bytes"
     ],
     "planned_target_release": ""
   },

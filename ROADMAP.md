@@ -20,23 +20,23 @@ implementation DAG lives in
 Each independently useful capability ships as its own version and must pass the
 complete release gate before the next capability begins.
 
-| Version | Capability |
-| --- | --- |
-| `0.8.2` | Correctness, public trust, branch audit, and RouteObservation |
-| `0.9.0` | Event-sourced kernel and deterministic replay |
-| `0.9.1` | Idempotent Command API |
-| `0.9.2` | Worker Leases and fencing |
-| `0.9.3` | Durable Outbox, Action Ledger, and reconciliation |
-| `0.10.0` | Complete OutcomeRecord and observation semantics |
-| `0.10.1` | Full routing and Skill receipts |
-| `0.11.0` | Versioned ChangeContract and typed Plans |
-| `0.11.1` | Content-addressed ArtifactStore |
-| `0.11.2` | Immutable milestone validation and scoped repair |
-| `0.12.0` | Capability and policy engine |
-| `0.13.0` | Flight Recorder |
-| `0.13.1` | Native semantic Context Engine |
-| `0.14.0` | Learned outcome routing |
-| `0.15.0` | Governed ecosystem, MCP, and remote workers |
+| Version | Capability | Status |
+| --- | --- | --- |
+| `0.8.2` | Correctness, public trust, branch audit, and RouteObservation | Shipped |
+| `0.9.0` | Event-sourced kernel and deterministic replay | Shipped |
+| `0.9.1` | Idempotent Command API | Next |
+| `0.9.2` | Worker Leases and fencing | Planned |
+| `0.9.3` | Durable Outbox, Action Ledger, and reconciliation | Planned |
+| `0.10.0` | Complete OutcomeRecord and observation semantics | Planned |
+| `0.10.1` | Full routing and Skill receipts | Planned |
+| `0.11.0` | Versioned ChangeContract and typed Plans | Planned |
+| `0.11.1` | Content-addressed ArtifactStore | Planned |
+| `0.11.2` | Immutable milestone validation and scoped repair | Planned |
+| `0.12.0` | Capability and policy engine | Planned |
+| `0.13.0` | Flight Recorder | Planned |
+| `0.13.1` | Native semantic Context Engine | Planned |
+| `0.14.0` | Learned outcome routing | Planned |
+| `0.15.0` | Governed ecosystem, MCP, and remote workers | Planned |
 
 ## Now
 

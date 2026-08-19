@@ -454,6 +454,8 @@ Dependencies: 3 -> 4; 1, 2, 4, 5, and 6 -> 7.
 
 ### 0.9.0 — durable kernel
 
+Status: shipped in `v0.9.0`.
+
 1. EventEnvelope v2 and append/fsync EventLog.
 2. Deterministic projections/checkpoints and migrations from existing runs.
 3. Replay, replay-until-event, rebuild-projections, and verify-state v2.
