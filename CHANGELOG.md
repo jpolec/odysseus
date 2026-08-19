@@ -70,7 +70,7 @@ Git; this file records observable operator and product changes.
 
 ## 2026-08-16
 
-### [0.8.0](https://github.com/jpolec/odysseus/tree/22778e4) — Outcome-driven delivery
+### [0.8.0](https://github.com/jpolec/odysseus/releases/tag/v0.8.0) — Outcome-driven delivery
 
 - Added the Engineering Portfolio with delivered outcomes, autonomous and
   first-pass rates, intervention, observed cost coverage, worker effectiveness
@@ -84,7 +84,7 @@ Git; this file records observable operator and product changes.
 - Introduced the calmer neutral visual system and light default theme without
   adding a remote font or frontend runtime dependency.
 
-### [0.7.0](https://github.com/jpolec/odysseus/tree/b997d7f) — Project Decisions
+### [0.7.0](https://github.com/jpolec/odysseus/releases/tag/v0.7.0) — Project Decisions
 
 - Added `_ADR/` and conventional ADR discovery, keeping decision status
   separate from implementation status.
@@ -94,7 +94,7 @@ Git; this file records observable operator and product changes.
   Epic and every materialized task Context Receipt.
 - Added traversal, directory, count, and size protections for source documents.
 
-### [0.6.12](https://github.com/jpolec/odysseus/tree/1ab0f51) — Credential boundary and stabilized delivery
+### [0.6.12](https://github.com/jpolec/odysseus/releases/tag/v0.6.12) — Credential boundary and stabilized delivery
 
 - Prevented host agent, setup, check, reviewer, and evaluator commands from
   inheriting the complete server environment.
@@ -105,26 +105,26 @@ Git; this file records observable operator and product changes.
 - Preserved explicit inventory/reclaim behavior and recoverable failed
   worktrees instead of silently cleaning them up.
 
-### [0.6.11](https://github.com/jpolec/odysseus/tree/19db60b) — Composed operator polish
+### [0.6.11](https://github.com/jpolec/odysseus/releases/tag/v0.6.11) — Composed operator polish
 
 - Fixed null task titles, improved repository-scoped terminal discovery, and
   added a persistent theme switch with packaged icon assets.
 - Composed accepted fixes while retaining Git parents and truthful provenance.
 
-### [0.6.10](https://github.com/jpolec/odysseus/tree/249aaef) — Exact on-demand tabs
+### [0.6.10](https://github.com/jpolec/odysseus/releases/tag/v0.6.10) — Exact on-demand tabs
 
 - Made deep links activate the requested tab before expensive rendering.
 - Stopped Integration from loading Diff and made Evidence fetch only the
   selected surface.
 
-### [0.6.9](https://github.com/jpolec/odysseus/tree/169af4d) — Responsive task inspection
+### [0.6.9](https://github.com/jpolec/odysseus/releases/tag/v0.6.9) — Responsive task inspection
 
 - Replaced heavyweight navigation polling with compact summaries and
   lazy-loaded Changes, Activity, and Evidence.
 - Added generation guards so stale requests/SSE cannot overwrite a new task.
 - Added explicit **Resolve integration** recovery for merge conflicts.
 
-### [0.6.8](https://github.com/jpolec/odysseus/tree/15f58ad) — Task intake and Settings
+### [0.6.8](https://github.com/jpolec/odysseus/releases/tag/v0.6.8) — Task intake and Settings
 
 - Made Start Task and Start & add another clear drafts, prevent duplicates,
   show starting state, and recover the draft on failure.
@@ -133,7 +133,7 @@ Git; this file records observable operator and product changes.
 - Improved blocked Apply diagnostics and allowed harmless untracked files while
   preserving collision safety.
 
-### [0.6.7](https://github.com/jpolec/odysseus/tree/c372c90) — Review and delivery clarity
+### [0.6.7](https://github.com/jpolec/odysseus/releases/tag/v0.6.7) — Review and delivery clarity
 
 - Added the Review → Test → Deliver checklist and made it explicit that agent
   completion does not modify the source checkout.
@@ -141,7 +141,7 @@ Git; this file records observable operator and product changes.
 - Added guarded merge preconditions, conflict abort, delivery receipts, and an
   accessible Odysseus confirmation dialog.
 
-### [0.6.6](https://github.com/jpolec/odysseus/tree/abdb793) — Guided recovery and Context Assistant
+### [0.6.6](https://github.com/jpolec/odysseus/releases/tag/v0.6.6) — Guided recovery and Context Assistant
 
 - Put Resume with feedback below failures and decisions; terminal continuation
   became a secondary escape hatch.
@@ -151,7 +151,7 @@ Git; this file records observable operator and product changes.
 
 ## 2026-08-15
 
-### [0.6.5](https://github.com/jpolec/odysseus/tree/6c7b6ba) — Repository clarity
+### [0.6.5](https://github.com/jpolec/odysseus/releases/tag/v0.6.5) — Repository clarity
 
 - Defined the nouns literally: Odysseus is the application, a repository is one
   Git checkout, and a task is one requested agent change.
@@ -160,13 +160,13 @@ Git; this file records observable operator and product changes.
 - Made tmux discovery read-only and hid internal worktrees from repositories.
 - Added safe Remove/Forget and multi-task submission from one composer.
 
-### [0.6.4](https://github.com/jpolec/odysseus/tree/cc8ee29) — Explicit three-step workflow
+### [0.6.4](https://github.com/jpolec/odysseus/releases/tag/v0.6.4) — Explicit three-step workflow
 
 - Added **1 Choose repository → 2 New task → 3 Review** on desktop and mobile.
 - Reduced default input to one outcome while keeping advanced controls under
   More options.
 
-### [0.6.3](https://github.com/jpolec/odysseus/tree/df0e2e1) — Observed production proof
+### [0.6.3](https://github.com/jpolec/odysseus/releases/tag/v0.6.3) — Observed production proof
 
 - Added provenance classification, strict ordered-event eligibility, privacy-
   reduced run receipts, aggregate hashes, honest cost coverage, and thresholds.
@@ -174,7 +174,7 @@ Git; this file records observable operator and product changes.
   from production metrics.
 - Added dogfooding commands and public Markdown proof receipts.
 
-### [0.6.2](https://github.com/jpolec/odysseus/tree/7d3385b) — Stable install lifecycle
+### [0.6.2](https://github.com/jpolec/odysseus/releases/tag/v0.6.2) — Stable install lifecycle
 
 - Made the installer resolve stable releases by default while requiring an
   explicit edge/ref/version choice for non-stable code.
@@ -183,7 +183,7 @@ Git; this file records observable operator and product changes.
 - Added live-server protection, ownership checks, port handling, and
   package-manager-aware pipx/uvx guidance.
 
-### [0.6.1](https://github.com/jpolec/odysseus/tree/59e293b) — Release integrity and packaging
+### [0.6.1](https://github.com/jpolec/odysseus/releases/tag/v0.6.1) — Release integrity and packaging
 
 - Added the zero-dependency Python package, console entry point, wheel, uvx
   verification, packaged web/demo/tmux/Skills assets, and exact-ref install.
@@ -264,13 +264,13 @@ Git; this file records observable operator and product changes.
   scheduling, fan-out/fan-in, Needs You, structured questions, exact-thread
   resume, independent evaluation, and deterministic demo state.
 
-### [0.2.0](https://github.com/jpolec/odysseus/tree/634c16d) — Local control plane
+### [0.2.0](https://github.com/jpolec/odysseus/releases/tag/v0.2.0) — Local control plane
 
 - Added the web UI, isolated branch/worktree workflow, bounded queue,
   checks/retries, normalized telemetry, multi-project registry, Inbox, GitHub
   intake, draft PRs, exact-thread resume, tmux takeover, and remote operation.
 
-### [0.1.0](https://github.com/jpolec/odysseus/tree/88a2c83) — Odysseus foundation
+### [0.1.0](https://github.com/jpolec/odysseus/releases/tag/v0.1.0) — Odysseus foundation
 
 - Turned the tmux manager into the first Odysseus application with persisted
   repository/session concepts and a path toward the local control plane.

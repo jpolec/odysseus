@@ -9,9 +9,10 @@ organizing metric is **Human Attention per Successful Change**: more accepted,
 verified software with fewer minutes spent supervising routine agent work.
 
 Versions describe independently useful product increments, not promised dates.
-Detailed shipped history lives in [VERSION.md](VERSION.md); this document is for
-what we are building next. The repository-inspected capability matrix and
-implementation DAG live in
+Detailed shipped history lives in [CHANGELOG.md](CHANGELOG.md), while the
+current capability and compatibility contract lives in [VERSION.md](VERSION.md).
+This document is for what we are building next. The repository-inspected
+implementation DAG lives in
 [Outcome-driven control plane](docs/OUTCOME_CONTROL_PLANE_PLAN.md).
 
 ## Now
