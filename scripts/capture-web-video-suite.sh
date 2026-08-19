@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the fast hero film and four focused workflow films from disposable demo data.
+# Build the fast hero film, inline README preview, and four focused workflow films.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +21,14 @@ ffmpeg -hide_banner -loglevel error -y \
 ffmpeg -hide_banner -loglevel error -y \
   -ss 4 -i "$OUTPUT_DIR/odysseus-45s.mp4" -frames:v 1 \
   "$OUTPUT_DIR/odysseus-45s-poster.png"
+
+# GitHub READMEs reliably render images but do not embed a YouTube player. Keep
+# the preview small enough for a fast repository landing page; the GIF links to
+# the sharper H.264 tour.
+ffmpeg -hide_banner -loglevel error -y \
+  -i "$OUTPUT_DIR/odysseus-45s.mp4" \
+  -vf 'setpts=0.333333*PTS,fps=7,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle' \
+  -loop 0 "$OUTPUT_DIR/odysseus-readme-preview.gif"
 
 for story in task plan recovery delivery; do
   ODYSSEUS_VIDEO_STORY="$story" \

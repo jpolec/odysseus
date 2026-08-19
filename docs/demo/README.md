@@ -1,10 +1,12 @@
 # Odysseus product films
 
-The main README uses the fast 45-second tour. Four focused films show individual
+The main README plays a lightweight 15-second animated preview immediately.
+Clicking it opens the fast 45-second tour. Four focused films show individual
 operator workflows without turning the README into a wall of embedded media.
 
 | Film | What it shows |
 | --- | --- |
+| [Inline README preview](odysseus-readme-preview.gif) | A 15-second, 800-pixel-wide GIF derived from the real tour for reliable inline rendering on GitHub. |
 | [45-second tour](odysseus-45s.mp4) | The complete repository-to-delivery loop at launch pace. |
 | [Task → verified artifact](odysseus-task.mp4) | Choose a repository, describe an outcome, reveal optional controls, review evidence. |
 | [Plan/DAG → parallel agents](odysseus-plan.mp4) | Requirement, approval-gated Plan, dependency graph, attention gate. |
@@ -22,6 +24,6 @@ Rebuild the complete suite from the repository root:
 scripts/capture-web-video-suite.sh
 ```
 
-The script derives the fast hero from the full source tour and captures each
-focused workflow independently. To rebuild only the full source tour, run
-`scripts/capture-web-demo.sh`.
+The script derives the fast hero and inline GIF from the full source tour and
+captures each focused workflow independently. To rebuild only the full source
+tour, run `scripts/capture-web-demo.sh`.

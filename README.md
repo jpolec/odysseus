@@ -33,11 +33,12 @@ infrastructure can still have their own costs.
 [Release proof](PROOF.md) · [Production proof](PRODUCTION_PROOF.md) ·
 [Protocol and API](docs/odysseus-protocol.md)
 
-[![Watch Odysseus in 45 seconds](docs/demo/odysseus-45s-poster.png)](docs/demo/odysseus-45s.mp4)
+[![Odysseus product tour — animated preview](docs/demo/odysseus-readme-preview.gif)](docs/demo/odysseus-45s.mp4)
 
-[Watch the 45-second product tour](docs/demo/odysseus-45s.mp4) — repository →
-outcome → plan → attention → evidence → delivery. It is recorded from the real
-web interface against disposable demo state and spends no model tokens.
+**Animated 15-second preview — click it for the full 45-second product tour.**
+Repository → outcome → plan → attention → evidence → delivery. It is recorded
+from the real web interface against disposable demo state and spends no model
+tokens.
 
 ## One outcome in. Evidence and an exact artifact out.
 
@@ -214,12 +215,13 @@ repair loop, tool telemetry, checks, evaluation, search, and outcome metrics.
 
 ### See each workflow
 
-| Workflow | Film |
+Click a preview to open the focused film.
+
+| Task → verified artifact | Plan/DAG → safe parallel work |
 | --- | --- |
-| Task → verified artifact | [36-second walkthrough](docs/demo/odysseus-task.mp4) |
-| Plan/DAG → safe parallel work | [40-second walkthrough](docs/demo/odysseus-plan.mp4) |
-| Needs You → recovery → terminal | [38-second walkthrough](docs/demo/odysseus-recovery.mp4) |
-| Evidence → delivery → portfolio | [45-second walkthrough](docs/demo/odysseus-delivery.mp4) |
+| [![Task workflow](docs/demo/odysseus-task-poster.png)](docs/demo/odysseus-task.mp4) | [![Plan workflow](docs/demo/odysseus-plan-poster.png)](docs/demo/odysseus-plan.mp4) |
+| **Needs You → recovery → terminal** | **Evidence → delivery → portfolio** |
+| [![Recovery workflow](docs/demo/odysseus-recovery-poster.png)](docs/demo/odysseus-recovery.mp4) | [![Delivery workflow](docs/demo/odysseus-delivery-poster.png)](docs/demo/odysseus-delivery.mp4) |
 
 [Full 90-second product tour](docs/demo/odysseus-90s.mp4) ·
 [Video gallery and reproduction guide](docs/demo/README.md)
@@ -243,8 +245,9 @@ Node.js, and ffmpeg:
 scripts/capture-web-video-suite.sh
 ```
 
-It writes the H.264 film and its README poster to `docs/demo/`, then removes
-the isolated browser profile, frames, and disposable Odysseus state.
+It writes the H.264 films, clickable posters, and the lightweight animated
+README preview to `docs/demo/`, then removes the isolated browser profile,
+frames, and disposable Odysseus state.
 
 ### Start with the outcome
 
