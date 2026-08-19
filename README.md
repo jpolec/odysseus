@@ -6,32 +6,23 @@
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
 ![GitHub Repo stars](https://img.shields.io/github/stars/jpolec/odysseus?style=social)
 
-**The delivery system for coding agents.**
+**The free, local delivery system for coding agents.**
 
-Zero runtime dependencies. No database. Auditable NDJSON. Your terminal stays
-first-class.
+Describe an engineering outcome. Odysseus plans or queues the work, runs Codex
+or Claude in isolated Git worktrees, verifies the result, and preserves the
+exact artifact until you decide how to deliver it.
 
-Agents are replaceable workers: Codex, Claude, a custom local lane, or the next
-provider. Odysseus owns planning, isolation, execution, verification, review,
-delivery, memory, and outcome economics. It adds durable queues,
-approval-gated task DAGs, isolated Git worktrees,
-optional Docker boundaries, independent evidence, and a focused **Needs You**
-queue to the coding agents and tmux sessions you already use. Its light web UI
-is also a live window into existing tmux sessions:
-discovery is automatic, while tracking and terminal handoff stay explicit.
+**Free · MIT · No account · No database · No mandatory cloud · Laptop, workstation, or private VM/VPS**
 
-The web workbench keeps one path visible at all times: **1 Choose repository ->
-2 New task -> 3 Review**. Each numbered step is also a shortcut to the
-right place. Choose an agent beside the task, then use **Start & add another**
-to queue several independent tasks without leaving the composer. Checks,
-budgets, evaluation, and integration evidence remain under **More options**.
+Try the complete local workbench without installing anything permanently:
 
-The nouns are literal: **Odysseus is the application, a repository is one local
-Git checkout, and a task is one requested change**. The Git remote supplies the
-human-facing name; the local folder and absolute path identify the exact
-checkout. **Your repositories** is the saved local list; **Remove** forgets an
-entry without deleting its directory or files. Passive tmux discovery never
-adds repositories by itself.
+```sh
+uvx --from git+https://github.com/jpolec/odysseus odysseus start --open
+```
+
+Odysseus uses the Codex or Claude CLI authentication you already have. The
+software has no license or seat fee; your chosen agent, model API, CI, and
+infrastructure can still have their own costs.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
 [Product comparison](docs/COMPARISON.md) · [tmux guide](docs/TMUX.md) ·
@@ -48,73 +39,78 @@ adds repositories by itself.
 outcome → plan → attention → evidence → delivery. It is recorded from the real
 web interface against disposable demo state and spends no model tokens.
 
-## Why Odysseus
+## One outcome in. Evidence and an exact artifact out.
 
-- **Own the control plane.** Odysseus is free, MIT-licensed, and runs on your
-  laptop, workstation, or private VM/VPS without an Odysseus account. Your
-  chosen agent/model and infrastructure may still have their own costs.
-- **Keep tmux.** Existing Codex and Claude panes appear automatically and stay
-  usable from the terminal.
-- **Compose parallel work.** Accepted predecessor tasks become durable local
-  Git artifacts that are merged into the downstream task's isolated branch.
-- **Reach green.** Published draft PRs are watched; failed logs return to the
-  original session, fixes are pushed, and retry budgets stop infinite loops.
-- **Plan before spending.** A read-only Planner proposes an acyclic task graph;
-  the operator approves it before ready tasks can run.
-- **Turn decisions into work.** Each repository gets a visible ADR catalog.
-  Select records from `_ADR/` or a conventional ADR folder, generate one
-  approval-gated task graph, and track completion, tokens, and reported cost
-  back to the exact versioned decision snapshot.
-- **See only what needs you.** Questions, permissions, broken dependencies,
-  failures, evaluation findings, and review gates share one attention queue.
-- **Continue, do not restart.** Feedback returns to the saved agent thread and
-  the same worktree. Continue in terminal opens that thread interactively in tmux.
-- **Recover in place.** A failed task puts **Resume with feedback** immediately
-  below the failure. The optional context assistant can ask local Codex or
-  Claude what to send next, then insert or submit its answer without leaving
-  the browser.
-- **See the work.** The UI exposes normalized messages, reasoning summaries,
-  tool calls/results, token and cache usage, checks, independent evaluation,
-  evidence score, policy, and live activity. The score is explicitly heuristic,
-  not presented as a calibrated delivery probability.
-- **Keep control.** Accept saves a local artifact without touching the source
-  checkout. A separate, confirmed **Integrate into repository** action merges it only
-  when the checkout is clean, on the expected branch, and history is compatible.
-- **Choose the runtime boundary.** Keep host compatibility, use a repository
-  devcontainer, or run agent/check/review commands in disposable Docker
-  containers with scoped mounts, credentials, ports, network, CPU, and memory.
-- **Operate more than one repository.** Repositories, tasks, tmux sessions, GitHub
-  issues, and follow-ups share one local delivery system.
-- **Measure delivery, not activity.** The Engineering Portfolio shows windowed
-  delivery, first-pass rate, corrective human interventions, observed cost,
-  agent effectiveness with sample size, failure attribution, and current
-  blockers. Missing cost and unconfigured time-saved estimates stay Unknown.
-- **Route from delivered outcomes.** New Task defaults to **Agent: Auto**. The
-  outcome router applies an eligible repository-local recommendation, records
-  the evidence and counterfactual, and falls back explicitly when the sample is
-  sparse. A manual worker override remains one click away.
-- **Propose before executing external work.** GitHub Issue intake re-fetches the
-  authoritative issue through `gh`, redacts evidence, deduplicates observations,
-  and creates an approval-gated Plan instead of silently starting an agent.
-- **Onboard from evidence.** A repository's Overview reads its existing README,
-  detects agent instructions and stack markers, shows recent commits, and
-  projects every significant task event into one human-readable timeline.
-- **Reuse engineering judgment.** Each repository gets a previewable catalog of
-  generic security, database, API, testing, accessibility, performance, and
-  maintenance skills. Set a skill to Auto, Required, or Disabled; task-specific
-  manual selection stays optional.
-- **Know why context was used.** Every task stores a Context Receipt containing
-  the exact README, instruction, brief, and skill snapshots sent to the agent,
-  with selection reasons and content digests visible under Evidence.
-- **Remember repository-specific facts safely.** Repository Memory attaches enabled
-  guidance by trigger or folder. Repeated feedback becomes a suggestion, never
-  automatic memory; an operator must review and save it.
-- **Route skills from local evidence.** Auto selection explains task signals
-  and, once enough outcomes exist, adjusts ranking with this repository's success
-  and intervention history.
-- **Stay inspectable.** State is JSON plus append-only NDJSON. The runtime uses
-  Python's standard library and browser-native JavaScript—no database, Redis,
-  Node build, or mandatory container.
+```text
+describe the outcome
+        ↓
+plan or queue the change
+        ↓
+isolated worktree → Codex / Claude → project checks
+        ↓
+independent review + optional CI
+        ↓
+Needs You only when a decision is required
+        ↓
+accept the artifact → integrate locally or open a PR
+        ↓
+record delivery, cost, failures, and human intervention
+```
+
+Completed is not accepted. Accepted is not integrated. Integrated is not
+delivered. Odysseus keeps those states separate so an agent cannot silently
+turn “I am done” into a change in your source checkout.
+
+## What Odysseus does best
+
+1. **Delivery, not session management.** A task carries its plan, dependencies,
+   worktree, agent thread, checks, review, artifact, integration state, and
+   measured outcome from one interface.
+2. **Evidence, not “the agent says done.”** Configured checks, independent
+   evaluation, CI evidence, diff risk, and Context Receipts support decisions.
+3. **Your control plane, on your infrastructure.** State is inspectable JSON and
+   append-only NDJSON. Run it locally or on a private VM/VPS; keep using your
+   terminal and authenticated agent CLIs.
+
+## A look inside
+
+Click any image for the full-size interface.
+
+| Start with the outcome | Approve and follow the task graph |
+| --- | --- |
+| [![New Task with Agent Auto](docs/screenshots/web-new-task.png)](docs/screenshots/web-new-task.png) | [![Repository task graph](docs/screenshots/web-project.png)](docs/screenshots/web-project.png) |
+| **Only decisions need you** | **Review evidence before delivery** |
+| [![Needs You queue](docs/screenshots/web-attention.png)](docs/screenshots/web-attention.png) | [![Evidence-backed review](docs/screenshots/web-task-review.png)](docs/screenshots/web-task-review.png) |
+
+## What it solves
+
+- **Parallel agents colliding with your files.** Every autonomous task gets its
+  own branch and Git worktree; the source checkout stays untouched.
+- **Agent work becoming a black box.** Messages, reasoning summaries, tool
+  calls, tokens, diffs, checks, evaluation, and CI stay visible and replayable.
+- **Agents grading their own implementation.** Checks and an independent review
+  gate are separate from the worker that changed the code.
+- **Thirty runs competing for attention.** Questions, permissions, failures,
+  and review gates are grouped by task in one **Needs You** queue.
+- **Starting over after a failure.** Feedback and CI logs return to the same
+  saved agent thread, branch, and worktree with bounded retries.
+- **Ambiguous “done.”** Accept preserves an exact artifact. A separate action
+  integrates it locally or creates a pull request.
+- **Vendor lock-in.** Codex, Claude, and custom lanes are replaceable workers;
+  the delivery record belongs to Odysseus and remains local.
+- **No feedback loop.** The Engineering Portfolio measures delivery, first-pass
+  success, cost, failure attribution, and human intervention with sample size.
+
+## Who it is for
+
+- Codex and Claude CLI users who want to delegate several changes without
+  surrendering their terminal or source checkout.
+- Solo developers and tech leads coordinating work across multiple local
+  repositories.
+- Operators who want an always-on private coding box and a mobile-friendly
+  decision surface through SSH or Tailscale.
+- Teams that value explicit evidence, reproducible state, and controlled
+  delivery more than an opaque hosted “done” signal.
 
 ## Quick start
 
