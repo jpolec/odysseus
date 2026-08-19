@@ -52,7 +52,7 @@ class CDPClient {
 }
 
 const args = argumentsMap(process.argv);
-const required = ["base-url", "project-id", "review-run-id", "accepted-run-id", "frames-dir", "chrome"];
+const required = ["base-url", "project-id", "review-run-id", "accepted-run-id", "ci-run-id", "frames-dir", "chrome"];
 for (const key of required) {
   if (!args[key]) throw new Error(`missing --${key}`);
 }
@@ -62,7 +62,10 @@ const durationScale = Math.max(0.01, Number(args["duration-scale"] || 1));
 const width = 1440;
 const height = 900;
 const baseUrl = args["base-url"].replace(/\/$/, "");
-const scenes = [
+const taskPrompt = "Add passkey sign-in end to end while preserving password login";
+const taskDialogUrl = (marker) => `${baseUrl}/?film=${marker}&view=work&dialog=task&prompt=${encodeURIComponent(taskPrompt)}`;
+const taskUrl = (marker, runId, tab = "") => `${baseUrl}/?film=${marker}${tab ? `&tab=${tab}` : ""}#task/${encodeURIComponent(runId)}`;
+const fullScenes = [
   {
     seconds: 9,
     url: `${baseUrl}/?view=work`,
@@ -144,6 +147,109 @@ const scenes = [
     to: [1180, 92],
   },
 ];
+
+const stories = {
+  full: fullScenes,
+  task: [
+    {
+      seconds: 8, url: `${baseUrl}/?view=work`, expect: "Repositories",
+      eyebrow: "01  CHOOSE", title: "Start with the repository", body: "Odysseus keeps each local Git checkout explicit and untouched.",
+      from: [1110, 105], to: [190, 280],
+    },
+    {
+      seconds: 9, url: taskDialogUrl("task-basic"), expect: "Describe the finished change",
+      eyebrow: "02  DESCRIBE", title: "Ask for one finished outcome", body: "Repository and Agent: Auto are the only default decisions.",
+      from: [710, 280], to: [735, 560],
+    },
+    {
+      seconds: 10, url: taskDialogUrl("task-options"), expect: "Describe the finished change",
+      action: `(() => { const details = document.querySelector('#taskDialog > form > details.advanced'); if (!details) return false; details.open = true; return details.open; })()`,
+      eyebrow: "03  CONTROL", title: "Progressive depth when you need it", body: "Runtime, Skills, variants, checks, limits, and retries stay optional.",
+      from: [680, 570], to: [720, 710],
+    },
+    {
+      seconds: 9, url: taskUrl("task-review", args["review-run-id"]), expect: "Review result",
+      eyebrow: "04  RESULT", title: "The task ends at a decision", body: "Checks and independent evidence are visible before acceptance.",
+      from: [780, 320], to: [1040, 575],
+    },
+  ],
+  plan: [
+    {
+      seconds: 10, url: `${baseUrl}/?view=epics&dialog=epic`, expect: "Break work into agent tasks",
+      action: `(() => { const field = document.querySelector('#epicForm textarea[name="requirement"]'); if (!field) return false; field.value = ${JSON.stringify(taskPrompt)}; field.dispatchEvent(new Event('input', {bubbles:true})); return true; })()`,
+      eyebrow: "01  REQUIREMENT", title: "Describe the feature once", body: "The Planner proposes a graph. No implementation starts yet.",
+      from: [710, 260], to: [720, 650],
+    },
+    {
+      seconds: 10, url: `${baseUrl}/?view=epics`, expect: "Passkey authentication",
+      eyebrow: "02  APPROVAL", title: "Review the graph before spending", body: "Roots, dependencies, roles, and blocked work stay explicit.",
+      from: [740, 300], to: [1100, 600],
+    },
+    {
+      seconds: 11, url: `${baseUrl}/?film=plan-graph#project/${encodeURIComponent(args["project-id"])}`, expect: "Task graph",
+      action: `(() => { const section = document.querySelector('#repositoryStatusView'); if (!section) return false; section.scrollIntoView({block:'start'}); return true; })()`,
+      eyebrow: "03  EXECUTION GRAPH", title: "Parallelize only what is safe", body: "The DAG and Gantt expose dependencies and the critical path.",
+      from: [650, 420], to: [1090, 520],
+    },
+    {
+      seconds: 9, url: `${baseUrl}/?view=attention`, expect: "Needs You",
+      eyebrow: "04  GATE", title: "Exceptions return to one queue", body: "A blocked node asks for one decision without losing completed work.",
+      from: [320, 330], to: [1050, 500],
+    },
+  ],
+  recovery: [
+    {
+      seconds: 9, url: `${baseUrl}/?view=attention`, expect: "Needs You",
+      eyebrow: "01  ATTENTION", title: "See decisions, not agent noise", body: "Questions, review gates, and failures are grouped by task.",
+      from: [260, 280], to: [1080, 430],
+    },
+    {
+      seconds: 10, url: taskUrl("recovery-assistant", args["review-run-id"]), expect: "Review result",
+      eyebrow: "02  GUIDANCE", title: "Draft precise feedback in context", body: "The assistant shares only the task evidence you select.",
+      from: [990, 310], to: [1160, 710],
+    },
+    {
+      seconds: 10, url: taskUrl("recovery-ci", args["ci-run-id"], "ci"), expect: "Automatic repairs",
+      eyebrow: "03  CI REPAIR", title: "Failures return to the same thread", body: "Logs are captured, retries are bounded, and the branch is preserved.",
+      from: [700, 410], to: [1080, 580],
+    },
+    {
+      seconds: 9, url: `${baseUrl}/?view=sessions`, expect: "Agent terminals",
+      eyebrow: "04  TERMINAL", title: "Terminal control remains first-class", body: "See, track, and reopen Codex or Claude sessions without takeover magic.",
+      from: [370, 320], to: [1060, 470],
+    },
+  ],
+  delivery: [
+    {
+      seconds: 9, url: taskUrl("delivery-review", args["review-run-id"]), expect: "Review result",
+      eyebrow: "01  REVIEW", title: "A worker saying done is not evidence", body: "Deterministic checks and an independent reviewer support the gate.",
+      from: [760, 330], to: [1030, 570],
+    },
+    {
+      seconds: 9, url: taskUrl("delivery-context", args["ci-run-id"], "context"), expect: "CONTEXT RECEIPT",
+      eyebrow: "02  PROVENANCE", title: "Know exactly what context was used", body: "README, memory, Skills, and project instructions are hashed.",
+      from: [620, 400], to: [920, 650],
+    },
+    {
+      seconds: 9, url: taskUrl("delivery-integration", args["ci-run-id"], "integration"), expect: "MERGE RISK",
+      eyebrow: "03  COMPOSE", title: "Surface integration risk before delivery", body: "Artifacts, overlaps, and the composed Git head stay inspectable.",
+      from: [640, 390], to: [930, 640],
+    },
+    {
+      seconds: 9, url: taskUrl("delivery-artifact", args["accepted-run-id"]), expect: "Accepted artifact · not delivered",
+      eyebrow: "04  DELIVER", title: "Acceptance never silently changes source", body: "Apply locally or open a PR as a separate, confirmed action.",
+      from: [790, 390], to: [1060, 560],
+    },
+    {
+      seconds: 9, url: `${baseUrl}/?view=portfolio`, expect: "Delivery, not activity.",
+      eyebrow: "05  OUTCOME", title: "Measure what reached delivery", body: "Cost, first-pass rate, failures, and human intervention close the loop.",
+      from: [720, 280], to: [1080, 560],
+    },
+  ],
+};
+const story = String(args.story || "full");
+const scenes = stories[story];
+if (!scenes) throw new Error(`unsupported --story ${story}; choose ${Object.keys(stories).join(", ")}`);
 
 await mkdir(args["frames-dir"], { recursive: true });
 const chrome = spawn(
@@ -273,6 +379,11 @@ try {
   for (let sceneIndex = 0; sceneIndex < scenes.length; sceneIndex += 1) {
     const scene = scenes[sceneIndex];
     await navigate(scene.url, scene.expect);
+    if (scene.action) {
+      const action = await evaluate(scene.action);
+      if (action.result?.value === false) throw new Error(`scene action failed: ${scene.title}`);
+      await wait(350);
+    }
     await installOverlay(scene, sceneIndex);
     const sceneFrames = Math.max(1, Math.round(scene.seconds * durationScale * fps));
     for (let index = 0; index < sceneFrames; index += 1) {
@@ -295,6 +406,7 @@ try {
         quality: 84,
         fromSurface: true,
         captureBeyondViewport: false,
+        optimizeForSpeed: true,
       });
       frameNumber += 1;
       const filename = `frame-${String(frameNumber).padStart(5, "0")}.jpg`;
@@ -304,5 +416,9 @@ try {
   process.stdout.write(`${frameNumber}\n`);
 } finally {
   client.close();
-  chrome.kill("SIGTERM");
+  if (chrome.exitCode === null) {
+    const exited = new Promise((resolve) => chrome.once("exit", resolve));
+    chrome.kill("SIGTERM");
+    await Promise.race([exited, wait(3000)]);
+  }
 }

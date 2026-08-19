@@ -33,13 +33,19 @@ checkout. **Your repositories** is the saved local list; **Remove** forgets an
 entry without deleting its directory or files. Passive tmux discovery never
 adds repositories by itself.
 
-[Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
+[Quick start](START.md) · [Complete usage guide](docs/USAGE.md) · [tmux guide](docs/TMUX.md) ·
 [Project decisions](docs/PROJECT_DECISIONS.md) ·
 [Outcome control-plane plan](docs/OUTCOME_CONTROL_PLANE_PLAN.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
 [Version and capabilities](VERSION.md) · [Security](SECURITY.md) ·
 [Release proof](PROOF.md) · [Production proof](PRODUCTION_PROOF.md) ·
 [Protocol and API](docs/odysseus-protocol.md)
+
+[![Watch Odysseus in 45 seconds](docs/demo/odysseus-45s-poster.png)](docs/demo/odysseus-45s.mp4)
+
+[Watch the 45-second product tour](docs/demo/odysseus-45s.mp4) — repository →
+outcome → plan → attention → evidence → delivery. It is recorded from the real
+web interface against disposable demo state and spends no model tokens.
 
 ## Why Odysseus
 
@@ -206,13 +212,17 @@ Open <http://127.0.0.1:8742/>. The disposable state demonstrates multiple
 repositories, a planned task DAG, Needs You, merge risk, artifact composition, a failed CI
 repair loop, tool telemetry, checks, evaluation, search, and outcome metrics.
 
-### Watch the 90-second walkthrough
+### See each workflow
 
-[![Watch the Odysseus 90-second walkthrough](docs/demo/odysseus-90s-poster.png)](docs/demo/odysseus-90s.mp4)
+| Workflow | Film |
+| --- | --- |
+| Task → verified artifact | [36-second walkthrough](docs/demo/odysseus-task.mp4) |
+| Plan/DAG → safe parallel work | [40-second walkthrough](docs/demo/odysseus-plan.mp4) |
+| Needs You → recovery → terminal | [38-second walkthrough](docs/demo/odysseus-recovery.mp4) |
+| Evidence → delivery → portfolio | [45-second walkthrough](docs/demo/odysseus-delivery.mp4) |
 
-[Watch the MP4](docs/demo/odysseus-90s.mp4) — repositories → outcome → plan →
-Needs You → independent review → explicit delivery → engineering portfolio.
-The film uses deterministic demo data and spends no model tokens.
+[Full 90-second product tour](docs/demo/odysseus-90s.mp4) ·
+[Video gallery and reproduction guide](docs/demo/README.md)
 
 Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 
@@ -226,11 +236,11 @@ Context Receipt, New task, and Settings—to `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
 
-Reproduce the 90-second walkthrough with local Chrome/Chromium, Node.js, and
-ffmpeg:
+Reproduce the hero and all focused walkthroughs with local Chrome/Chromium,
+Node.js, and ffmpeg:
 
 ```sh
-scripts/capture-web-demo.sh
+scripts/capture-web-video-suite.sh
 ```
 
 It writes the H.264 film and its README poster to `docs/demo/`, then removes
@@ -466,29 +476,9 @@ Reload tmux, press `prefix` + `I`, then use:
 | `prefix` + `u` | Open the global agent-session picker. |
 | `prefix` + `O` | Start or open the local Odysseus web control plane. |
 
-Optional settings must precede the plugin line:
-
-```tmux
-set -g @odysseus_web_key 'O'
-set -g @odysseus_web_port '8741'
-set -g @ai_session_default_lane 'codex'
-set -g @ai_session_lanes 'codex claude'
-```
-
-| Session picker | Managed agent session |
-| --- | --- |
-| ![Odysseus tmux session picker](docs/picker.png) | ![Odysseus managed agent session](docs/popup.png) |
-
-Optional Codex TUI status hooks:
-
-```sh
-~/.tmux/plugins/odysseus/scripts/install-hooks.sh
-```
-
-The web UI never injects keystrokes into an arbitrary pane. Tracking, resume,
-and terminal handoff are explicit, auditable transitions. **Copy tmux command**
-means exactly that: Odysseus copies a safe command which you paste into your own
-terminal to open the same pane.
+That is all a normal installation needs. Optional keys, lane configuration,
+status hooks, screenshots, and the exact terminal-handoff behavior live in the
+[tmux guide](docs/TMUX.md).
 
 ## Repositories, inbox, and GitHub
 

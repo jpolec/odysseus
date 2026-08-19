@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Produce the public 90-second walkthrough from deterministic no-token demo state.
+# Produce one deterministic no-token Odysseus product walkthrough.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,6 +8,14 @@ OUTPUT_DIR="${1:-$REPOSITORY_ROOT/docs/demo}"
 PORT="${ODYSSEUS_VIDEO_PORT:-8751}"
 FPS="${ODYSSEUS_VIDEO_FPS:-6}"
 DURATION_SCALE="${ODYSSEUS_VIDEO_DURATION_SCALE:-1}"
+STORY="${ODYSSEUS_VIDEO_STORY:-full}"
+if [ -n "${ODYSSEUS_VIDEO_BASENAME:-}" ]; then
+  BASENAME="$ODYSSEUS_VIDEO_BASENAME"
+elif [ "$STORY" = 'full' ]; then
+  BASENAME='odysseus-90s'
+else
+  BASENAME="odysseus-$STORY"
+fi
 
 port_is_free() {
   python3 -c 'import socket,sys
@@ -55,25 +63,28 @@ RUNS_JSON="$($REPOSITORY_ROOT/bin/odysseus --state-dir "$STATE_DIR" runs --json)
 PROJECT_ID="$(printf '%s' "$RUNS_JSON" | python3 -c 'import json,sys; print(next(run["project_id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Stabilize checkout retry flow"))')"
 REVIEW_RUN_ID="$(printf '%s' "$RUNS_JSON" | python3 -c 'import json,sys; print(next(run["id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Guard the factor pipeline against look-ahead bias"))')"
 ACCEPTED_RUN_ID="$(printf '%s' "$RUNS_JSON" | python3 -c 'import json,sys; print(next(run["id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Make webhook delivery idempotent"))')"
+CI_RUN_ID="$(printf '%s' "$RUNS_JSON" | python3 -c 'import json,sys; print(next(run["id"] for run in json.load(sys.stdin)["runs"] if run["title"] == "Stabilize checkout retry flow"))')"
 
 FRAME_COUNT="$(node "$REPOSITORY_ROOT/scripts/capture-web-demo.mjs" \
   --base-url "http://127.0.0.1:$PORT" \
   --project-id "$PROJECT_ID" \
   --review-run-id "$REVIEW_RUN_ID" \
   --accepted-run-id "$ACCEPTED_RUN_ID" \
+  --ci-run-id "$CI_RUN_ID" \
   --frames-dir "$FRAMES_DIR" \
   --profile-dir "$PROFILE_DIR" \
   --chrome "$BROWSER" \
   --fps "$FPS" \
-  --duration-scale "$DURATION_SCALE")"
+  --duration-scale "$DURATION_SCALE" \
+  --story "$STORY")"
 
 ffmpeg -hide_banner -loglevel error -y \
   -framerate "$FPS" -i "$FRAMES_DIR/frame-%05d.jpg" \
   -c:v libx264 -preset slow -crf 22 -pix_fmt yuv420p -movflags +faststart \
-  "$OUTPUT_DIR/odysseus-90s.mp4"
+  "$OUTPUT_DIR/$BASENAME.mp4"
 ffmpeg -hide_banner -loglevel error -y \
-  -i "$OUTPUT_DIR/odysseus-90s.mp4" \
-  -ss "$(python3 -c "print(max(0.0, 4.0 * float('$DURATION_SCALE')))")" -frames:v 1 \
-  "$OUTPUT_DIR/odysseus-90s-poster.png"
+  -ss "$(python3 -c "print(max(0.0, 4.0 * float('$DURATION_SCALE')))")" \
+  -i "$OUTPUT_DIR/$BASENAME.mp4" -frames:v 1 \
+  "$OUTPUT_DIR/$BASENAME-poster.png"
 
-printf 'Odysseus walkthrough: %s frames → %s\n' "$FRAME_COUNT" "$OUTPUT_DIR/odysseus-90s.mp4"
+printf 'Odysseus %s walkthrough: %s frames → %s\n' "$STORY" "$FRAME_COUNT" "$OUTPUT_DIR/$BASENAME.mp4"
