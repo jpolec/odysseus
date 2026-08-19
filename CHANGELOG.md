@@ -54,7 +54,7 @@ Git; this file records observable operator and product changes.
 
 ## 2026-08-17
 
-### [0.8.1](https://github.com/jpolec/odysseus/tree/8c956d2) — Decision-first task flow
+### [0.8.1](https://github.com/jpolec/odysseus/releases/tag/v0.8.1) — Decision-first task flow
 
 - Reduced New Task to outcome, repository, and **Agent: Auto** by default;
   runtime, Skills, verification, variants, budgets, and retries moved behind
