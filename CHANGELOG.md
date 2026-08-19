@@ -275,20 +275,23 @@ Git; this file records observable operator and product changes.
 - Turned the tmux manager into the first Odysseus application with persisted
   repository/session concepts and a path toward the local control plane.
 
-## Before Odysseus
+## Odysseus origins
+
+Odysseus began as a terminal-first session manager and grew into the delivery
+system documented above. These are the first public steps of the same project.
 
 ### 2026-06-23
 
-- Added Codex and Claude lanes, per-pane/session receipts, configurable
-  defaults, and clearer lane state in the README.
+- Expanded Odysseus's terminal foundation with Codex and Claude lanes,
+  per-pane/session receipts, configurable defaults, and clearer lane state.
 
 ### 2026-06-19
 
-- Replaced conceptual README art with real terminal captures and tightened the
-  tmux manager's value proposition.
+- Replaced conceptual README art with real Odysseus terminal captures and
+  clarified its terminal-first value proposition.
 
 ### 2026-06-18
 
-- Created the original tmux Codex session manager, global repository-aware
-  picker, existing-pane discovery, pane metadata, Codex status hooks, and
-  robust host-client selection.
+- Created the first Odysseus terminal experience: a tmux-native Codex session
+  manager with a global repository-aware picker, existing-pane discovery,
+  pane metadata, Codex status hooks, and robust host-client selection.
