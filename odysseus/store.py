@@ -67,7 +67,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 12
+RUN_SCHEMA_VERSION = 13
+ROUTE_OBSERVATION_FORMAT = "odysseus-route-observation-v1"
+ROUTE_OBSERVATION_FEATURE_SCHEMA_VERSION = "outcome-router-features-v1"
+ROUTE_OBSERVATION_POLICY_VERSION = "outcome-routing-policy-v1"
+ROUTE_OBSERVATION_UTILITY_PROFILE_VERSION = "outcome-router-utility-v1"
 
 
 def _safe_int(value: Any) -> int:
@@ -176,7 +180,113 @@ def _run_defaults() -> dict[str, Any]:
             "decided_at": None,
         },
         "outcome_routing": {},
+        "route_observation": {},
         "redaction_receipt": {},
+    }
+
+
+def _selected_model_for(run: Mapping[str, Any]) -> str:
+    metrics = run.get("metrics") if isinstance(run.get("metrics"), Mapping) else {}
+    model = str(metrics.get("model") or "").strip()
+    if model:
+        return model[:120]
+    variant = run.get("variant") if isinstance(run.get("variant"), Mapping) else {}
+    model = str(variant.get("model") or "").strip()
+    if model:
+        return model[:120]
+    lane = str(run.get("lane") or "")
+    return "local-cli" if lane in {"codex", "claude"} else lane[:120]
+
+
+def _route_selection_source(run: Mapping[str, Any], outcome_routing: Mapping[str, Any]) -> str:
+    if not outcome_routing:
+        return "operator"
+    mode = str(outcome_routing.get("mode") or "shadow")
+    if bool(outcome_routing.get("autonomous_routing")):
+        return "outcome_router_auto"
+    if mode == "automatic_fallback":
+        return "outcome_router_fallback"
+    recommended = str(outcome_routing.get("recommended_lane") or "")
+    applied = str(outcome_routing.get("applied_lane") or run.get("lane") or "")
+    if recommended and recommended != applied:
+        return "operator_default_shadow_recommendation"
+    return "operator"
+
+
+def _route_result_for(run: Mapping[str, Any]) -> dict[str, Any]:
+    status = str(run.get("status") or "")
+    terminal = status in TERMINAL_STATUSES or status in {"failed", "review"}
+    success = True if status in {"accepted", "pr_created"} else False if terminal else None
+    return {
+        "status": status,
+        "terminal": terminal,
+        "success": success,
+        "policy_decision": str(run.get("policy_decision") or ""),
+        "last_error": str(run.get("last_error") or "")[:1000],
+    }
+
+
+def _route_observation_for(run: Mapping[str, Any]) -> dict[str, Any]:
+    if str(run.get("kind") or "task") != "task":
+        return {}
+    outcome_routing = run.get("outcome_routing") if isinstance(run.get("outcome_routing"), Mapping) else {}
+    features = outcome_routing.get("features") if isinstance(outcome_routing.get("features"), Mapping) else {}
+    metrics = run.get("metrics") if isinstance(run.get("metrics"), Mapping) else {}
+    selected_skills = [
+        {
+            "name": str(skill.get("name") or ""),
+            "policy": str(skill.get("policy") or ""),
+            "reason": str(skill.get("reason") or ""),
+            "sha256": str(skill.get("sha256") or ""),
+        }
+        for skill in (run.get("skills_selected") if isinstance(run.get("skills_selected"), list) else [])
+        if isinstance(skill, Mapping) and str(skill.get("name") or "")
+    ]
+    tokens = {
+        "input_tokens": _safe_int(metrics.get("input_tokens")),
+        "cached_input_tokens": _safe_int(metrics.get("cached_input_tokens")),
+        "output_tokens": _safe_int(metrics.get("output_tokens")),
+        "reasoning_output_tokens": _safe_int(metrics.get("reasoning_output_tokens")),
+    }
+    tokens["total_tokens"] = tokens["input_tokens"] + tokens["output_tokens"] + tokens["reasoning_output_tokens"]
+    cost_observed = bool(metrics.get("cost_observed"))
+    try:
+        cost_usd = round(float(metrics.get("cost_usd") or 0.0), 8) if cost_observed else None
+    except (TypeError, ValueError):
+        cost_usd = None
+    return {
+        "format": ROUTE_OBSERVATION_FORMAT,
+        "task_class": str(features.get("task_class") or ""),
+        "selected": {
+            "agent": str(run.get("lane") or ""),
+            "model": _selected_model_for(run),
+            "skills": selected_skills,
+        },
+        "selection_source": _route_selection_source(run, outcome_routing),
+        "selection_propensity": 1.0,
+        "metadata_versions": {
+            "advisor_version": str(outcome_routing.get("algorithm") or "outcome-router-v1"),
+            "policy_version": ROUTE_OBSERVATION_POLICY_VERSION,
+            "model_version": _selected_model_for(run),
+            "feature_schema_version": ROUTE_OBSERVATION_FEATURE_SCHEMA_VERSION,
+            "utility_profile_version": ROUTE_OBSERVATION_UTILITY_PROFILE_VERSION,
+        },
+        "timing": {
+            "created_at": run.get("created_at"),
+            "started_at": run.get("started_at"),
+            "finished_at": run.get("finished_at"),
+        },
+        "tokens": tokens,
+        "cost": {
+            "observed": cost_observed,
+            "usd": cost_usd,
+            "source": "metrics.cost_usd" if cost_observed else "",
+        },
+        "result": _route_result_for(run),
+        "upcast": {
+            "source": "run.outcome_routing",
+            "compatible_export_format": "odysseus-outcome-router-export-v1",
+        },
     }
 
 
@@ -265,6 +375,10 @@ class RunStore:
                         changed = True
                 if schema_version < RUN_SCHEMA_VERSION:
                     run["schema_version"] = RUN_SCHEMA_VERSION
+                    changed = True
+                observation = _route_observation_for(run)
+                if observation and run.get("route_observation") != observation:
+                    run["route_observation"] = observation
                     changed = True
                 if changed:
                     self._atomic_json(path, self._redact_snapshot(run))
@@ -704,6 +818,7 @@ class RunStore:
             },
             "outcome_routing": outcome_routing,
         }
+        run["route_observation"] = _route_observation_for(run)
         with self.locked():
             self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         if initial_status == "queued":
@@ -749,6 +864,7 @@ class RunStore:
             run = self.get(run_id)
             run.update(changes)
             run["updated_at"] = now_iso()
+            run["route_observation"] = _route_observation_for(run)
             self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         return run
 
@@ -757,6 +873,7 @@ class RunStore:
             run = self.get(run_id)
             change(run)
             run["updated_at"] = now_iso()
+            run["route_observation"] = _route_observation_for(run)
             self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         return run
 
@@ -783,6 +900,7 @@ class RunStore:
             run["event_seq"] = seq
             run["updated_at"] = event.ts
             self._aggregate_event(run, event_type, redacted_data)
+            run["route_observation"] = _route_observation_for(run)
             self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         self._route_attention(run, event_type, redacted_data)
         self.notifications.notify(run, event_type, redacted_data)
@@ -935,9 +1053,13 @@ class RunStore:
                 metrics[key] = _safe_int(metrics.get(key, 0)) + delta
             if isinstance(usage_by_session, dict):
                 usage_by_session[session_id] = values
+            if data.get("model"):
+                metrics["model"] = str(data.get("model") or "")[:120]
             return
         for key in keys:
             metrics[key] = _safe_int(metrics.get(key, 0)) + values[key]
+        if data.get("model"):
+            metrics["model"] = str(data.get("model") or "")[:120]
 
     def events(self, run_id: str, after: int = 0, limit: int = 1000) -> list[dict[str, Any]]:
         self.get(run_id)
@@ -1028,6 +1150,7 @@ class RunStore:
             run["cancel_requested"] = False
             run["started_at"] = run.get("started_at") or now_iso()
             run["updated_at"] = now_iso()
+            run["route_observation"] = _route_observation_for(run)
             self._atomic_json(self._path(run_id), self._redact_snapshot(run))
         self.append_event(run_id, "run.started", "odysseus", {"worker_pid": os.getpid()})
         return self.get(run_id)

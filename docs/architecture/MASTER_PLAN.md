@@ -455,14 +455,21 @@ Dependencies: 3 -> 4; 1, 2, 4, 5, and 6 -> 7.
 ### 0.9.0 — durable kernel
 
 1. EventEnvelope v2 and append/fsync EventLog.
-2. CommandEnvelope, expected_version, idempotency, and concurrency conflicts.
-3. Deterministic projections/checkpoints and migrations from existing runs.
-4. Replay, replay-until-event, rebuild-projections, and verify-state v2.
-5. Journal hash chain and corruption/tamper tests.
-6. Immutable historical event upcasters and schema-evolution proof.
-7. Baseline command/projection/replay/recovery/query SLO measurements.
+2. Deterministic projections/checkpoints and migrations from existing runs.
+3. Replay, replay-until-event, rebuild-projections, and verify-state v2.
+4. Journal hash chain and corruption/tamper tests.
+5. Immutable historical event upcasters and schema-evolution proof.
+6. Baseline append/projection/replay/recovery/query SLO measurements.
 
-### 0.9.1 — runtime correctness
+### 0.9.1 — idempotent Command API
+
+1. CommandEnvelope, command IDs, idempotency keys, actor, and policy context.
+2. Expected stream version and explicit concurrency conflicts.
+3. One Command Bus shared by CLI, UI, and HTTP mutations.
+4. Durable command result lookup and duplicate-submission proof.
+5. Command property tests across valid and invalid lifecycle transitions.
+
+### 0.9.2 — runtime correctness
 
 1. WorkerLease, epoch, heartbeat TTL, and fencing.
 2. Stale-worker and duplicate-claim concurrency tests.
@@ -470,7 +477,7 @@ Dependencies: 3 -> 4; 1, 2, 4, 5, and 6 -> 7.
 4. Recovery proof across journal, projection, artifact, and worker windows.
 5. Durable cancellation state and fencing-aware worker stop semantics.
 
-### 0.9.2 — durable effects
+### 0.9.3 — durable effects
 
 1. Outbox and ActionRecord including UNKNOWN.
 2. Git apply/merge/push integration through the action ledger.
@@ -507,12 +514,17 @@ Dependencies: 3 -> 4; 1, 2, 4, 5, and 6 -> 7.
 5. Plan budgets, reservations, admission control, and typed RetryPolicy.
 6. Plan-level Mission Control and controls.
 
-### 0.11.1 — immutable validation
+### 0.11.1 — content-addressed artifacts
 
-1. Content-addressed ArtifactStore, verified artifact bytes, ArtifactSet, and
-   MilestoneCandidate.
-2. ExecutionEnvironmentReceipt and read-only ValidationRun against exact SHA
-   and contract version.
+1. Content-addressed ArtifactStore and verified immutable artifact bytes.
+2. ArtifactSet manifests, lineage, source head, and execution-environment hash.
+3. ExecutionEnvironmentReceipt with runtimes, dependencies, tools, and policy.
+4. Reachability-aware retention and integrity verification.
+
+### 0.11.2 — immutable milestone validation
+
+1. MilestoneCandidate bound to ArtifactSet and ChangeContract versions.
+2. Read-only ValidationRun against one exact candidate SHA.
 3. Structured Finding and EvidenceBundle.
 4. Scoped RepairNode and affected-validation rerun.
 5. Evaluator calibration and blind quality samples.
@@ -533,6 +545,14 @@ Dependencies: 3 -> 4; 1, 2, 4, 5, and 6 -> 7.
 2. Full causal timeline and Replay UI.
 3. CounterfactualExperiment.
 4. Read-model and OpenTelemetry exports.
+
+### 0.13.1 — native semantic context engine
+
+1. Versioned code, dependency, API, schema, ownership, and test graphs.
+2. Task-scoped retrieval with cited source nodes and bounded token budgets.
+3. Context relevance/evidence receipts and stale-graph detection.
+4. Semantic overlap and blast-radius signals for planning and scheduling.
+5. Retrieval quality benchmarks without granting repository content authority.
 
 ### 0.14.0 — learned routing
 

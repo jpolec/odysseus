@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.8.1](https://img.shields.io/badge/version-0.8.1-171a16)
+![Version: 0.8.2](https://img.shields.io/badge/version-0.8.2-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -697,7 +697,7 @@ bin/odysseus search "failing browser test"
 bin/odysseus stats
 bin/odysseus resources
 bin/odysseus version
-bin/odysseus proof --release 0.8.1
+bin/odysseus proof --release 0.8.2
 bin/odysseus update --check
 bin/odysseus rollback
 bin/odysseus export --output odysseus-state.json

@@ -174,8 +174,8 @@ The last command writes a public aggregate Markdown file and a locally ignored
 JSON receipt. For another project, use the underlying command directly:
 
 ```sh
-odysseus --state-dir ~/.odysseus proof --release 0.8.1
-odysseus --state-dir ~/.odysseus proof --release 0.8.1 --json --output proof.json
+odysseus --state-dir ~/.odysseus proof --release 0.8.2
+odysseus --state-dir ~/.odysseus proof --release 0.8.2 --json --output proof.json
 ```
 
 Classification as `observed` is necessary but not sufficient. A counted outcome

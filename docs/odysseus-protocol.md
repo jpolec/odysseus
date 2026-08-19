@@ -270,6 +270,14 @@ and governance note. Requests without `auto_route=true` remain shadow-only.
 With explicit Auto, eligible evidence may set the run lane; sparse or disabled
 routing records `automatic_fallback` and retains the configured default.
 
+Schema 13 adds `route_observation`, a minimal versioned envelope derived from
+the applied run and existing `outcome_routing` record. It captures task class,
+selected agent/model/skills, selection source, deterministic selection
+propensity, advisor/policy/model/feature/utility metadata versions, start/end
+timing, token counters, cost observability, result, and an upcast pointer for
+future RouteReceipt conversion. It observes current routing behavior only; it
+does not create new autonomous routing authority.
+
 Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 `skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7
 adds `knowledge_selected` and the explainable `skill_routing` record. Context

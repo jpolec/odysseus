@@ -11,13 +11,13 @@ paths.
 
 ## Current stable release
 
-**0.8.1 — 2026-08-17**
+**0.8.2 — 2026-08-19**
 
-[Odysseus 0.8.1](https://github.com/jpolec/odysseus/releases/tag/v0.8.1)
-is the latest stable release. It is bound to commit `8c956d2`, whose complete
-local release proof covers 145 automated tests, install and upgrade, packaged
-`uvx` boot, real-browser smoke, HTTP health, recovery, credentials, and remote
-access guardrails.
+[Odysseus 0.8.2](https://github.com/jpolec/odysseus/releases/tag/v0.8.2)
+is the latest stable release. Its tag binds the exact source revision and its
+release proof covers the complete automated suite, install and upgrade,
+packaged `uvx` boot, real-browser smoke, HTTP health, recovery, credentials,
+state verification, supply-chain assets, and remote-access guardrails.
 
 `main` may contain later unreleased hardening and documentation. Installers use
 the latest stable release unless the operator explicitly selects `--edge`, a
@@ -133,6 +133,9 @@ Completed, accepted, integrated, and delivered are separate states.
   outcome recommendation or explaining a sparse-sample fallback.
 - Store shadow recommendations, evidence, counterfactuals, selection source,
   and backtests without presenting small samples as reliable statistics.
+- Persist `odysseus-route-observation-v1` for every task, including the actual
+  worker/model/Skills, selection source and propensity, versioned router
+  metadata, timing, observed usage/cost, and result.
 - Show an Engineering Portfolio with started and delivered work, autonomous
   and first-pass rates, corrective intervention, delivery time, observed cost
   coverage, worker effectiveness with sample size, failures, and blockers.
@@ -173,8 +176,8 @@ No later state is inferred merely because an earlier state is present.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.8.1` |
-| Run snapshot schema | `12` |
+| Application version | `0.8.2` |
+| Run snapshot schema | `13` |
 | Epic snapshot schema | `3` |
 | Event envelope version | `1` |
 | Context receipt | `context-receipt-v1` |
@@ -221,7 +224,7 @@ model.
 - The stdlib HTTP service is a single-operator local/private control plane, not
   a multi-tenant application server.
 - Remote distributed workers, organization RBAC, and learned autonomous
-  routing are not part of 0.8.1.
+  routing are not part of 0.8.2.
 - Repository knowledge is explicit and provenance-bound; a native semantic
   context graph is planned but not included in this release.
 

@@ -72,6 +72,11 @@ class RedactionEngine:
         )
 
     def _redact(self, value: Any, classes: set[str], *, key: str) -> Any:
+        if key.lower() == "tokens" and _is_usage_counter_mapping(value):
+            return {
+                str(item_key): self._redact(item_value, classes, key=str(item_key))
+                for item_key, item_value in value.items()
+            }
         if key and key.lower() not in USAGE_COUNTER_KEYS | SAFE_METADATA_KEYS and SENSITIVE_KEY.search(key):
             classes.add(_class_for_key(key))
             return REDACTED
@@ -139,6 +144,12 @@ def _class_for_key(key: str) -> str:
 
 
 DEFAULT_REDACTION_ENGINE = RedactionEngine()
+
+
+def _is_usage_counter_mapping(value: Any) -> bool:
+    if not isinstance(value, dict) or not value:
+        return False
+    return all(str(key).lower() in USAGE_COUNTER_KEYS for key in value)
 
 
 def redact(value: Any, *, boundary: str = "unknown") -> tuple[Any, RedactionReceipt]:

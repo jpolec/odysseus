@@ -148,6 +148,16 @@ class OutcomeRouterTests(unittest.TestCase):
             self.assertEqual(run["lane"], "codex")
             self.assertEqual(run["outcome_routing"]["recommended_lane"], "claude")
             self.assertEqual(run["outcome_routing"]["applied_lane"], "codex")
+            observation = run["route_observation"]
+            self.assertEqual(observation["format"], "odysseus-route-observation-v1")
+            self.assertEqual(observation["task_class"], "implementer-api")
+            self.assertEqual(observation["selected"]["agent"], "codex")
+            self.assertEqual(observation["selected"]["model"], "local-cli")
+            self.assertEqual(observation["selected"]["skills"][0]["name"], "test-strategy")
+            self.assertEqual(observation["selection_source"], "operator_default_shadow_recommendation")
+            self.assertEqual(observation["selection_propensity"], 1.0)
+            self.assertEqual(observation["metadata_versions"]["advisor_version"], "outcome-router-v1")
+            self.assertEqual(observation["upcast"]["compatible_export_format"], "odysseus-outcome-router-export-v1")
 
     def test_auto_route_applies_eligible_recommendation_and_records_reason(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -175,6 +185,8 @@ class OutcomeRouterTests(unittest.TestCase):
             self.assertEqual(run["outcome_routing"]["applied_lane"], "claude")
             self.assertTrue(run["outcome_routing"]["autonomous_routing"])
             self.assertIn("historical evidence", run["outcome_routing"]["reason"])
+            self.assertEqual(run["route_observation"]["selected"]["agent"], "claude")
+            self.assertEqual(run["route_observation"]["selection_source"], "outcome_router_auto")
 
     def test_auto_route_transparently_falls_back_when_history_is_sparse(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -197,6 +209,43 @@ class OutcomeRouterTests(unittest.TestCase):
             self.assertEqual(run["outcome_routing"]["mode"], "automatic_fallback")
             self.assertFalse(run["outcome_routing"]["autonomous_routing"])
             self.assertEqual(run["outcome_routing"]["recommendation_reason"], "insufficient_samples")
+            self.assertEqual(run["route_observation"]["selection_source"], "outcome_router_fallback")
+
+    def test_route_observation_tracks_timing_tokens_cost_model_and_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "repo"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create(
+                {
+                    "task": "Route observation fixture",
+                    "project_path": str(project),
+                    "skill_mode": "manual",
+                    "skills": ["test-strategy"],
+                }
+            )
+
+            claimed = store.claim(run["id"])
+            self.assertIsNotNone(claimed)
+            self.assertIsNotNone(claimed["route_observation"]["timing"]["started_at"])
+            store.append_event(
+                run["id"],
+                "agent.usage",
+                "codex",
+                {"model": "gpt-route-test", "input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 3, "reasoning_output_tokens": 2},
+            )
+            store.append_event(run["id"], "agent.cost", "codex", {"cost_usd": 0.0123})
+            finished = store.transition(run["id"], "accepted", event_type="run.accepted")
+
+            observation = finished["route_observation"]
+            self.assertEqual(observation["selected"]["model"], "gpt-route-test")
+            self.assertEqual(observation["tokens"]["total_tokens"], 15)
+            self.assertEqual(observation["cost"], {"observed": True, "usd": 0.0123, "source": "metrics.cost_usd"})
+            self.assertEqual(observation["result"]["status"], "accepted")
+            self.assertTrue(observation["result"]["terminal"])
+            self.assertTrue(observation["result"]["success"])
+            self.assertIsNotNone(observation["timing"]["finished_at"])
 
     def test_backtest_uses_only_prior_runs(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -14,7 +14,13 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
-### 2026-08-19
+No unreleased user-facing changes yet.
+
+## Released history
+
+## 2026-08-19
+
+### [0.8.2](https://github.com/jpolec/odysseus/releases/tag/v0.8.2) — Correctness and trust foundations
 
 - Repositioned Odysseus as the free, local delivery system for coding agents:
   outcome in, independently verified artifact out.
@@ -26,17 +32,9 @@ Git; this file records observable operator and product changes.
   recovery/terminal handoff, and evidence/delivery/portfolio.
 - Added an inline 15-second README animation linked to the 45-second tour,
   clickable workflow posters, and reproducible video build tooling.
-- Added this day-grouped changelog while retaining `VERSION.md` as the detailed
-  capability reference.
-
-### 2026-08-18
-
 - Added a reproducible 90-second walkthrough recorded from the real web UI and
   disposable demo state without invoking an agent or spending model tokens.
 - Added deterministic capture tooling and a poster for the complete tour.
-
-### 2026-08-17 — post-0.8.1 hardening
-
 - Added the outcome-control-plane master plan, implementation DAG, formal
   invariant registry, invariant coverage proof, and explicit threat model.
 - Added release-consistency, supply-chain, installer, security, main-proof, and
@@ -49,8 +47,11 @@ Git; this file records observable operator and product changes.
   decision-first, and reduced empty interface density.
 - Cached portfolio projections, scheduler snapshots, idle scans, and Plan
   refreshes to reduce unnecessary background work.
-
-## Released history
+- Added a versioned `RouteObservation` that records the actual worker/model,
+  Skills, selection source and propensity, router metadata versions, timing,
+  observed usage/cost, and outcome without expanding routing authority.
+- Audited eleven retained task branches: ten were superseded by newer `main`
+  implementations; only the missing RouteObservation was integrated.
 
 ## 2026-08-17
 

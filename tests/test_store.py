@@ -85,6 +85,26 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(events[0]["type"], "run.queued")
             self.assertEqual(events[1]["type"], "context.receipt.created")
 
+    def test_migration_derives_route_observation_from_existing_outcome_routing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Migrate route observation", "project_path": str(project)})
+            path = store.runs_dir / f"{run['id']}.json"
+            legacy = json.loads(path.read_text(encoding="utf-8"))
+            legacy["schema_version"] = 12
+            legacy.pop("route_observation", None)
+            path.write_text(json.dumps(legacy, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+            migrated = RunStore(root / "state").get(run["id"])
+
+            self.assertEqual(migrated["schema_version"], RUN_SCHEMA_VERSION)
+            self.assertEqual(migrated["route_observation"]["format"], "odysseus-route-observation-v1")
+            self.assertEqual(migrated["route_observation"]["task_class"], "implementer-api")
+            self.assertEqual(migrated["route_observation"]["upcast"]["source"], "run.outcome_routing")
+
     def test_run_title_falls_back_to_task_when_title_is_null(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
