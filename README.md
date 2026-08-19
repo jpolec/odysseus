@@ -33,7 +33,8 @@ checkout. **Your repositories** is the saved local list; **Remove** forgets an
 entry without deleting its directory or files. Passive tmux discovery never
 adds repositories by itself.
 
-[Quick start](START.md) · [Complete usage guide](docs/USAGE.md) · [tmux guide](docs/TMUX.md) ·
+[Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
+[Product comparison](docs/COMPARISON.md) · [tmux guide](docs/TMUX.md) ·
 [Project decisions](docs/PROJECT_DECISIONS.md) ·
 [Outcome control-plane plan](docs/OUTCOME_CONTROL_PLANE_PLAN.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
@@ -49,6 +50,9 @@ web interface against disposable demo state and spends no model tokens.
 
 ## Why Odysseus
 
+- **Own the control plane.** Odysseus is free, MIT-licensed, and runs on your
+  laptop, workstation, or private VM/VPS without an Odysseus account. Your
+  chosen agent/model and infrastructure may still have their own costs.
 - **Keep tmux.** Existing Codex and Claude panes appear automatically and stay
   usable from the terminal.
 - **Compose parallel work.** Accepted predecessor tasks become durable local
