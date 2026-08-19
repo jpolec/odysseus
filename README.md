@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.9.0](https://img.shields.io/badge/version-0.9.0-171a16)
+![Version: 0.9.1](https://img.shields.io/badge/version-0.9.1-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -25,6 +25,7 @@ software has no license or seat fee; your chosen agent, model API, CI, and
 infrastructure can still have their own costs.
 
 [Quick start](START.md) · [Complete usage guide](docs/USAGE.md) ·
+[Feature guides](docs/features/README.md) ·
 [Product comparison](docs/COMPARISON.md) · [tmux guide](docs/TMUX.md) ·
 [Project decisions](docs/PROJECT_DECISIONS.md) ·
 [Outcome control-plane plan](docs/OUTCOME_CONTROL_PLANE_PLAN.md) ·
@@ -73,6 +74,19 @@ turn “I am done” into a change in your source checkout.
 3. **Your control plane, on your infrastructure.** State is inspectable JSON and
    append-only NDJSON. Run it locally or on a private VM/VPS; keep using your
    terminal and authenticated agent CLIs.
+
+## Learn one capability at a time
+
+The README stays focused on the first successful delivery. Short numbered
+guides explain the deeper guarantees without turning setup into an architecture
+manual:
+
+1. [Durable state and deterministic replay](docs/features/01-durable-state-and-replay.md)
+2. [Idempotent Command API](docs/features/02-idempotent-command-api.md)
+
+The [feature guide index](docs/features/README.md) grows only when a capability
+is shipped and proven; planned architecture remains in the
+[roadmap](ROADMAP.md).
 
 ## A look inside
 
@@ -700,8 +714,9 @@ bin/odysseus version
 bin/odysseus replay RUN_ID
 bin/odysseus replay RUN_ID --until-event 42
 bin/odysseus rebuild-projections --dry-run
+bin/odysseus command
 bin/odysseus state verify
-bin/odysseus proof --release 0.9.0
+bin/odysseus proof --release 0.9.1
 bin/odysseus update --check
 bin/odysseus rollback
 bin/odysseus export --output odysseus-state.json

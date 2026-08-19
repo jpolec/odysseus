@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
+import io
 import json
 import os
 import shutil
@@ -20,6 +22,7 @@ from typing import Any
 from . import __version__
 from .events import EVENT_SCHEMA_VERSION
 from .ci import CIWatcher
+from .commands import COMMAND_SCHEMA_VERSION, CommandBus
 from .economics import economics_csv, economics_ndjson, outcome_economics
 from .lifecycle import ResourceLifecycle
 from .lifecycle import ServerLease
@@ -600,6 +603,7 @@ def cmd_version(args: argparse.Namespace) -> int:
         "run_schema": RUN_SCHEMA_VERSION,
         "event_schema": EVENT_SCHEMA_VERSION,
         "canonical_event_schema": EVENT_ENVELOPE_SCHEMA_VERSION,
+        "command_schema": COMMAND_SCHEMA_VERSION,
         "installation": "managed" if manifest else "package-or-checkout",
         "channel": str(manifest.get("channel") or ""),
         "ref": str(manifest.get("ref") or ""),
@@ -615,6 +619,16 @@ def cmd_version(args: argparse.Namespace) -> int:
             print(f"  install        managed {value['channel']} ({value['ref']})")
         else:
             print("  install        Python package or source checkout")
+    return 0
+
+
+def cmd_command(args: argparse.Namespace) -> int:
+    bus = CommandBus(args.state_dir, readonly=True)
+    if args.command_id:
+        value: Any = bus.get(args.command_id)
+    else:
+        value = {"commands": bus.list(limit=args.limit)}
+    _print_json(value)
     return 0
 
 
@@ -758,6 +772,10 @@ def parser() -> argparse.ArgumentParser:
         default=default_state_root(),
         help="state directory (default: $ODYSSEUS_HOME or ~/.odysseus)",
     )
+    root.add_argument("--idempotency-key", default="", help="deduplicate one mutating CLI command across retries")
+    root.add_argument("--expected-version", type=int, help="require this canonical run stream version")
+    root.add_argument("--actor", default=os.environ.get("ODYSSEUS_ACTOR", "cli-operator"), help="operator identity stored in the command receipt")
+    root.add_argument("--policy-context-json", default="{}", help="JSON policy context recorded with a mutating command")
     sub = root.add_subparsers(dest="command", required=True)
 
     serve = sub.add_parser("serve", aliases=["web", "start"], help="run the scheduler and local web UI")
@@ -950,6 +968,11 @@ def parser() -> argparse.ArgumentParser:
     replay_parser.add_argument("--json", action="store_true")
     replay_parser.set_defaults(func=cmd_replay)
 
+    command_parser = sub.add_parser("command", help="inspect durable Command API receipts")
+    command_parser.add_argument("command_id", nargs="?")
+    command_parser.add_argument("--limit", type=int, default=100)
+    command_parser.set_defaults(func=cmd_command)
+
     rebuild_parser = sub.add_parser("rebuild-projections", help="rebuild replaceable run snapshots from canonical streams")
     rebuild_parser.add_argument("--run-id", default="")
     rebuild_parser.add_argument("--dry-run", action="store_true", help="verify replay without writing snapshots")
@@ -1000,12 +1023,80 @@ def parser() -> argparse.ArgumentParser:
 def main() -> int:
     try:
         args = parser().parse_args()
-        return int(args.func(args))
+        if not _mutating_cli_command(args):
+            return int(args.func(args))
+        try:
+            policy_context = json.loads(args.policy_context_json or "{}")
+        except json.JSONDecodeError as exc:
+            raise ValueError("--policy-context-json must be a JSON object") from exc
+        if not isinstance(policy_context, dict):
+            raise ValueError("--policy-context-json must be a JSON object")
+        payload = {
+            key: value
+            for key, value in vars(args).items()
+            if key not in {"func", "state_dir", "idempotency_key", "expected_version", "actor", "policy_context_json"}
+        }
+        target = f"run:{args.run_id}" if getattr(args, "run_id", "") else ""
+        output = io.StringIO()
+        error = io.StringIO()
+
+        def invoke() -> dict[str, Any]:
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+                exit_code = int(args.func(args))
+            return {"exit_code": exit_code, "stdout": output.getvalue(), "stderr": error.getvalue()}
+
+        execution = CommandBus(args.state_dir).execute(
+            f"cli.{args.command}",
+            payload,
+            invoke,
+            idempotency_key=args.idempotency_key,
+            actor={"type": "user", "id": args.actor},
+            policy_context=policy_context,
+            target_stream=target,
+            expected_version=args.expected_version,
+        )
+        result = execution.result if isinstance(execution.result, dict) else {}
+        if result.get("stdout"):
+            print(str(result["stdout"]), end="")
+        if result.get("stderr"):
+            print(str(result["stderr"]), end="", file=sys.stderr)
+        return int(result.get("exit_code") or 0)
     except KeyboardInterrupt:
         return 130
     except (KeyError, ValueError, RuntimeError) as exc:
         print(f"odysseus: {exc}", file=sys.stderr)
         return 1
+
+
+def _mutating_cli_command(args: argparse.Namespace) -> bool:
+    command = str(getattr(args, "command", ""))
+    if command in {
+        "run",
+        "plan",
+        "approve-epic",
+        "answer",
+        "accept",
+        "apply",
+        "send-back",
+        "cancel",
+        "draft-pr",
+        "variants",
+        "resume",
+        "adopt",
+        "ci",
+    }:
+        return True
+    if command == "projects":
+        return bool(getattr(args, "add", None))
+    if command == "inbox":
+        return bool(getattr(args, "add", None) or getattr(args, "resolve", None))
+    if command == "config":
+        return getattr(args, "max_parallel", None) is not None
+    if command == "resources":
+        return bool(getattr(args, "reclaim", False))
+    if command == "state":
+        return bool(getattr(args, "migrate", False))
+    return False
 
 
 if __name__ == "__main__":

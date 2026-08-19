@@ -16,7 +16,7 @@ Machine-readable registry: `docs/architecture/invariants.registry.json`.
 | --- | --- | --- | --- |
 | I01 | Journal is canonical. | enforced | Every run-state transition is appended and fsynced to a hash-chained EventEnvelope v2 stream before the replaceable projection. |
 | I02 | A snapshot is a deterministic projection of the journal. | enforced | Run projections rebuild bit-for-bit from canonical streams and are verified against projection/checkpoint hashes. |
-| I03 | Every command is idempotent. | partial | Selected operations are idempotent; the universal command layer is targeted for the 0.9 kernel. |
+| I03 | Every command is idempotent. | enforced | Mutating HTTP and supported CLI control requests enter one durable Command Bus; an exact duplicate returns the stored result and never re-executes its handler. |
 | I04 | Every external side effect has durable intent before execution. | partial | Some operator decisions are recorded before effects; the durable outbox is targeted for the 0.9 kernel. |
 | I05 | Every external side effect is reconcilable. | partial | Selected effects are reconciled; universal action reconciliation is targeted for the 0.9 kernel. |
 | I06 | At most one valid worker lease exists for a node. | partial | Server leases and scheduler claim limits exist; per-node WorkerLease fencing is targeted for the 0.9 kernel. |

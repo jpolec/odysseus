@@ -24,15 +24,16 @@
   {
     "id": "I03",
     "title": "Every command is idempotent.",
-    "status": "partial",
-    "current_guarantee": "Several delivery and worktree operations are idempotent in 0.8, including repeated worktree creation, repeated local artifact application, duplicate intake observations, and integrated delivery no-ops. There is not yet a single idempotent command layer for every command.",
+    "status": "enforced",
+    "current_guarantee": "Mutating HTTP and supported CLI control requests enter one durable Command Bus. An exact duplicate returns its stored result without re-executing the handler; a reused key with different input fails closed, stale expected stream versions conflict, and interrupted outcomes are never guessed or retried automatically.",
     "test_references": [
-      "tests/test_worktrees.py::WorktreeTests.test_task_gets_branch_worktree_and_review_diff",
-      "tests/test_worktrees.py::WorktreeTests.test_apply_to_repository_merges_complete_artifact_and_is_idempotent",
-      "tests/test_scheduler.py::SchedulerTests.test_integrated_delivery_statuses_do_not_duplicate_delivery_actions",
-      "tests/test_intake.py::IntakeTests.test_github_issue_normalizes_redacts_and_proposes_gated_epic"
+      "tests/test_commands.py::CommandBusTests.test_duplicate_submission_returns_original_result_and_mutates_once",
+      "tests/test_commands.py::CommandBusTests.test_expected_version_rejects_stale_write_without_changing_projection",
+      "tests/test_commands.py::CommandBusTests.test_same_key_with_different_payload_is_a_conflict",
+      "tests/test_commands.py::CommandBusTests.test_interrupted_command_becomes_unknown_and_is_not_reexecuted",
+      "tests/test_commands.py::CommandBusTests.test_http_post_and_cli_use_the_same_durable_command_bus"
     ],
-    "planned_target_release": "0.9 kernel"
+    "planned_target_release": ""
   },
   {
     "id": "I04",

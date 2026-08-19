@@ -16,6 +16,7 @@ from typing import Any, Callable, Iterator, Mapping
 from .events import EVENT_SCHEMA_VERSION, EVENT_TYPES, Event, now_iso
 from .environments import normalize_environment_request
 from .attention import AttentionQueue
+from .commands import CommandBus, kernel_command_metadata
 from .epics import EpicStore, VALID_ROLES
 from .inbox import Inbox
 from .kernel import EventKernel, KernelIntegrityError
@@ -340,6 +341,7 @@ class RunStore:
             self._atomic_json(self.config_path, DEFAULT_CONFIG)
         self.redaction = DEFAULT_REDACTION_ENGINE
         self.kernel = EventKernel(self.root, readonly=readonly)
+        self.commands = CommandBus(self.root, kernel=self.kernel, readonly=readonly)
         self.projects = ProjectRegistry(self)
         self.knowledge = ProjectKnowledge(self)
         self.skills = SkillRegistry(self)
@@ -474,6 +476,7 @@ class RunStore:
             actor=actor,
             projection=snapshot,
             domain_event=domain_event,
+            **kernel_command_metadata(run_id),
         )
         self._atomic_json(self._path(run_id), snapshot)
         return snapshot
@@ -995,6 +998,7 @@ class RunStore:
                 actor=source,
                 projection=snapshot,
                 domain_event=value,
+                **kernel_command_metadata(run_id),
             )
             with path.open("a", encoding="utf-8") as handle:
                 handle.write(line)

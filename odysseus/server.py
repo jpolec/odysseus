@@ -22,6 +22,7 @@ from urllib.request import Request, urlopen
 
 from . import __version__
 from .ci import CIWatcher
+from .commands import CommandOutcomeUnknown, IdempotencyConflict
 from .economics import economics_csv, economics_ndjson, outcome_economics
 from .planner import EpicPlanner
 from .portfolio import engineering_portfolio
@@ -32,6 +33,7 @@ from .search import search, statistics
 from .github import GitHubBridge
 from .intake import IntakeCoordinator, github_issue_signal
 from .lifecycle import ResourceLifecycle
+from .kernel import ConcurrencyConflict
 from .resources import resource_path
 from .store import RunStore
 from .tmux import TmuxBridge
@@ -47,6 +49,7 @@ PROJECT_SKILL_LOCAL_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
 EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
+COMMAND_ROUTE = re.compile(r"^/api/commands(?:/(?P<command_id>[0-9a-f-]{36}))?$")
 
 DIRECT_ASSISTANT_PROVIDER_ENV = {
     "openai": ("OPENAI_API_KEY", "ODYSSEUS_ASSISTANT_OPENAI_MODEL", "gpt-4o-mini"),
@@ -119,6 +122,7 @@ class OdysseusApp:
         test_capabilities: Mapping[str, bool] | None = None,
     ) -> None:
         self.store = store
+        self.commands = store.commands
         self.host = host
         self.port = port
         self.allow_remote = allow_remote
@@ -233,6 +237,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
     def setup(self) -> None:
         super().setup()
         self.connection.settimeout(15)
+        self._command_ticket = None
 
     def log_message(self, format: str, *args: Any) -> None:
         if self.server.app.verbose:
@@ -276,6 +281,18 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/config":
             self._json(self.server.app.store.config())
+            return
+        command_match = COMMAND_ROUTE.fullmatch(parsed.path)
+        if command_match:
+            try:
+                command_id = command_match.group("command_id")
+                if command_id:
+                    self._json(self.server.app.commands.get(command_id))
+                else:
+                    query = parse_qs(parsed.query)
+                    self._json({"commands": self.server.app.commands.list(limit=int(query.get("limit", ["100"])[0]))})
+            except (KeyError, ValueError):
+                self._json_error(HTTPStatus.NOT_FOUND, "command not found")
             return
         if parsed.path == "/api/health":
             self._json(
@@ -442,6 +459,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             body = self._body()
+            if not self._begin_http_command("post", parsed.path, body):
+                return
             if parsed.path == "/api/config":
                 changes: dict[str, Any] = {}
                 for key in (
@@ -644,6 +663,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._json(self.server.app.store.get(run_id))
             else:
                 self._json_error(HTTPStatus.NOT_FOUND, "unknown action")
+        except (ConcurrencyConflict, IdempotencyConflict, CommandOutcomeUnknown) as exc:
+            self._json_error(HTTPStatus.CONFLICT, str(exc))
         except KeyError:
             self._json_error(HTTPStatus.NOT_FOUND, "record not found")
         except (ValueError, RuntimeError) as exc:
@@ -660,15 +681,24 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         if not secrets.compare_digest(self.headers.get("X-Odysseus-Token", ""), self.server.app.token):
             self._json_error(HTTPStatus.FORBIDDEN, "missing or invalid Odysseus token")
             return
-        match = PROJECT_ROUTE.fullmatch(urlparse(self.path).path)
-        if not match or match.group("action"):
-            self._json_error(HTTPStatus.NOT_FOUND, "not found")
-            return
+        parsed = urlparse(self.path)
         try:
+            if not self._begin_http_command("delete", parsed.path, {}):
+                return
+            match = PROJECT_ROUTE.fullmatch(parsed.path)
+            if not match or match.group("action"):
+                self._json_error(HTTPStatus.NOT_FOUND, "not found")
+                return
             self.server.app.store.projects.remove(match.group("project_id"))
             self._json({"ok": True})
+        except (ConcurrencyConflict, IdempotencyConflict, CommandOutcomeUnknown) as exc:
+            self._json_error(HTTPStatus.CONFLICT, str(exc))
         except KeyError:
             self._json_error(HTTPStatus.NOT_FOUND, "project not found")
+        except (ValueError, RuntimeError) as exc:
+            self._json_error(HTTPStatus.BAD_REQUEST, str(exc))
+        except Exception as exc:
+            self._json_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc))
 
     def _post_inbox(self, item_id: str, action: str | None, body: Mapping[str, Any]) -> None:
         if action == "resolve":
@@ -726,7 +756,9 @@ class OdysseusHandler(BaseHTTPRequestHandler):
     def _get_run_route(self, run_id: str, action: str | None, parsed: Any) -> None:
         try:
             if action is None:
-                self._json(self.server.app.store.get(run_id))
+                value = dict(self.server.app.store.get(run_id))
+                value["_canonical_stream_version"] = self.server.app.store.kernel.stream_version(run_id)
+                self._json(value)
             elif action == "events":
                 query = parse_qs(parsed.query)
                 after = int(query.get("after", ["0"])[0])
@@ -760,6 +792,40 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         if not isinstance(value, dict):
             raise ValueError("request body must be a JSON object")
         return value
+
+    def _begin_http_command(self, method: str, path: str, body: Mapping[str, Any]) -> bool:
+        run_match = RUN_ROUTE.fullmatch(path)
+        target_stream = f"run:{run_match.group('run_id')}" if run_match else ""
+        raw_expected: Any = self.headers.get("X-Odysseus-Expected-Version")
+        if raw_expected in {None, ""}:
+            raw_expected = body.get("_expected_version")
+        expected_version: int | None = None
+        if raw_expected not in {None, ""}:
+            try:
+                expected_version = int(raw_expected)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("expected stream version must be an integer") from exc
+            if expected_version < 0:
+                raise ValueError("expected stream version cannot be negative")
+        policy_context = body.get("_policy_context") if isinstance(body.get("_policy_context"), Mapping) else {}
+        ticket = self.server.app.commands.begin(
+            f"http.{method}:{path}",
+            body,
+            idempotency_key=str(self.headers.get("Idempotency-Key") or body.get("_idempotency_key") or ""),
+            actor={"type": "user", "id": str(self.headers.get("X-Odysseus-Actor") or "web-operator")},
+            policy_context=policy_context,
+            target_stream=target_stream,
+            expected_version=expected_version,
+        )
+        self._command_ticket = ticket
+        if ticket.replayed:
+            result = ticket.receipt.get("result")
+            if not isinstance(result, Mapping):
+                result = {"result": result}
+            self._json(result, HTTPStatus(int(ticket.receipt.get("http_status") or 200)))
+            return False
+        self.server.app.commands.activate(ticket)
+        return True
 
     def _assist(self, body: Mapping[str, Any]) -> dict[str, Any]:
         provider = str(body.get("provider") or "codex").strip().lower()
@@ -1037,6 +1103,20 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         return host in {"127.0.0.1", "localhost", "::1"}
 
     def _json(self, value: Mapping[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
+        command_headers: dict[str, str] = {}
+        ticket = getattr(self, "_command_ticket", None)
+        if ticket is not None:
+            if ticket.replayed:
+                receipt = ticket.receipt
+            else:
+                receipt = self.server.app.commands.finish(ticket, value, http_status=int(status))
+            command = receipt.get("command") if isinstance(receipt.get("command"), Mapping) else {}
+            command_headers = {
+                "X-Odysseus-Command-Id": str(command.get("command_id") or ""),
+                "X-Odysseus-Command-State": str(receipt.get("state") or ""),
+                "X-Odysseus-Idempotent-Replay": "true" if ticket.replayed else "false",
+            }
+            self._command_ticket = None
         redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(value, boundary="http_json")
         if (
             isinstance(value, Mapping)
@@ -1053,6 +1133,9 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        for name, header_value in command_headers.items():
+            if header_value:
+                self.send_header(name, header_value)
         self.end_headers()
         self.wfile.write(payload)
 

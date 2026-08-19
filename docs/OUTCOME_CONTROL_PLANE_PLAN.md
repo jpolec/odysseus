@@ -85,17 +85,18 @@ C + E + F + G + H + O
           +--> Q. release proof, migration/upgrade proof, docs and screenshots
 ```
 
-## Version slices
+## Release sequence
 
-1. **0.9.0 — Plan execution core:** A–D and O.
-2. **0.9.1 — Mission Control:** E plus decision-first Plan controls.
-3. **0.9.2 — Plan economics:** F and aggregate budgets.
-4. **0.10.0 — Outcome Ledger:** G, H and truthful cost attribution.
-5. **0.10.1 — Measurable procedures:** I and Portfolio breakdowns J.
-6. **0.11.0 — Learning router:** K and L, still shadow-first.
-7. **0.12.0 — Governed automation:** M and N.
-8. **Release gate:** P and Q must pass before claiming the target outcome.
+The original product-slice numbering in this gap analysis was superseded when
+the durability program became the release-critical path. The authoritative
+sequence is maintained in
+[`architecture/MASTER_PLAN.md`](architecture/MASTER_PLAN.md) and
+[`../ROADMAP.md`](../ROADMAP.md): v0.9.0 shipped the durable event kernel,
+v0.9.1 ships the idempotent Command API, and v0.9.2 is Worker Leases with
+fencing. The capability DAG above remains useful, but it does not assign
+release numbers.
 
-Each slice must be independently useful, migrate old state, preserve existing
-Tasks/Plans, include deterministic tests, and pass `scripts/release-proof.sh`.
-No later slice may redefine accepted work as delivered or unknown cost as zero.
+Every release must remain independently useful, migrate old state, preserve
+existing Tasks and Plans, include deterministic tests, and pass
+`scripts/release-proof.sh`. No later release may redefine accepted work as
+delivered or unknown cost as zero.

@@ -40,7 +40,7 @@ class CLITests(unittest.TestCase):
         args = parser().parse_args(["start", "--port", "9911"])
         self.assertEqual(args.port, 9911)
         self.assertEqual(args.func.__name__, "cmd_serve")
-        self.assertEqual(__version__, "0.9.0")
+        self.assertEqual(__version__, "0.9.1")
 
     def test_start_chooses_the_next_port_when_the_requested_port_is_busy(self) -> None:
         class FakeHTTPD:
@@ -98,7 +98,7 @@ class CLITests(unittest.TestCase):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 result = cmd_doctor(human_args)
-            self.assertIn("Odysseus 0.9.0", output.getvalue())
+            self.assertIn("Odysseus 0.9.1", output.getvalue())
             self.assertIn("Git", output.getvalue())
             self.assertIn(result, {0, 1})
 
@@ -118,6 +118,7 @@ class CLITests(unittest.TestCase):
         self.assertGreaterEqual(value["run_schema"], 1)
         self.assertGreaterEqual(value["event_schema"], 1)
         self.assertEqual(value["canonical_event_schema"], 2)
+        self.assertEqual(value["command_schema"], 1)
 
     def test_export_redacts_nested_state_and_events(self) -> None:
         from odysseus.store import RunStore

@@ -24,8 +24,8 @@ complete release gate before the next capability begins.
 | --- | --- | --- |
 | `0.8.2` | Correctness, public trust, branch audit, and RouteObservation | Shipped |
 | `0.9.0` | Event-sourced kernel and deterministic replay | Shipped |
-| `0.9.1` | Idempotent Command API | Next |
-| `0.9.2` | Worker Leases and fencing | Planned |
+| `0.9.1` | Idempotent Command API | Shipped |
+| `0.9.2` | Worker Leases and fencing | Next |
 | `0.9.3` | Durable Outbox, Action Ledger, and reconciliation | Planned |
 | `0.10.0` | Complete OutcomeRecord and observation semantics | Planned |
 | `0.10.1` | Full routing and Skill receipts | Planned |
@@ -75,6 +75,9 @@ Evidence-based agent routing and context:
   quality, latency, and cost while keeping every automatic choice explainable.
 - Semantic project context for architecture, code maps, schemas, API
   contracts, recent changes, and known issues, retrieved as a cited subset.
+- Deferred tool loading and large-result offloading so agents receive only the
+  tool schemas and output fragments relevant to the current task, with every
+  retrieval recorded in the Context Receipt.
 - Analytics for cost per accepted task or merged PR, retry rate, human minutes,
   and **Human Attention per Successful Change**.
 - NDJSON export to CSV/Parquet and budget alerts.
@@ -97,6 +100,9 @@ Workflow, organization, and operational guarantees:
   opening the full cockpit, while refusing ambiguous terminal keystrokes.
 - Portable generic Skills import/export with explicit trust review before
   enabling Skills or shell checks sourced from another repository.
+- Versioned provider, MCP, Skill, and sandbox catalogs with authenticated MCP
+  connections, scoped OAuth, and explicit operator approval before a newly
+  connected capability becomes available to an agent.
 - Stable event and HTTP API compatibility window.
 - Tested forward migrations, backup/restore, installer upgrade, and rollback.
 - Strong remote identity, session expiry, operator audit log, and signed run

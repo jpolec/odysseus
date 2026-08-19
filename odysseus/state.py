@@ -20,6 +20,7 @@ JSON_OBJECT_FILES = (
     "inbox.json",
 )
 JSON_OBJECT_DIRS = (
+    "commands",
     "runs",
     "epics",
     "project_profiles",
@@ -97,6 +98,7 @@ def verify_state(root: Path | str) -> dict[str, Any]:
         "stream_events": 0,
         "checkpoints": 0,
         "legacy_runs": 0,
+        "commands": 0,
     }
     warnings: list[str] = []
     if not state_root.exists():
@@ -144,6 +146,15 @@ def verify_state(root: Path | str) -> dict[str, Any]:
                         f"{path}: unsupported epic schema {version!r}; "
                         f"reader supports 1..{EPIC_SCHEMA_VERSION}"
                     )
+            elif name == "commands":
+                counts["commands"] += 1
+                if value.get("format") != "odysseus-command-receipt-v1":
+                    errors.append(f"{path}: unsupported command receipt format")
+                command = value.get("command") if isinstance(value.get("command"), dict) else {}
+                if command.get("format") != "odysseus-command-envelope-v1":
+                    errors.append(f"{path}: invalid command envelope")
+                if value.get("state") not in {"executing", "completed", "failed", "unknown"}:
+                    errors.append(f"{path}: invalid command state")
 
     for name in NDJSON_DIRS:
         directory = state_root / name

@@ -31,6 +31,10 @@ class KernelIntegrityError(RuntimeError):
     """Raised when an immutable canonical stream cannot be trusted."""
 
 
+class ConcurrencyConflict(RuntimeError):
+    """Raised when a command targets a stale canonical stream version."""
+
+
 def canonical_json(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
@@ -250,11 +254,17 @@ class EventKernel:
         projection: Mapping[str, Any],
         domain_event: Mapping[str, Any] | None = None,
         command_id: str = "",
+        idempotency_key: str = "",
         causation_id: str = "",
+        expected_version: int | None = None,
     ) -> dict[str, Any]:
         if self.readonly:
             raise RuntimeError("canonical kernel is read-only")
         previous_projection, previous_hash, previous_version = self._append_context(run_id)
+        if expected_version is not None and previous_version != int(expected_version):
+            raise ConcurrencyConflict(
+                f"stream run:{run_id} is at version {previous_version}; expected {expected_version}"
+            )
         stream_version = previous_version + 1
         event_id = str(uuid.uuid4())
         payload = {
@@ -270,7 +280,7 @@ class EventKernel:
             "stream_version": stream_version,
             "event_type": str(event_type),
             "command_id": command_id or str(uuid.uuid4()),
-            "idempotency_key": "",
+            "idempotency_key": str(idempotency_key),
             "correlation_id": f"run:{run_id}",
             "causation_id": str(causation_id),
             "actor": {"type": "system" if actor == "odysseus" else "actor", "id": str(actor)},
@@ -288,6 +298,10 @@ class EventKernel:
             os.fsync(handle.fileno())
         self.write_checkpoint(run_id, value, projection)
         return value
+
+    def stream_version(self, run_id: str) -> int:
+        events = self.read(run_id)
+        return int(events[-1]["stream_version"]) if events else 0
 
     def write_checkpoint(self, run_id: str, event: Mapping[str, Any], projection: Mapping[str, Any]) -> None:
         if self.readonly:

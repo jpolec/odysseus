@@ -174,8 +174,8 @@ The last command writes a public aggregate Markdown file and a locally ignored
 JSON receipt. For another project, use the underlying command directly:
 
 ```sh
-odysseus --state-dir ~/.odysseus proof --release 0.9.0
-odysseus --state-dir ~/.odysseus proof --release 0.9.0 --json --output proof.json
+odysseus --state-dir ~/.odysseus proof --release 0.9.1
+odysseus --state-dir ~/.odysseus proof --release 0.9.1 --json --output proof.json
 ```
 
 Classification as `observed` is necessary but not sufficient. A counted outcome
@@ -964,6 +964,9 @@ projects    List or register repositories
 inbox       List, add, or resolve follow-ups
 config      Read or change scheduler configuration
 ci          Poll GitHub checks and run the bounded repair policy
+command     List or inspect durable Command API receipts
+replay      Reconstruct one run from its canonical event stream
+rebuild-projections Rebuild replaceable run projections from canonical streams
 search      Search local runs, events, and operator records
 stats       Show engineering outcomes and observed economics
 export      Write an inspectable JSON evidence bundle

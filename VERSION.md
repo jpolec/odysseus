@@ -11,9 +11,9 @@ paths.
 
 ## Current stable release
 
-**0.9.0 — 2026-08-19**
+**0.9.1 — 2026-08-19**
 
-[Odysseus 0.9.0](https://github.com/jpolec/odysseus/releases/tag/v0.9.0)
+[Odysseus 0.9.1](https://github.com/jpolec/odysseus/releases/tag/v0.9.1)
 is the latest stable release. Its tag binds the exact source revision and its
 release proof covers the complete automated suite, install and upgrade,
 packaged `uvx` boot, real-browser smoke, HTTP health, recovery, credentials,
@@ -159,6 +159,21 @@ Completed, accepted, integrated, and delivered are separate states.
 - Report canonical replay throughput in state verification and projection
   rebuild receipts instead of hiding the cost of recovery.
 
+### Idempotent commands and concurrency
+
+- Route mutating web and supported CLI requests through one durable
+  `odysseus-command-envelope-v1` Command Bus before their handlers run.
+- Bind every command to a UUID, idempotency key, actor label, redacted payload,
+  redacted policy context, target stream, and optional expected stream version.
+- Return the exact stored result for an exact duplicate without executing its
+  handler again; reject reuse of the same key for different input.
+- Reject stale run mutations with an explicit concurrency conflict before the
+  canonical stream or projection changes.
+- Preserve an interrupted command as `unknown` rather than guessing that it
+  failed or automatically repeating a possibly completed effect.
+- Inspect receipts through `odysseus command [COMMAND_ID]` or
+  `GET /api/commands/:id`; `odysseus state verify` includes command records.
+
 ### Installation and operation
 
 - Run with Python 3.10+ and no Python runtime dependencies or database.
@@ -191,11 +206,12 @@ No later state is inferred merely because an earlier state is present.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.9.0` |
+| Application version | `0.9.1` |
 | Run snapshot schema | `14` |
 | Epic snapshot schema | `3` |
 | Canonical state event envelope | `2` |
 | Operator activity event envelope | `1` |
+| Command envelope | `1` |
 | Context receipt | `context-receipt-v1` |
 | State export | `odysseus-state-v1` |
 | Python | `3.10+` |
@@ -203,8 +219,8 @@ No later state is inferred merely because an earlier state is present.
 | Built-in lanes | Codex CLI, Claude Code |
 
 The local HTTP API is documented but does not yet have a stable compatibility
-window. Consumers should check application, snapshot, event, and export
-markers.
+window. Consumers should check application, snapshot, event, command, and
+export markers.
 
 ## Security boundaries
 
@@ -239,8 +255,8 @@ model.
   egress allowlists remain planned work.
 - The stdlib HTTP service is a single-operator local/private control plane, not
   a multi-tenant application server.
-- Remote distributed workers, organization RBAC, and learned autonomous
-  routing are not part of 0.9.0.
+- Remote distributed workers, per-node fenced Worker Leases, organization RBAC,
+  and learned autonomous routing are not part of 0.9.1.
 - Repository knowledge is explicit and provenance-bound; a native semantic
   context graph is planned but not included in this release.
 

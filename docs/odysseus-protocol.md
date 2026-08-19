@@ -1,8 +1,9 @@
 # Odysseus Protocol and Local API
 
-Odysseus keeps the durable model deliberately small: a current JSON snapshot
-per run and an append-only NDJSON event journal. The HTTP API exposes the same
-records, while SSE transports new events without inventing a second schema.
+Odysseus keeps the durable model deliberately small: a canonical hash-chained
+stream per run, a replaceable JSON projection, a compact operator activity
+journal, and durable command receipts. The HTTP API exposes these records,
+while SSE transports new activity without inventing a second UI schema.
 
 ## Run States
 
@@ -102,7 +103,7 @@ The default origin is `http://127.0.0.1:8741`.
 | `GET` | `/api/health` | Scheduler health plus active, queued, blocked, and attention counts |
 | `GET` | `/api/runs?project_id=&status=` | Current run snapshots with optional exact filters |
 | `POST` | `/api/runs` | Create a queued run |
-| `GET` | `/api/runs/:id` | One run snapshot |
+| `GET` | `/api/runs/:id` | One run snapshot plus `_canonical_stream_version` for optimistic writes |
 | `GET` | `/api/runs/:id/events?after=N` | Replay normalized events |
 | `GET` | `/api/runs/:id/stream?after=N` | Continue with Server-Sent Events |
 | `GET` | `/api/runs/:id/diff` | Unified patch, stat, and untracked file list |
@@ -140,12 +141,15 @@ The default origin is `http://127.0.0.1:8741`.
 | `GET` | `/api/epics/:id` | Epic snapshot plus materialized runs |
 | `POST` | `/api/epics/plan` | Run a read-only Planner; optional `project_id` + `source_paths` freeze selected ADRs into the proposal |
 | `POST` | `/api/epics/:id/approve` | Validate and materialize a proposed task DAG |
+| `GET` | `/api/commands?limit=N` | List recent durable command receipts |
+| `GET` | `/api/commands/:id` | Inspect one command envelope, outcome, and redaction receipts |
 | `GET` | `/api/github/issues?project_id=:id` | Open GitHub issues through authenticated `gh` |
 | `POST` | `/api/github/import` | Turn the supplied issue into a queued run |
 
-Every `POST` requires the token from `/api/bootstrap` in the
-`X-Odysseus-Token` header. The default server also rejects non-loopback Host and
-Origin headers.
+Every `POST` and `DELETE` requires the token from `/api/bootstrap` in the
+`X-Odysseus-Token` header. Mutations accept `Idempotency-Key`,
+`X-Odysseus-Actor`, and `X-Odysseus-Expected-Version` headers. The default
+server also rejects non-loopback Host and Origin headers.
 
 Example create request:
 
@@ -188,6 +192,65 @@ Example create request:
 SSE messages use `event: odysseus`, set the event `id` to the run-local
 sequence number, and put the complete event envelope in `data`. Browsers can
 reconnect with `Last-Event-ID` or an explicit `after` query.
+
+## Command envelope and idempotency
+
+Every mutating HTTP request and supported mutating CLI command first persists a
+versioned envelope conceptually equivalent to:
+
+```json
+{
+  "format": "odysseus-command-envelope-v1",
+  "schema_version": 1,
+  "command_id": "8d563b93-2f47-4b5a-a36d-67c98effc643",
+  "command_type": "http.post:/api/runs/example/accept",
+  "idempotency_key": "review-example-accept-v1",
+  "target_stream": "run:example",
+  "expected_version": 42,
+  "actor": {"type": "user", "id": "web-operator"},
+  "policy_context": {},
+  "payload": {},
+  "causation_id": "",
+  "requested_at": "2026-08-19T12:00:00Z"
+}
+```
+
+Payload, policy context, results, and errors cross the redaction boundary
+before the receipt is written. The receipt state is one of:
+
+| State | Meaning |
+| --- | --- |
+| `executing` | Durable intent exists and the recorded owner may still be running. |
+| `completed` | The handler finished and its exact redacted result is durable. |
+| `failed` | The request was rejected or the handler failed; the failure is durable. |
+| `unknown` | The recorded process ended before committing an outcome; Odysseus will not guess or repeat it. |
+
+An exact duplicate—same actor, idempotency key, command type, target, expected
+version, policy context, and payload—returns the stored result. Reusing a key
+for different request material returns a conflict. For a run-targeting command,
+the expected version is checked atomically at the first canonical append; a
+stale write cannot replace a newer projection.
+
+HTTP responses include `X-Odysseus-Command-Id`,
+`X-Odysseus-Command-State`, and `X-Odysseus-Idempotent-Replay`. The browser
+client supplies a fresh key for each new mutation; callers implementing network
+retries must reuse their original key.
+
+The CLI options are global and therefore precede the subcommand:
+
+```sh
+odysseus --idempotency-key accept-run-42 \
+  --expected-version 42 \
+  --actor operator@example.com \
+  accept RUN_ID
+
+odysseus command
+odysseus command COMMAND_ID
+```
+
+Command idempotency protects the local mutation handler. It does not yet claim
+exactly-once behavior for every GitHub, Git, notification, or deployment side
+effect; durable outbox reconciliation owns that boundary in v0.9.3.
 
 ## Planner and evaluation markers
 
@@ -308,6 +371,10 @@ odysseus state verify --json
 `rebuild-projections` refuses a live server-owned state directory. Rebuild and
 verification receipts expose processed event counts, elapsed time, and replay
 throughput so recovery cost remains observable.
+
+Command schema 1 stores `odysseus-command-receipt-v1` records under
+`commands/`. Command state is independent of run snapshot schema 14; upgrading
+to 0.9.1 does not rewrite existing run streams or projections.
 
 Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 `skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7

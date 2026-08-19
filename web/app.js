@@ -44,7 +44,13 @@ const UI_COPY = {
 
 async function api(path, options = {}) {
   const headers = {"Content-Type": "application/json", ...(options.headers || {})};
-  if (options.method && options.method !== "GET") headers["X-Odysseus-Token"] = state.bootstrap.token;
+  if (options.method && options.method !== "GET") {
+    headers["X-Odysseus-Token"] = state.bootstrap.token;
+    headers["Idempotency-Key"] ||= options.idempotencyKey || (globalThis.crypto?.randomUUID?.() || `web-${Date.now()}-${Math.random()}`);
+    if (options.expectedVersion !== undefined && options.expectedVersion !== null) {
+      headers["X-Odysseus-Expected-Version"] = String(options.expectedVersion);
+    }
+  }
   const response = await fetch(path, {...options, headers});
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);

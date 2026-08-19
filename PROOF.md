@@ -17,7 +17,7 @@ not claim that a model produced those exact changes. Real agent runs retain
 their own immutable Context Receipts, event journals, checks, review, costs,
 and operator decisions in the selected state directory.
 
-For the 0.9.0 release candidate the local gate is:
+For the 0.9.1 release candidate the local gate is:
 
 - JavaScript, Python, shell, and `git diff --check` validation from the clean
   checkout.

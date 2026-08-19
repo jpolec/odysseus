@@ -465,6 +465,8 @@ Status: shipped in `v0.9.0`.
 
 ### 0.9.1 — idempotent Command API
 
+Status: shipped in `v0.9.1`.
+
 1. CommandEnvelope, command IDs, idempotency keys, actor, and policy context.
 2. Expected stream version and explicit concurrency conflicts.
 3. One Command Bus shared by CLI, UI, and HTTP mutations.

@@ -20,6 +20,25 @@ No unreleased user-facing changes yet.
 
 ## 2026-08-19
 
+### [0.9.1](https://github.com/jpolec/odysseus/releases/tag/v0.9.1) — Idempotent Command API
+
+- Added one durable Command Bus for mutating HTTP requests and supported CLI
+  control commands, with versioned envelopes, command IDs, actor labels,
+  policy context, and redacted payloads/results.
+- Added caller-supplied idempotency keys so an exact retry returns the original
+  result without executing the mutation twice; conflicting key reuse fails
+  closed.
+- Added optimistic concurrency through expected canonical stream versions and
+  explicit conflicts that leave the newer run projection untouched.
+- Persisted completed, failed, executing, and unknown command receipts under
+  local state, exposed through CLI and HTTP inspection endpoints.
+- Made interrupted outcomes deliberately unknown and non-retriable with the
+  same key, while distinguishing a live owner from a process that ended.
+- Propagated command and idempotency provenance into canonical run events and
+  included command receipts in strict state verification.
+- Added focused duplicate, conflict, interruption, live-owner, redaction,
+  HTTP, CLI, and state-integrity tests plus operator feature guides.
+
 ### [0.9.0](https://github.com/jpolec/odysseus/releases/tag/v0.9.0) — Durable event kernel and replay
 
 - Made a per-run EventEnvelope v2 stream the canonical source for run state;
