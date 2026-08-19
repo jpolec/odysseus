@@ -1,7 +1,13 @@
 # Odysseus version and capabilities
 
+For chronological, day-grouped release notes from the first tmux manager to
+the current product, see [CHANGELOG.md](CHANGELOG.md). This file remains the
+detailed capability, compatibility, boundary, and upgrade reference.
+
 ## Unreleased
 
+- Added a chronological `CHANGELOG.md` while retaining this document as the
+  complete capability reference.
 - CI and release governance are now explicit and mechanically checked: fast PR
   CI, Security, Installer Smoke, Main Proof, and Release Proof have stable
   required-check names, pinned GitHub Actions, shared release-consistency
@@ -554,7 +560,7 @@ operation.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.7.0` |
+| Application version | `0.8.1` |
 | Run snapshot schema | `12` |
 | Epic snapshot schema | `1` |
 | Event envelope version | `1` |

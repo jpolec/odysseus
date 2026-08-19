@@ -30,6 +30,7 @@ def _failures() -> list[str]:
 
     expected_snippets = {
         "README.md": [f"version-{__version__}", f"odysseus proof --release {__version__}"],
+        "CHANGELOG.md": [f"[{__version__}]"],
         "VERSION.md": [f"**{__version__} "],
         "PROOF.md": [f"For the {__version__} release candidate"],
         "docs/USAGE.md": [f"proof --release {__version__}"],

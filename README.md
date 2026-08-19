@@ -29,7 +29,8 @@ infrastructure can still have their own costs.
 [Project decisions](docs/PROJECT_DECISIONS.md) ·
 [Outcome control-plane plan](docs/OUTCOME_CONTROL_PLANE_PLAN.md) ·
 [Use cases](USE_CASES.md) · [Roadmap](ROADMAP.md) ·
-[Version and capabilities](VERSION.md) · [Security](SECURITY.md) ·
+[Changelog](CHANGELOG.md) · [Version and capabilities](VERSION.md) ·
+[Security](SECURITY.md) ·
 [Release proof](PROOF.md) · [Production proof](PRODUCTION_PROOF.md) ·
 [Protocol and API](docs/odysseus-protocol.md)
 
@@ -717,8 +718,9 @@ bash -n scripts/*.sh codex_session_manager.tmux
 git diff --check
 ```
 
-See [ROADMAP.md](ROADMAP.md) for planned work and [VERSION.md](VERSION.md) for
-the shipped capability matrix and upgrade notes.
+See [ROADMAP.md](ROADMAP.md) for planned work, [CHANGELOG.md](CHANGELOG.md) for
+the chronological release history, and [VERSION.md](VERSION.md) for the shipped
+capability matrix and upgrade notes.
 
 ## License
 

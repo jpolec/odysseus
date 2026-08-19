@@ -28,6 +28,8 @@ dependencies = []
 [project.urls]
 Homepage = "https://github.com/jpolec/odysseus"
 Documentation = "https://github.com/jpolec/odysseus#readme"
+Changelog = "https://github.com/jpolec/odysseus/blob/main/CHANGELOG.md"
+Releases = "https://github.com/jpolec/odysseus/releases"
 Issues = "https://github.com/jpolec/odysseus/issues"
 
 [project.scripts]
