@@ -32,7 +32,7 @@ identified, test-linked invariants in `docs/architecture/invariants.md`.
 4. I04 Every external side effect has durable intent before execution.
 5. I05 Every external side effect is reconcilable.
 6. I06 At most one valid worker lease exists for a node.
-7. I07 An old worker cannot commit after lease takeover.
+7. I07 An old worker cannot commit a result to canonical state after lease takeover.
 8. I08 Accepted is not Published.
 9. I09 Published is not Integrated.
 10. I10 Integrated is not Deployed.
@@ -474,6 +474,10 @@ Status: shipped in `v0.9.1`.
 5. Command property tests across valid and invalid lifecycle transitions.
 
 ### 0.9.2 — runtime correctness
+
+Status: shipped in `v0.9.2`. WorkerLease identity, TTL, fencing, atomic claim,
+stale-worker rejection, cancellation-aware recovery, deterministic failpoints,
+and the process-death crash matrix are release-gated.
 
 1. WorkerLease, epoch, heartbeat TTL, and fencing.
 2. Stale-worker and duplicate-claim concurrency tests.

@@ -1,6 +1,6 @@
 # Odysseus
 
-![Version: 0.9.1](https://img.shields.io/badge/version-0.9.1-171a16)
+![Version: 0.9.2](https://img.shields.io/badge/version-0.9.2-171a16)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python: stdlib](https://img.shields.io/badge/python-stdlib-3776AB)
 ![tmux: 3.2+](https://img.shields.io/badge/tmux-3.2%2B-1f6feb)
@@ -716,7 +716,7 @@ bin/odysseus replay RUN_ID --until-event 42
 bin/odysseus rebuild-projections --dry-run
 bin/odysseus command
 bin/odysseus state verify
-bin/odysseus proof --release 0.9.1
+bin/odysseus proof --release 0.9.2
 bin/odysseus update --check
 bin/odysseus rollback
 bin/odysseus export --output odysseus-state.json

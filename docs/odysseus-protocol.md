@@ -252,6 +252,60 @@ Command idempotency protects the local mutation handler. It does not yet claim
 exactly-once behavior for every GitHub, Git, notification, or deployment side
 effect; durable outbox reconciliation owns that boundary in v0.9.3.
 
+## Worker lease and fencing record (v0.9.2)
+
+The scheduler's claim operation atomically embeds one
+`odysseus-worker-lease-v1` record in the run projection before a worker thread
+starts. Its durable identity contains:
+
+```json
+{
+  "format": "odysseus-worker-lease-v1",
+  "lease_id": "d60545cd-770b-426e-bb4d-1fb7ab56ac4f",
+  "run_id": "example-run",
+  "worker_id": "scheduler:host:1234:instance-uuid",
+  "worker_host": "host",
+  "worker_pid": 1234,
+  "epoch": 2,
+  "stream_version_at_claim": 17,
+  "acquired_at": "2026-08-19T20:00:00Z",
+  "heartbeat_at": "2026-08-19T20:00:15Z",
+  "expires_at": "2026-08-19T20:01:15Z",
+  "ttl_seconds": 60,
+  "active": true
+}
+```
+
+Every scheduler-worker state mutation and activity append carries an in-process
+token containing the run ID, lease ID, worker ID, and fencing epoch. The Store
+checks that tuple and renews the heartbeat under the same cross-process lock as
+the mutation. An expired lease can be recovered and replaced with epoch `N+1`;
+the old worker then fails closed on its next write and cannot clear the new
+lease during late cleanup.
+
+The scheduler scans lease health continuously. When a heartbeat expires it
+signals the old worker, preserves its active slot until that thread stops, and
+only then permits the queued run to be claimed with epoch `N+1`. A crash after
+the task reached review, failure, or another non-active state releases only the
+stale lease; the completed state is not reverted.
+
+Cancellation intent is stored in the same canonical append as the
+`run.cancel_requested` event. If the owning process dies before it can stop,
+recovery finalizes `cancelled` instead of re-queueing work the operator asked
+to stop. Scheduler shutdown without an operator cancellation remains a
+recoverable re-queue.
+
+Release tests activate exact, otherwise inert failpoints through
+`ODYSSEUS_FAILPOINT` and terminate a subprocess immediately after canonical
+fsync, claim persistence, heartbeat persistence, cancellation intent, recovery
+projection, or Git artifact snapshot. These variables are a test interface,
+not a runtime recovery control or a substitute for process supervision.
+
+Control-plane actions such as an operator cancellation do not impersonate a
+worker token. Fencing protects acceptance of worker results into Odysseus
+state; host-mode process isolation and prevention of arbitrary filesystem
+writes remain separate runtime-security concerns.
+
 ## Planner and evaluation markers
 
 The read-only Planner's final output contains one line:
@@ -372,9 +426,15 @@ odysseus state verify --json
 verification receipts expose processed event counts, elapsed time, and replay
 throughput so recovery cost remains observable.
 
+Schema 15 adds `worker_lease`, including its stable record format, unique
+identity, scheduler owner, fencing epoch, claim stream version, heartbeat TTL,
+and release receipt. Older projections gain an inactive default lease during
+migration; canonical historical event bytes are not rewritten.
+
 Command schema 1 stores `odysseus-command-receipt-v1` records under
-`commands/`. Command state is independent of run snapshot schema 14; upgrading
-to 0.9.1 does not rewrite existing run streams or projections.
+`commands/`. Command state is independent of run snapshot schema 15. Command
+receipts introduced in v0.9.1 and Worker Leases introduced in v0.9.2 do not
+rewrite existing canonical run streams.
 
 Schema 5 adds `skill_mode`, `skills_requested`, `skills_selected`, and immutable
 `skill_context`. Schema 6 adds `context_bundle` and `context_receipt`. Schema 7

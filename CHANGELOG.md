@@ -18,6 +18,34 @@ No unreleased user-facing changes yet.
 
 ## Released history
 
+## 2026-08-20
+
+### [0.9.2](https://github.com/jpolec/odysseus/releases/tag/v0.9.2) — Worker Leases and fencing
+
+- Added durable per-run WorkerLease v1 records with scheduler worker identity,
+  heartbeat TTLs, and monotonically increasing fencing epochs.
+- Fenced every scheduler-worker run mutation and activity append through its
+  exact lease token; an expired or replaced worker can no longer overwrite a
+  successor's run state, append late output, or release the successor's lease.
+- Made scheduler shutdown, explicit cancellation, expired-owner takeover, and
+  post-terminal lease recovery preserve the intended run state.
+- Revalidated the exact lease heartbeat, epoch, cancellation intent, and run
+  status under the store lock before recovery, preventing a stale scan from
+  re-queueing a worker that had just renewed its lease.
+- Made cancellation intent and terminal transitions canonical-event atomic;
+  recovery finalizes a durable cancellation instead of silently re-queueing it.
+- Ordered Variants cancellation as parent intent, child intents, then terminal
+  parent state; a completed cancellation can no longer be re-queued during
+  concurrent scheduler shutdown.
+- Added deterministic failpoints and a real subprocess crash matrix across
+  canonical fsync, claim, heartbeat, cancellation, recovery, and artifact
+  snapshot windows.
+- Rebuilt stale run projections and checkpoints from the canonical stream after
+  a crash, and made an interrupted Git artifact snapshot safely retryable
+  without creating a second commit.
+- Treated HTTP clients disconnecting during request reads or response writes as
+  normal transport lifecycle events instead of printing server-side tracebacks.
+
 ## 2026-08-19
 
 ### [0.9.1](https://github.com/jpolec/odysseus/releases/tag/v0.9.1) — Idempotent Command API

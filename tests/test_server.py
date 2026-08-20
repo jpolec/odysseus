@@ -66,6 +66,34 @@ class ServerTests(unittest.TestCase):
             self.assertFalse(scheduler.started)
             self.assertIsNone(app.httpd)
 
+    def test_transport_disconnects_do_not_print_server_tracebacks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            app = OdysseusApp(
+                RunStore(Path(temp) / "state"),
+                host="127.0.0.1",
+                port=0,
+                scheduler=DummyScheduler(),
+            )
+            app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with mock.patch("http.server.ThreadingHTTPServer.handle_error") as fallback:
+                    try:
+                        raise ConnectionResetError("client disconnected")
+                    except ConnectionResetError:
+                        app.httpd.handle_error(None, ("127.0.0.1", 0))
+                    fallback.assert_not_called()
+
+                    try:
+                        raise RuntimeError("unexpected server failure")
+                    except RuntimeError:
+                        app.httpd.handle_error(None, ("127.0.0.1", 0))
+                    fallback.assert_called_once()
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_config_endpoint_updates_safe_settings(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = RunStore(Path(temp) / "state")
@@ -377,7 +405,7 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
                     bootstrap = json.load(response)
                 self.assertEqual(bootstrap["name"], "Odysseus")
-                self.assertEqual(bootstrap["version"], "0.9.1")
+                self.assertEqual(bootstrap["version"], "0.9.2")
                 self.assertIn("git", bootstrap["capabilities"])
                 self.assertIn("docker", bootstrap["capabilities"])
                 self.assertIn("devcontainer", bootstrap["capabilities"])

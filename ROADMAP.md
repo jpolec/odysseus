@@ -25,8 +25,8 @@ complete release gate before the next capability begins.
 | `0.8.2` | Correctness, public trust, branch audit, and RouteObservation | Shipped |
 | `0.9.0` | Event-sourced kernel and deterministic replay | Shipped |
 | `0.9.1` | Idempotent Command API | Shipped |
-| `0.9.2` | Worker Leases and fencing | Next |
-| `0.9.3` | Durable Outbox, Action Ledger, and reconciliation | Planned |
+| `0.9.2` | Worker Leases and fencing | Shipped |
+| `0.9.3` | Durable Outbox, Action Ledger, and reconciliation | Next |
 | `0.10.0` | Complete OutcomeRecord and observation semantics | Planned |
 | `0.10.1` | Full routing and Skill receipts | Planned |
 | `0.11.0` | Versioned ChangeContract and typed Plans | Planned |
@@ -40,7 +40,18 @@ complete release gate before the next capability begins.
 
 ## Now
 
-Change Proposal intake and operational hardening:
+Durable effects for v0.9.3:
+
+- Persist external-effect intent before Git apply/merge/push, GitHub PR
+  creation, notification delivery, or another provider mutation.
+- Record `prepared`, `executing`, `effect_observed`, `committed`, `failed`, and
+  `unknown` ActionRecord states with stable idempotency keys.
+- Reconcile an unknown result against Git/GitHub before retrying so a process
+  crash cannot create a duplicate logical effect.
+- Add explicit compensation outcomes for effects that can be reversed, while
+  keeping irreversible effects visible and human-gated.
+
+Change Proposal intake and operational hardening after the durable-effects gate:
 
 - Extend the shipped Project Decisions catalog into one **New change** intake
   for ADR/PRD files, GitHub Issues, existing PRs, and pasted requirements.
@@ -107,6 +118,10 @@ Workflow, organization, and operational guarantees:
 - Tested forward migrations, backup/restore, installer upgrade, and rollback.
 - Strong remote identity, session expiry, operator audit log, and signed run
   receipts.
+- A repository Activity view projected from canonical events, Command Receipts,
+  attention decisions, delivery receipts, and Git history, grouped into a
+  readable causal timeline with actor/agent/task filters and expandable raw
+  evidence. It must not become a second source of truth.
 - Distributed scheduling across workstation, build server, GPU host, and cloud
   workers without weakening credential or network policy.
 - End-to-end documentation for workstation, shared host, and secured VPS.

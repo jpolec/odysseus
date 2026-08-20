@@ -11,9 +11,9 @@ paths.
 
 ## Current stable release
 
-**0.9.1 — 2026-08-19**
+**0.9.2 — 2026-08-20**
 
-[Odysseus 0.9.1](https://github.com/jpolec/odysseus/releases/tag/v0.9.1)
+[Odysseus 0.9.2](https://github.com/jpolec/odysseus/releases/tag/v0.9.2)
 is the latest stable release. Its tag binds the exact source revision and its
 release proof covers the complete automated suite, install and upgrade,
 packaged `uvx` boot, real-browser smoke, HTTP health, recovery, credentials,
@@ -174,6 +174,23 @@ Completed, accepted, integrated, and delivered are separate states.
 - Inspect receipts through `odysseus command [COMMAND_ID]` or
   `GET /api/commands/:id`; `odysseus state verify` includes command records.
 
+### Worker Leases and crash fencing
+
+- Give each claimed run a durable `odysseus-worker-lease-v1` identity,
+  heartbeat TTL, scheduler worker identity, and monotonically increasing
+  fencing epoch.
+- Require the current lease token for worker-originated state mutations and
+  activity, so an expired or replaced worker cannot commit late output into
+  canonical Odysseus state or release its successor's lease.
+- Recover dead or expired owners continuously: active work is safely re-queued,
+  an interrupted cancellation is finalized instead of restarted, and terminal
+  review state is preserved.
+- Reconstruct stale checkpoints after a process dies between canonical stream
+  fsync and projection writes.
+- Exercise real crash windows in subprocesses with deterministic failpoints
+  after claim, heartbeat, cancellation, recovery, canonical fsync, and artifact
+  snapshot boundaries.
+
 ### Installation and operation
 
 - Run with Python 3.10+ and no Python runtime dependencies or database.
@@ -206,12 +223,13 @@ No later state is inferred merely because an earlier state is present.
 
 | Surface | Current marker |
 | --- | --- |
-| Application version | `0.9.1` |
-| Run snapshot schema | `14` |
+| Application version | `0.9.2` |
+| Run snapshot schema | `15` |
 | Epic snapshot schema | `3` |
 | Canonical state event envelope | `2` |
 | Operator activity event envelope | `1` |
 | Command envelope | `1` |
+| Worker lease | `odysseus-worker-lease-v1` |
 | Context receipt | `context-receipt-v1` |
 | State export | `odysseus-state-v1` |
 | Python | `3.10+` |
@@ -255,8 +273,12 @@ model.
   egress allowlists remain planned work.
 - The stdlib HTTP service is a single-operator local/private control plane, not
   a multi-tenant application server.
-- Remote distributed workers, per-node fenced Worker Leases, organization RBAC,
-  and learned autonomous routing are not part of 0.9.1.
+- Worker fencing protects canonical Odysseus state; it does not revoke
+  arbitrary host filesystem access or reconcile Git/GitHub effects that may
+  already have occurred. Docker provides containment, while durable external
+  intent and reconciliation are planned for v0.9.3.
+- Remote distributed workers, organization RBAC, and learned autonomous
+  routing are not part of 0.9.2.
 - Repository knowledge is explicit and provenance-bound; a native semantic
   context graph is planned but not included in this release.
 

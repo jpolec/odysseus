@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import threading
@@ -9,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from odysseus.failpoints import InjectedFailure, reset_failpoints
 from odysseus.runners import ProcessResult
 from odysseus.scheduler import ReviewActions, Scheduler, _agent_credit_exhaustion
 from odysseus.store import RunStore
@@ -96,6 +98,28 @@ class BlockingAgentRunner:
         while time.monotonic() < deadline and not cancelled():
             time.sleep(0.01)
         return ProcessResult(130, "stopped", 0.01, cancelled=True)
+
+
+class LeaseExpiryAgentRunner:
+    def __init__(self) -> None:
+        self.implementations = 0
+
+    def run(self, lane, worktree, prompt, *, review, emit, cancelled):  # noqa: ANN001
+        if review:
+            return ProcessResult(
+                0,
+                'No material concerns.\nODYSSEUS_EVALUATION: {"score": 0.95, "verdict": "pass", "findings": []}',
+                0.01,
+            )
+        self.implementations += 1
+        if self.implementations == 1:
+            deadline = time.monotonic() + 4
+            while time.monotonic() < deadline and not cancelled():
+                time.sleep(0.01)
+            return ProcessResult(130, "expired owner stopped", 0.01, cancelled=True)
+        (worktree / "lease-recovered.txt").write_text("successor\n")
+        emit("agent.output", lane, {"text": "Successor completed.", "stream": "stdout"})
+        return ProcessResult(0, "successor completed", 0.01)
 
 
 class ConflictResolvingAgentRunner:
@@ -236,6 +260,83 @@ class SchedulerTests(unittest.TestCase):
             self.assertEqual(published["status"], "pr_created")
             self.assertEqual(published["pull_request_url"], "https://github.com/example/project/pull/1")
             self.assertEqual(published["delivery"]["status"], "pr_created")
+
+    def test_artifact_snapshot_crash_is_retryable_without_a_second_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            scheduler = Scheduler(store)
+            actions = ReviewActions(store, scheduler)
+            run = store.create(
+                {"task": "Preserve crash-safe artifact", "project_path": str(repo), "status": "review"}
+            )
+            info = scheduler.worktrees.create(run, lambda *_: None)
+            store.update(run["id"], **info)
+            worktree = Path(info["worktree_path"])
+            (worktree / "artifact.txt").write_text("durable\n")
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "ODYSSEUS_FAILPOINT": "artifact.snapshot.after_git_commit",
+                    "ODYSSEUS_FAILPOINT_MODE": "raise",
+                },
+                clear=False,
+            ):
+                reset_failpoints()
+                with self.assertRaisesRegex(InjectedFailure, "artifact.snapshot.after_git_commit"):
+                    actions.accept(run["id"])
+
+            orphaned_head = subprocess.run(
+                ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+            self.assertEqual(store.get(run["id"])["status"], "review")
+            self.assertFalse(store.get(run["id"])["artifact_sha"])
+
+            reset_failpoints()
+            accepted = actions.accept(run["id"])
+
+            self.assertEqual(accepted["status"], "accepted")
+            self.assertEqual(accepted["artifact_sha"], orphaned_head)
+
+    def test_expired_worker_is_stopped_before_successor_takes_over(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            run = store.create({"task": "Recover expired worker", "project_path": str(repo)})
+            agents = LeaseExpiryAgentRunner()
+            scheduler = Scheduler(
+                store,
+                agent_runner=agents,
+                check_runner=PassingCheckRunner(),
+                poll_seconds=0.01,
+                worker_lease_seconds=1,
+            )
+            scheduler.start()
+            try:
+                deadline = time.monotonic() + 8
+                while time.monotonic() < deadline and store.get(run["id"])["status"] != "review":
+                    time.sleep(0.02)
+                recovered = store.get(run["id"])
+            finally:
+                scheduler.stop()
+
+            self.assertEqual(recovered["status"], "review")
+            self.assertEqual(agents.implementations, 2)
+            self.assertEqual(recovered["worker_lease"]["epoch"], 2)
+            events = store.events_strict(run["id"])
+            recovery_index = next(i for i, event in enumerate(events) if event["type"] == "system.recovered")
+            successor_index = next(
+                i
+                for i, event in enumerate(events)
+                if event["type"] == "agent.output" and event["data"].get("text") == "Successor completed."
+            )
+            self.assertLess(recovery_index, successor_index)
 
     def test_variants_queue_isolated_candidates_compare_and_preserve_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -484,6 +585,20 @@ class SchedulerTests(unittest.TestCase):
             failed = store.get(parent["id"])
             self.assertEqual(failed["budget_status"]["state"], "exceeded")
             self.assertIn("Shared variant cost budget exceeded", failed["last_error"])
+
+    def test_finishing_an_interruption_never_requeues_terminal_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = self._repo(root)
+            store = RunStore(root / "state")
+            run = store.create({"task": "Already cancelled", "project_path": str(repo)})
+            store.request_cancel(str(run["id"]))
+            scheduler = Scheduler(store, poll_seconds=0.01)
+            scheduler._stop.set()
+
+            scheduler._finish_interruption(str(run["id"]))
+
+            self.assertEqual(store.get(str(run["id"]))["status"], "cancelled")
 
     def test_apply_keeps_single_artifact_delivery_backward_compatible_with_pending_backlog(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

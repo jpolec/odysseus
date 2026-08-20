@@ -58,21 +58,29 @@
   {
     "id": "I06",
     "title": "At most one valid worker lease exists for a node.",
-    "status": "partial",
-    "current_guarantee": "0.8 has a single-server state-directory lease and scheduler claim limits, but not the planned per-node WorkerLease with lease IDs and fencing epochs.",
+    "status": "enforced",
+    "current_guarantee": "Atomic scheduler claim creates one active per-run WorkerLease with a unique lease ID, worker identity, heartbeat TTL, and monotonically increasing fencing epoch. Concurrent contenders cannot both acquire the run.",
     "test_references": [
       "tests/test_lifecycle.py::LifecycleLeaseTests.test_only_one_server_can_own_a_state_directory",
-      "tests/test_store.py::StoreTests.test_claim_enforces_global_parallel_limit"
+      "tests/test_store.py::StoreTests.test_claim_enforces_global_parallel_limit",
+      "tests/test_worker_leases.py::WorkerLeaseTests.test_claim_creates_durable_identity_ttl_and_fencing_epoch",
+      "tests/test_worker_leases.py::WorkerLeaseTests.test_concurrent_claims_produce_exactly_one_active_lease"
     ],
-    "planned_target_release": "0.9 kernel"
+    "planned_target_release": ""
   },
   {
     "id": "I07",
-    "title": "An old worker cannot commit after lease takeover.",
-    "status": "planned",
-    "current_guarantee": "Planned for the 0.9 kernel. Not a current 0.8 guarantee; current workers do not carry fenced lease epochs on every mutation.",
-    "test_references": [],
-    "planned_target_release": "0.9 kernel"
+    "title": "An old worker cannot commit a result to canonical state after lease takeover.",
+    "status": "enforced",
+    "current_guarantee": "Every scheduler-worker run mutation and activity append validates its exact lease ID and epoch. After expiry and takeover, a stale worker cannot write canonical run state, append late output, or release the successor lease. Arbitrary host filesystem effects remain outside this state-fencing guarantee.",
+    "test_references": [
+      "tests/test_worker_leases.py::WorkerLeaseTests.test_old_worker_cannot_mutate_after_expiry_and_takeover",
+      "tests/test_worker_leases.py::WorkerLeaseTests.test_old_worker_cannot_release_successor_lease",
+      "tests/test_worker_leases.py::WorkerLeaseTests.test_heartbeat_crash_preserves_state_then_requeues",
+      "tests/test_worker_leases.py::WorkerLeaseTests.test_recovery_rechecks_lease_under_lock_before_requeueing",
+      "tests/test_scheduler.py::SchedulerTests.test_expired_worker_is_stopped_before_successor_takes_over"
+    ],
+    "planned_target_release": ""
   },
   {
     "id": "I08",

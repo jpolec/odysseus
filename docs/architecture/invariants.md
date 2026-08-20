@@ -19,8 +19,8 @@ Machine-readable registry: `docs/architecture/invariants.registry.json`.
 | I03 | Every command is idempotent. | enforced | Mutating HTTP and supported CLI control requests enter one durable Command Bus; an exact duplicate returns the stored result and never re-executes its handler. |
 | I04 | Every external side effect has durable intent before execution. | partial | Some operator decisions are recorded before effects; the durable outbox is targeted for the 0.9 kernel. |
 | I05 | Every external side effect is reconcilable. | partial | Selected effects are reconciled; universal action reconciliation is targeted for the 0.9 kernel. |
-| I06 | At most one valid worker lease exists for a node. | partial | Server leases and scheduler claim limits exist; per-node WorkerLease fencing is targeted for the 0.9 kernel. |
-| I07 | An old worker cannot commit after lease takeover. | planned | Planned for the 0.9 kernel. Not a current 0.8 guarantee. |
+| I06 | At most one valid worker lease exists for a node. | enforced | Atomic claim creates one active per-run WorkerLease with a unique ID, owner, heartbeat TTL, and monotonically increasing epoch. |
+| I07 | An old worker cannot commit a result to canonical state after lease takeover. | enforced | Every scheduler-worker state mutation and event append validates its exact lease ID and epoch; a replaced worker is fenced and cannot release its successor. Host filesystem effects remain a separate runtime boundary. |
 | I08 | Accepted is not Published. | enforced | Acceptance records a local artifact and leaves delivery separate. |
 | I09 | Published is not Integrated. | partial | Draft PR and integrated statuses are distinct; the full object model is targeted for the 0.9 kernel. |
 | I10 | Integrated is not Deployed. | planned | Planned for a post-0.9 deployment milestone. Not a current 0.8 guarantee. |

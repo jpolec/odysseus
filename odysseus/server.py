@@ -10,6 +10,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -227,6 +228,17 @@ class OdysseusHTTPServer(ThreadingHTTPServer):
             super().process_request_thread(request, client_address)
         finally:
             self._request_slots.release()
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Do not print tracebacks for ordinary transport disconnects."""
+
+        error = sys.exc_info()[1]
+        if isinstance(
+            error,
+            (BrokenPipeError, ConnectionAbortedError, ConnectionResetError, TimeoutError),
+        ):
+            return
+        super().handle_error(request, client_address)
 
 
 class OdysseusHandler(BaseHTTPRequestHandler):
@@ -1090,8 +1102,18 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(payload)
+        self._write_payload(payload)
         return False
+
+    def _write_payload(self, payload: bytes) -> bool:
+        """Treat a client disconnect after headers as a normal HTTP outcome."""
+
+        try:
+            self.wfile.write(payload)
+            return True
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.close_connection = True
+            return False
 
     def _origin_allowed(self) -> bool:
         if self.server.app.allow_remote:
@@ -1137,7 +1159,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             if header_value:
                 self.send_header(name, header_value)
         self.end_headers()
-        self.wfile.write(payload)
+        self._write_payload(payload)
 
     def _text(self, value: str, content_type: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         redacted, _receipt = DEFAULT_REDACTION_ENGINE.redact(value, boundary="http_text")
@@ -1150,7 +1172,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
-        self.wfile.write(payload)
+        self._write_payload(payload)
 
     def _json_error(self, status: HTTPStatus, message: str) -> None:
         self._json({"error": message}, status)
@@ -1224,4 +1246,4 @@ class OdysseusHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Security-Policy", "default-src 'self'; connect-src 'self'; style-src 'self'; script-src 'self'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
-        self.wfile.write(payload)
+        self._write_payload(payload)

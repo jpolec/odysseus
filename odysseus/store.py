@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 from .events import EVENT_SCHEMA_VERSION, EVENT_TYPES, Event, now_iso
 from .environments import normalize_environment_request
+from .failpoints import failpoint
 from .attention import AttentionQueue
 from .commands import CommandBus, kernel_command_metadata
 from .epics import EpicStore, VALID_ROLES
@@ -27,6 +28,14 @@ from .projects import ProjectRegistry
 from .redaction import DEFAULT_REDACTION_ENGINE
 from .skills import SkillRegistry, VALID_TASK_MODES
 from .variants import normalize_variants_request
+from .worker_leases import (
+    DEFAULT_WORKER_LEASE_TTL_SECONDS,
+    active_worker_lease,
+    lease_owner_live,
+    new_worker_lease,
+    released_worker_lease,
+    validate_and_renew_worker_lease,
+)
 
 
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -69,7 +78,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 14
+RUN_SCHEMA_VERSION = 15
 ROUTE_OBSERVATION_FORMAT = "odysseus-route-observation-v1"
 ROUTE_OBSERVATION_FEATURE_SCHEMA_VERSION = "outcome-router-features-v1"
 ROUTE_OBSERVATION_POLICY_VERSION = "outcome-routing-policy-v1"
@@ -139,6 +148,7 @@ def _run_defaults() -> dict[str, Any]:
         "stage": "queued",
         "stage_started_at": None,
         "last_heartbeat": None,
+        "worker_lease": {},
         "skill_mode": "auto",
         "skills_requested": [],
         "skills_selected": [],
@@ -362,6 +372,7 @@ class RunStore:
                 if not path.exists():
                     self.kernel.rebuild(stream.stem)
             for path in self.runs_dir.glob("*.json"):
+                canonical_events: list[dict[str, Any]] = []
                 try:
                     disk_run = json.loads(path.read_text(encoding="utf-8"))
                 except OSError as exc:
@@ -374,7 +385,8 @@ class RunStore:
                     raise RuntimeError(f"invalid run record: {path}")
                 if self.kernel.has_stream(path.stem):
                     try:
-                        run = self.kernel.replay(path.stem)
+                        canonical_events = self.kernel.read(path.stem)
+                        run = self.kernel._replay_events(canonical_events)
                     except KernelIntegrityError as exc:
                         raise RuntimeError(f"invalid canonical stream for {path.stem}: {exc}") from exc
                     if not run:
@@ -408,14 +420,21 @@ class RunStore:
                         projection=snapshot,
                     )
                 elif changed:
-                    self.kernel.append_run(
-                        path.stem,
-                        event_type="projection.migrated",
-                        actor="migration",
-                        projection=snapshot,
+                    canonical_events.append(
+                        self.kernel.append_run(
+                            path.stem,
+                            event_type="projection.migrated",
+                            actor="migration",
+                            projection=snapshot,
+                        )
                     )
                 if snapshot != disk_run:
                     self._atomic_json(path, snapshot)
+                if canonical_events:
+                    # The checkpoint and JSON snapshot are replaceable caches.
+                    # A crash after canonical stream fsync may leave either
+                    # stale, so startup rebuilds both from the immutable tail.
+                    self.kernel.write_checkpoint(path.stem, canonical_events[-1], snapshot)
                 self._reconcile_domain_journal(path.stem)
 
     @contextmanager
@@ -956,19 +975,25 @@ class RunStore:
     def update(self, run_id: str, **changes: Any) -> dict[str, Any]:
         with self.locked():
             run = self.get(run_id)
+            fenced = self._fence_worker_mutation(run)
             run.update(changes)
             run["updated_at"] = now_iso()
             run["route_observation"] = _route_observation_for(run)
             self._persist_run(run, event_type="state.changed")
+            if fenced:
+                failpoint("worker.heartbeat.after_persist")
         return run
 
     def mutate(self, run_id: str, change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
         with self.locked():
             run = self.get(run_id)
+            fenced = self._fence_worker_mutation(run)
             change(run)
             run["updated_at"] = now_iso()
             run["route_observation"] = _route_observation_for(run)
             self._persist_run(run, event_type="state.changed")
+            if fenced:
+                failpoint("worker.heartbeat.after_persist")
         return run
 
     def append_event(
@@ -977,9 +1002,17 @@ class RunStore:
         event_type: str,
         source: str,
         data: Mapping[str, Any] | None = None,
+        *,
+        projection_changes: Mapping[str, Any] | None = None,
+        _projection_guard: Callable[[Mapping[str, Any]], bool] | None = None,
     ) -> dict[str, Any]:
         with self.locked():
             run = self.get(run_id)
+            if _projection_guard is not None and not _projection_guard(run):
+                return {}
+            fenced = self._fence_worker_mutation(run)
+            if projection_changes:
+                run.update(dict(projection_changes))
             seq = int(run.get("event_seq", 0)) + 1
             redacted_data, redaction_receipt = self.redaction.redact(data or {}, boundary="event")
             event = Event(run_id=run_id, type=event_type, source=source, data=redacted_data, seq=seq)
@@ -1005,6 +1038,8 @@ class RunStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             self._atomic_json(self._path(run_id), snapshot)
+            if fenced:
+                failpoint("worker.heartbeat.after_persist")
         self._route_attention(run, event_type, redacted_data)
         self.notifications.notify(run, event_type, redacted_data)
         return value
@@ -1226,7 +1261,21 @@ class RunStore:
             )
         return values
 
-    def claim(self, run_id: str, max_parallel: int | None = None) -> dict[str, Any] | None:
+    def _fence_worker_mutation(self, run: dict[str, Any]) -> bool:
+        token = active_worker_lease()
+        if token is not None:
+            run["worker_lease"] = validate_and_renew_worker_lease(run, token)
+            return True
+        return False
+
+    def claim(
+        self,
+        run_id: str,
+        max_parallel: int | None = None,
+        *,
+        worker_id: str = "",
+        lease_seconds: int = DEFAULT_WORKER_LEASE_TTL_SECONDS,
+    ) -> dict[str, Any] | None:
         with self.locked():
             run = self.get(run_id)
             if run.get("status") != "queued":
@@ -1240,23 +1289,64 @@ class RunStore:
                         candidate = json.loads(path.read_text(encoding="utf-8"))
                     except (OSError, json.JSONDecodeError):
                         continue
-                    if (
-                        isinstance(candidate, dict)
-                        and candidate.get("status") in ACTIVE_STATUSES
-                        and _pid_alive(candidate.get("worker_pid"))
-                    ):
+                    lease = candidate.get("worker_lease") if isinstance(candidate, dict) else {}
+                    live = (
+                        lease_owner_live(lease)
+                        if isinstance(lease, Mapping) and lease
+                        else _pid_alive(candidate.get("worker_pid")) if isinstance(candidate, dict) else False
+                    )
+                    if isinstance(candidate, dict) and candidate.get("status") in ACTIVE_STATUSES and live:
                         active += 1
                 if active >= max(1, int(max_parallel)):
                     return None
             run["status"] = "starting"
             run["worker_pid"] = os.getpid()
+            lease = new_worker_lease(
+                run_id,
+                worker_id=worker_id or f"local:{os.getpid()}",
+                previous=run.get("worker_lease") if isinstance(run.get("worker_lease"), Mapping) else {},
+                stream_version_at_claim=self.kernel.stream_version(run_id),
+                ttl_seconds=lease_seconds,
+            )
+            run["worker_lease"] = lease
             run["cancel_requested"] = False
             run["started_at"] = run.get("started_at") or now_iso()
             run["updated_at"] = now_iso()
             run["route_observation"] = _route_observation_for(run)
-            self._persist_run(run, event_type="state.changed")
-        self.append_event(run_id, "run.started", "odysseus", {"worker_pid": os.getpid()})
+            self._persist_run(run, event_type="worker.lease_acquired")
+        failpoint("worker.claim.after_persist")
+        self.append_event(
+            run_id,
+            "run.started",
+            "odysseus",
+            {
+                "worker_pid": os.getpid(),
+                "worker_id": lease["worker_id"],
+                "lease_id": lease["lease_id"],
+                "lease_epoch": lease["epoch"],
+                "lease_expires_at": lease["expires_at"],
+            },
+        )
+        failpoint("worker.claim.after_started_event")
         return self.get(run_id)
+
+    def release_worker_lease(self, run_id: str, *, lease_id: str, epoch: int, reason: str) -> bool:
+        """Release only the exact current lease; stale workers cannot release a successor."""
+
+        with self.locked():
+            run = self.get(run_id)
+            lease = run.get("worker_lease") if isinstance(run.get("worker_lease"), Mapping) else {}
+            if (
+                not lease.get("active")
+                or str(lease.get("lease_id") or "") != str(lease_id)
+                or int(lease.get("epoch") or 0) != int(epoch)
+            ):
+                return False
+            run["worker_lease"] = released_worker_lease(lease, reason)
+            run["worker_pid"] = None
+            run["updated_at"] = now_iso()
+            self._persist_run(run, event_type="worker.lease_released")
+        return True
 
     def transition(
         self,
@@ -1270,10 +1360,15 @@ class RunStore:
     ) -> dict[str, Any]:
         if status in TERMINAL_STATUSES or status in {"failed", "review"}:
             changes.setdefault("finished_at", now_iso())
-        self.update(run_id, status=status, **changes)
         payload = {"status": status}
         payload.update(data or {})
-        self.append_event(run_id, event_type, source, payload)
+        self.append_event(
+            run_id,
+            event_type,
+            source,
+            payload,
+            projection_changes={"status": status, **changes},
+        )
         return self.get(run_id)
 
     def request_cancel(self, run_id: str) -> dict[str, Any]:
@@ -1284,36 +1379,135 @@ class RunStore:
             return run
         if run.get("status") in {"review", "failed", "accepted"}:
             return run
-        if run.get("status") in {"queued", "blocked", "attention", "waiting_variants"}:
-            self.update(
+        if run.get("status") in {"queued", "blocked", "attention"}:
+            self.append_event(
                 run_id,
+                "run.cancel_requested",
+                "user",
+                {},
+                projection_changes={
+                    "cancel_requested": True,
+                    "status": "cancelling",
+                    "worker_pid": None,
+                },
+            )
+            failpoint("worker.cancel.after_intent")
+            return self.transition(
+                run_id,
+                "cancelled",
+                event_type="run.cancelled",
                 cancel_requested=False,
-                status="cancelled",
-                finished_at=now_iso(),
                 worker_pid=None,
             )
-            self.append_event(run_id, "run.cancel_requested", "user", {})
-            self.append_event(run_id, "run.cancelled", "odysseus", {"status": "cancelled"})
-            return self.get(run_id)
-        self.update(run_id, cancel_requested=True, status="cancelling")
-        self.append_event(run_id, "run.cancel_requested", "user", {})
+        self.append_event(
+            run_id,
+            "run.cancel_requested",
+            "user",
+            {},
+            projection_changes={"cancel_requested": True, "status": "cancelling"},
+        )
+        failpoint("worker.cancel.after_intent")
         return self.get(run_id)
 
     def recover_interrupted(self) -> list[str]:
         recovered: list[str] = []
         for run in self.list():
+            lease = run.get("worker_lease") if isinstance(run.get("worker_lease"), Mapping) else {}
+            expected = {
+                "status": str(run.get("status") or ""),
+                "cancel_requested": bool(run.get("cancel_requested")),
+                "lease_id": str(lease.get("lease_id") or ""),
+                "lease_epoch": int(lease.get("epoch") or 0),
+                "heartbeat_at": str(lease.get("heartbeat_at") or ""),
+                "expires_at": str(lease.get("expires_at") or ""),
+            }
+
+            def still_recoverable(current: Mapping[str, Any]) -> bool:
+                current_lease = (
+                    current.get("worker_lease")
+                    if isinstance(current.get("worker_lease"), Mapping)
+                    else {}
+                )
+                return (
+                    str(current.get("status") or "") == expected["status"]
+                    and bool(current.get("cancel_requested")) == expected["cancel_requested"]
+                    and str(current_lease.get("lease_id") or "") == expected["lease_id"]
+                    and int(current_lease.get("epoch") or 0) == expected["lease_epoch"]
+                    and str(current_lease.get("heartbeat_at") or "") == expected["heartbeat_at"]
+                    and str(current_lease.get("expires_at") or "") == expected["expires_at"]
+                    and not lease_owner_live(current_lease)
+                )
+
+            if (
+                lease
+                and lease.get("active")
+                and not lease_owner_live(lease)
+                and run.get("status") not in ACTIVE_STATUSES
+            ):
+                run_id = str(run["id"])
+                event = self.append_event(
+                    run_id,
+                    "system.recovered",
+                    "odysseus",
+                    {
+                        "previous_lease_id": str(lease.get("lease_id") or ""),
+                        "previous_lease_epoch": int(lease.get("epoch") or 0),
+                        "recovery_outcome": "stale_lease_released",
+                        "preserved_status": str(run.get("status") or ""),
+                    },
+                    projection_changes={
+                        "worker_lease": released_worker_lease(
+                            lease, "recovered_after_terminal_projection"
+                        ),
+                        "worker_pid": None,
+                    },
+                    _projection_guard=still_recoverable,
+                )
+                if not event:
+                    continue
+                recovered.append(run_id)
+                continue
             if run.get("status") not in ACTIVE_STATUSES:
                 continue
-            if _pid_alive(run.get("worker_pid")):
+            if (lease and lease_owner_live(lease)) or (not lease and _pid_alive(run.get("worker_pid"))):
                 continue
             run_id = str(run["id"])
-            self.update(
+            cancellation = bool(run.get("cancel_requested")) or run.get("status") == "cancelling"
+            changes: dict[str, Any] = {
+                "status": "cancelled" if cancellation else "queued",
+                "worker_pid": None,
+                "cancel_requested": False,
+                "last_error": (
+                    "The previous worker stopped after cancellation was requested; cancellation was finalized."
+                    if cancellation
+                    else "The previous worker lease ended; the run was re-queued."
+                ),
+            }
+            if cancellation:
+                changes["finished_at"] = now_iso()
+            if lease:
+                changes["worker_lease"] = released_worker_lease(lease, "recovered_after_expiry_or_process_death")
+            event = self.append_event(
                 run_id,
-                status="queued",
-                worker_pid=None,
-                cancel_requested=False,
-                last_error="The previous Odysseus process stopped; the run was re-queued.",
+                "run.cancelled" if cancellation else "system.recovered",
+                "odysseus",
+                {
+                    "previous_lease_id": str(lease.get("lease_id") or ""),
+                    "previous_lease_epoch": int(lease.get("epoch") or 0),
+                    "recovery_outcome": "cancelled" if cancellation else "requeued",
+                },
+                projection_changes=changes,
+                _projection_guard=still_recoverable,
             )
-            self.append_event(run_id, "system.recovered", "odysseus", {})
+            if not event:
+                continue
+            failpoint("worker.recovery.after_projection")
+            if cancellation:
+                self.append_event(
+                    run_id,
+                    "system.recovered",
+                    "odysseus",
+                    {"reason": "cancellation_finalized_after_worker_loss"},
+                )
             recovered.append(run_id)
         return recovered

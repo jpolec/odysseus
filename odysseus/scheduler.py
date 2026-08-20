@@ -6,10 +6,12 @@ import json
 import inspect
 import os
 import re
+import socket
 import subprocess
 import threading
 import time
 import traceback
+import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -18,10 +20,19 @@ from .delivery import is_delivered_delivery
 from .evaluation import EvaluationEngine
 from .environments import EnvironmentManager
 from .events import now_iso
+from .failpoints import failpoint
 from .runners import AgentRunner, CheckRunner, ProcessResult
-from .store import RunStore
+from .store import ACTIVE_STATUSES, RunStore
 from .variants import TERMINAL_VARIANT_STATUSES, child_budgets, compare_candidates
 from .worktrees import WorktreeManager
+from .worker_leases import (
+    StaleWorkerLease,
+    WorkerLeaseToken,
+    lease_expired,
+    lease_token,
+    suspend_worker_lease,
+    worker_lease_scope,
+)
 
 
 VALID_INTEGRATION_DISPOSITIONS = frozenset({"integrate_now", "keep_for_later", "supersede"})
@@ -64,6 +75,7 @@ class Scheduler:
         agent_runner: AgentRunner | None = None,
         check_runner: CheckRunner | None = None,
         poll_seconds: float = 0.35,
+        worker_lease_seconds: int = 60,
     ) -> None:
         self.store = store
         config = store.config()
@@ -72,9 +84,11 @@ class Scheduler:
         self.worktrees = WorktreeManager(store.worktrees_dir)
         self.environments = EnvironmentManager(store.root)
         self.poll_seconds = poll_seconds
+        self.worker_lease_seconds = max(1, int(worker_lease_seconds))
+        self.worker_id = f"scheduler:{socket.gethostname()}:{os.getpid()}:{uuid.uuid4()}"
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._active: dict[str, tuple[threading.Thread, threading.Event]] = {}
+        self._active: dict[str, tuple[threading.Thread, threading.Event, WorkerLeaseToken]] = {}
         self._guard = threading.Lock()
 
     def start(self) -> None:
@@ -89,12 +103,12 @@ class Scheduler:
         self._stop.set()
         with self._guard:
             active = list(self._active.values())
-        for _, cancel in active:
+        for _, cancel, _lease in active:
             cancel.set()
         deadline = time.monotonic() + timeout
         if self._thread:
             self._thread.join(timeout=max(0, deadline - time.monotonic()))
-        for worker, _ in active:
+        for worker, _, _lease in active:
             worker.join(timeout=max(0, deadline - time.monotonic()))
 
     def active_count(self) -> int:
@@ -103,28 +117,47 @@ class Scheduler:
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         run = self.store.request_cancel(run_id)
+        with self._guard:
+            active = self._active.get(run_id)
+        if active:
+            active[1].set()
         variants = run.get("variants") if isinstance(run.get("variants"), dict) else {}
         for child_id in variants.get("candidate_run_ids") or []:
             try:
                 self.cancel(str(child_id))
             except (KeyError, ValueError):
                 continue
-        with self._guard:
-            active = self._active.get(run_id)
-        if active:
-            active[1].set()
+        if (
+            run.get("workflow") == "variants"
+            and run.get("status") == "cancelling"
+            and variants.get("candidate_run_ids")
+        ):
+            run = self.store.transition(
+                run_id,
+                "cancelled",
+                event_type="run.cancelled",
+                cancel_requested=False,
+                worker_pid=None,
+            )
         return run
 
     def _loop(self) -> None:
         while not self._stop.is_set():
             self._reap_and_cancel()
+            self.store.recover_interrupted()
             runtime_runs = self.store.runtime_runs()
             self._advance_variant_parents(runtime_runs)
             self.store.epics.refresh_all(runs=runtime_runs)
             config = self.store.config()
             available = int(config["max_parallel"]) - self.active_count()
             if available > 0:
-                queued = [run for run in runtime_runs if run.get("status") == "queued"]
+                with self._guard:
+                    active_ids = set(self._active)
+                queued = [
+                    run
+                    for run in runtime_runs
+                    if run.get("status") == "queued" and str(run.get("id") or "") not in active_ids
+                ]
                 queued.sort(
                     key=lambda run: (
                         -int(run.get("priority", 50)),
@@ -133,28 +166,33 @@ class Scheduler:
                 )
                 for candidate in queued[:available]:
                     run_id = str(candidate["id"])
-                    claimed = self.store.claim(run_id, max_parallel=int(config["max_parallel"]))
+                    claimed = self.store.claim(
+                        run_id,
+                        max_parallel=int(config["max_parallel"]),
+                        worker_id=self.worker_id,
+                        lease_seconds=self.worker_lease_seconds,
+                    )
                     if claimed is not None:
-                        self._start_worker(run_id)
+                        self._start_worker(run_id, lease_token(claimed))
             self._stop.wait(self.poll_seconds)
 
-    def _start_worker(self, run_id: str) -> None:
+    def _start_worker(self, run_id: str, lease: WorkerLeaseToken) -> None:
         cancel = threading.Event()
         worker = threading.Thread(
             target=self._worker,
-            args=(run_id, cancel),
+            args=(run_id, cancel, lease),
             name=f"odysseus-{run_id}",
             daemon=True,
         )
         with self._guard:
-            self._active[run_id] = (worker, cancel)
+            self._active[run_id] = (worker, cancel, lease)
         worker.start()
 
     def _reap_and_cancel(self) -> None:
         with self._guard:
             active = list(self._active.items())
         finished: list[str] = []
-        for run_id, (thread, cancel) in active:
+        for run_id, (thread, cancel, token) in active:
             if not thread.is_alive():
                 finished.append(run_id)
                 continue
@@ -163,7 +201,13 @@ class Scheduler:
             except KeyError:
                 cancel.set()
                 continue
-            if run.get("cancel_requested"):
+            lease = run.get("worker_lease") if isinstance(run.get("worker_lease"), Mapping) else {}
+            replaced = (
+                not lease.get("active")
+                or str(lease.get("lease_id") or "") != token.lease_id
+                or int(lease.get("epoch") or 0) != token.epoch
+            )
+            if run.get("cancel_requested") or replaced or lease_expired(lease):
                 cancel.set()
         if finished:
             with self._guard:
@@ -211,21 +255,35 @@ class Scheduler:
         supported = {key: value for key, value in kwargs.items() if key in parameters}
         return self.check_runner.run(*args, **supported)
 
-    def _worker(self, run_id: str, cancel: threading.Event) -> None:
+    def _worker(self, run_id: str, cancel: threading.Event, lease: WorkerLeaseToken) -> None:
         try:
-            self._execute(run_id, cancel)
+            with worker_lease_scope(lease):
+                self._execute(run_id, cancel)
+        except StaleWorkerLease:
+            # A successor owns the run. The fenced worker must stop without
+            # recording failure or clearing the successor's lease.
+            cancel.set()
         except Exception as exc:  # worker boundary: persist every unexpected failure
             message = str(exc) or exc.__class__.__name__
-            self.store.transition(
-                run_id,
-                "failed",
-                event_type="run.failed",
-                last_error=message,
-                worker_pid=None,
-                data={"message": message, "trace": traceback.format_exc(limit=8)},
-            )
+            try:
+                with worker_lease_scope(lease):
+                    self.store.transition(
+                        run_id,
+                        "failed",
+                        event_type="run.failed",
+                        last_error=message,
+                        worker_pid=None,
+                        data={"message": message, "trace": traceback.format_exc(limit=8)},
+                    )
+            except StaleWorkerLease:
+                cancel.set()
         finally:
-            self.store.update(run_id, worker_pid=None)
+            self.store.release_worker_lease(
+                run_id,
+                lease_id=lease.lease_id,
+                epoch=lease.epoch,
+                reason="worker_finished",
+            )
 
     def _is_cancelled(self, run_id: str, cancel: threading.Event) -> bool:
         if cancel.is_set() or self._stop.is_set():
@@ -384,6 +442,8 @@ class Scheduler:
 
     def _finish_interruption(self, run_id: str) -> None:
         run = self.store.get(run_id)
+        if run.get("status") not in ACTIVE_STATUSES:
+            return
         if self._stop.is_set() and not run.get("cancel_requested"):
             self.store.update(
                 run_id,
@@ -853,33 +913,41 @@ class Scheduler:
                 "Do not assume any other candidate's intermediate answer, worktree, or hidden reasoning exists. "
                 "Leave a complete standalone candidate ready for deterministic checks and independent review."
             )
-            child = self.store.create(
-                {
-                    "title": f"{run.get('title') or run.get('id')} / {candidate.get('title')}",
-                    "task": child_task,
-                    "project_path": str(run.get("project_path") or ""),
-                    "lane": str(candidate.get("lane") or run.get("lane") or ""),
-                    "review_lane": str(candidate.get("review_lane") or run.get("review_lane") or candidate.get("lane") or ""),
-                    "workflow": "agent-check-review",
-                    "checks": list(run.get("checks") or []),
-                    "max_retries": int(run.get("max_retries", 2) or 0),
-                    "base_ref": str(run.get("base_ref") or ""),
-                    "priority": int(run.get("priority", 50) or 50),
-                    "skill_mode": str(run.get("skill_mode") or "auto"),
-                    "skills": [str(item) for item in run.get("skills_requested") or []],
-                    "environment": dict(run.get("environment_request") or {}),
-                    "untrusted_project": bool(run.get("untrusted_project")),
-                    "origin": "variant",
-                    "evidence_class": (run.get("provenance") or {}).get("evidence_class", "observed"),
-                    "release": (run.get("provenance") or {}).get("release", ""),
-                    "budgets": budgets,
-                    "variant_parent_id": run_id,
-                    "variant_index": int(candidate.get("index") or 0),
-                    "variant_title": str(candidate.get("title") or ""),
-                    "variant_prompt_sha256": str(candidate.get("prompt_sha256") or ""),
-                    "variant_model": str(candidate.get("model") or ""),
-                }
-            )
+            with suspend_worker_lease():
+                child = self.store.create(
+                    {
+                        "title": f"{run.get('title') or run.get('id')} / {candidate.get('title')}",
+                        "task": child_task,
+                        "project_path": str(run.get("project_path") or ""),
+                        "lane": str(candidate.get("lane") or run.get("lane") or ""),
+                        "review_lane": str(
+                            candidate.get("review_lane")
+                            or run.get("review_lane")
+                            or candidate.get("lane")
+                            or ""
+                        ),
+                        "workflow": "agent-check-review",
+                        "checks": list(run.get("checks") or []),
+                        "max_retries": int(run.get("max_retries", 2) or 0),
+                        "base_ref": str(run.get("base_ref") or ""),
+                        "priority": int(run.get("priority", 50) or 50),
+                        "skill_mode": str(run.get("skill_mode") or "auto"),
+                        "skills": [str(item) for item in run.get("skills_requested") or []],
+                        "environment": dict(run.get("environment_request") or {}),
+                        "untrusted_project": bool(run.get("untrusted_project")),
+                        "origin": "variant",
+                        "evidence_class": (run.get("provenance") or {}).get(
+                            "evidence_class", "observed"
+                        ),
+                        "release": (run.get("provenance") or {}).get("release", ""),
+                        "budgets": budgets,
+                        "variant_parent_id": run_id,
+                        "variant_index": int(candidate.get("index") or 0),
+                        "variant_title": str(candidate.get("title") or ""),
+                        "variant_prompt_sha256": str(candidate.get("prompt_sha256") or ""),
+                        "variant_model": str(candidate.get("model") or ""),
+                    }
+                )
             child_ids.append(str(child["id"]))
             self.store.append_event(
                 run_id,
@@ -1152,6 +1220,7 @@ class ReviewActions:
         if run.get("status") != "review":
             raise ValueError("only a run waiting for review can be accepted")
         artifact = self.scheduler.worktrees.snapshot(run, reason="accepted")
+        failpoint("artifact.snapshot.after_git_commit")
         delivery = {
             "status": "not_applied",
             "method": "",

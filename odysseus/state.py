@@ -11,6 +11,7 @@ from .events import EVENT_SCHEMA_VERSION
 from .epics import EPIC_SCHEMA_VERSION
 from .kernel import EventKernel, KernelIntegrityError
 from .store import RUN_SCHEMA_VERSION
+from .worker_leases import WORKER_LEASE_FORMAT
 
 
 JSON_OBJECT_FILES = (
@@ -99,6 +100,7 @@ def verify_state(root: Path | str) -> dict[str, Any]:
         "checkpoints": 0,
         "legacy_runs": 0,
         "commands": 0,
+        "worker_leases": 0,
     }
     warnings: list[str] = []
     if not state_root.exists():
@@ -136,6 +138,45 @@ def verify_state(root: Path | str) -> dict[str, Any]:
                     errors.append(
                         f"{path}: unsupported run schema {version!r}; reader supports 1..{RUN_SCHEMA_VERSION}"
                     )
+                lease = value.get("worker_lease")
+                if lease:
+                    counts["worker_leases"] += 1
+                    if not isinstance(lease, dict):
+                        errors.append(f"{path}: worker_lease must be an object")
+                    else:
+                        if lease.get("format") != WORKER_LEASE_FORMAT:
+                            errors.append(f"{path}: unsupported worker lease format")
+                        if str(lease.get("run_id") or "") != path.stem:
+                            errors.append(f"{path}: worker lease run id does not match file name")
+                        if not str(lease.get("lease_id") or ""):
+                            errors.append(f"{path}: worker lease id is required")
+                        if not str(lease.get("worker_id") or ""):
+                            errors.append(f"{path}: worker lease owner is required")
+                        if not isinstance(lease.get("epoch"), int) or int(lease.get("epoch") or 0) < 1:
+                            errors.append(f"{path}: worker lease epoch must be a positive integer")
+                        if not isinstance(lease.get("stream_version_at_claim"), int) or int(
+                            lease.get("stream_version_at_claim") or 0
+                        ) < 1:
+                            errors.append(f"{path}: worker lease claim stream version is invalid")
+                        if not isinstance(lease.get("ttl_seconds"), int) or int(
+                            lease.get("ttl_seconds") or 0
+                        ) < 1:
+                            errors.append(f"{path}: worker lease TTL must be a positive integer")
+                        if not isinstance(lease.get("active"), bool):
+                            errors.append(f"{path}: worker lease active flag must be boolean")
+                        if (
+                            not str(lease.get("acquired_at") or "")
+                            or not str(lease.get("heartbeat_at") or "")
+                            or not str(lease.get("expires_at") or "")
+                        ):
+                            errors.append(f"{path}: worker lease timestamps are incomplete")
+                        if lease.get("active") and str(lease.get("released_at") or ""):
+                            errors.append(f"{path}: active worker lease cannot have a release timestamp")
+                        if lease.get("active") is False and (
+                            not str(lease.get("released_at") or "")
+                            or not str(lease.get("release_reason") or "")
+                        ):
+                            errors.append(f"{path}: released worker lease is missing release evidence")
             elif name == "epics":
                 counts["epics"] += 1
                 if str(value.get("id") or "") != path.stem:

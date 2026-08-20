@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .events import now_iso
+from .failpoints import failpoint
 
 
 EVENT_ENVELOPE_FORMAT = "odysseus-event-envelope-v2"
@@ -296,6 +297,7 @@ class EventKernel:
             handle.write(line)
             handle.flush()
             os.fsync(handle.fileno())
+        failpoint("kernel.after_stream_fsync")
         self.write_checkpoint(run_id, value, projection)
         return value
 
