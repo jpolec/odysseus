@@ -867,6 +867,8 @@ function repositoryStatusNodes(project, runs) {
     finished_at: run.finished_at,
     artifact_created_at: run.artifact_created_at,
     updated_at: run.updated_at,
+    cost_usd: run.navigation?.cost_observed ? Number(run.navigation.cost_usd) : null,
+    cost_kind: run.navigation?.cost_observed ? "observed" : "",
     raw_dependencies: [...(run.dependency_keys || []), ...(run.depends_on || [])],
   }));
   const aliases = new Map(runNodes.flatMap((node) => [[node.key, node.key], [node.id, node.key]].filter(([key]) => key)));
@@ -877,17 +879,29 @@ function repositoryStatusNodes(project, runs) {
   const existing = new Set(runNodes.flatMap((node) => [node.key, node.id].filter(Boolean)));
   const planned = state.epics
     .filter((epic) => epic.project_id === project.id && !(epic.run_ids || []).length)
-    .flatMap((epic) => (epic.plan?.tasks || []).map((task) => ({
-      key: task.task_key,
-      id: "",
-      title: task.title || task.task || task.task_key,
-      status: "Planned",
-      created_at: epic.created_at,
-      updated_at: epic.updated_at,
-      depends_on: [...new Set(task.depends_on || [])],
-    })))
+    .flatMap((epic) => (epic.plan?.tasks || []).map((task) => {
+      const estimate = [task.estimated_cost_usd, task.estimate?.cost_usd, task.estimated_cost?.usd].find((value) => value !== null && value !== undefined && Number.isFinite(Number(value)));
+      const cap = [task.budgets?.max_cost_usd, task.budget?.max_cost_usd, task.budget?.usd].find((value) => value !== null && value !== undefined && Number(value) > 0 && Number.isFinite(Number(value)));
+      return {
+        key: task.task_key,
+        id: "",
+        title: task.title || task.task || task.task_key,
+        status: "Planned",
+        created_at: epic.created_at,
+        updated_at: epic.updated_at,
+        cost_usd: estimate !== undefined ? Number(estimate) : cap !== undefined ? Number(cap) : null,
+        cost_kind: estimate !== undefined ? "estimated" : cap !== undefined ? "cap" : "",
+        depends_on: [...new Set(task.depends_on || [])],
+      };
+    }))
     .filter((node) => node.key && !existing.has(node.key));
   return [...runNodes, ...planned];
+}
+
+function repositoryNodeCost(node) {
+  if (node.cost_usd === null || node.cost_usd === undefined || !Number.isFinite(Number(node.cost_usd))) return "";
+  const prefix = node.cost_kind === "estimated" ? "est. " : node.cost_kind === "cap" ? "cap " : "";
+  return `${prefix}${compactMoney(node.cost_usd)}`;
 }
 
 function repositoryStatusDepths(nodes) {
@@ -924,6 +938,8 @@ function renderRepositoryStatus() {
   const accepted = counts.Accepted || 0;
   const finished = delivered + accepted;
   const latestMs = Math.max(...runs.map((run) => timestampMs(run.updated_at) || 0), 0);
+  const observedCosts = runs.filter((run) => run.navigation?.cost_observed && Number.isFinite(Number(run.navigation.cost_usd)));
+  const totalObservedCost = observedCosts.reduce((total, run) => total + Number(run.navigation.cost_usd), 0);
   $("#repositoryStatusUpdated").textContent = latestMs ? `Updated ${relativeTime(new Date(latestMs).toISOString())} ago` : "No tasks";
   $("#repositoryDeliveryMetrics").innerHTML = [
     [delivered, "Delivered", "in the source or PR"],
@@ -932,6 +948,7 @@ function renderRepositoryStatus() {
     [(counts.Blocked || 0) + (counts.Review || 0), "Needs you", "review or recovery"],
     [counts.Planned || 0, "Planned", "not started"],
     [runs.length ? `${Math.round((finished / runs.length) * 100)}%` : "0%", "Success", "accepted or delivered"],
+    [observedCosts.length ? compactMoney(totalObservedCost) : "—", "Observed cost", observedCosts.length ? `coverage ${observedCosts.length}/${runs.length}` : "provider cost unavailable"],
   ].map(([value, label, note]) => `<div><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
 
   const depths = repositoryStatusDepths(nodes);
@@ -943,7 +960,7 @@ function renderRepositoryStatus() {
     <div class="repository-graph-column" aria-label="Dependency level ${depth + 1}">
       ${nodes.filter((node) => (depths.get(node.key) || 0) === depth).map((node) => `
         <button class="repository-graph-node repo-status-${node.status.toLowerCase()}" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button">
-          <span>${escapeHtml(node.status)}</span><strong>${escapeHtml(node.title)}</strong><small>${escapeHtml((node.depends_on || []).length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>
+          <span>${escapeHtml(node.status)}${repositoryNodeCost(node) ? ` · ${escapeHtml(repositoryNodeCost(node))}` : ""}</span><strong>${escapeHtml(node.title)}</strong><small>${escapeHtml((node.depends_on || []).length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>
         </button>`).join("")}
     </div>`).join("") : `<div class="empty-list">A task graph appears after you create a plan.</div>`;
 
@@ -960,11 +977,13 @@ function renderRepositoryStatus() {
   const maxObserved = points.length ? Math.max(...points) : min;
   const max = Math.max(maxObserved, min + 3_600_000);
   const range = Math.max(1, max - min);
-  $("#repositoryTimelineCount").textContent = `${nodes.length} lane${nodes.length === 1 ? "" : "s"}`;
+  $("#repositoryTimelineCount").textContent = `${nodes.length} task${nodes.length === 1 ? "" : "s"}`;
   $("#repositoryGantt").innerHTML = timeline.slice(0, 18).map((node) => {
     const left = Math.max(0, Math.min(96, ((node.start - min) / range) * 100));
     const width = Math.max(4, Math.min(100 - left, ((node.end - node.start) / range) * 100));
-    return `<button class="gantt-row" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button"><span title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span><svg class="gantt-track" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="repo-status-${node.status.toLowerCase()}" x="${left.toFixed(2)}" y="0" width="${width.toFixed(2)}" height="10" rx="5"></rect></svg><em>${escapeHtml(node.status)}</em></button>`;
+    const cost = repositoryNodeCost(node);
+    const costTitle = node.cost_kind === "observed" ? "Observed provider cost" : node.cost_kind === "estimated" ? "Estimated cost" : node.cost_kind === "cap" ? "Maximum cost budget" : "Cost not observed";
+    return `<button class="gantt-row" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button"><span title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span><svg class="gantt-track" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="repo-status-${node.status.toLowerCase()}" x="${left.toFixed(2)}" y="0" width="${width.toFixed(2)}" height="10" rx="5"></rect></svg><em>${escapeHtml(node.status)}</em><b class="gantt-cost ${cost ? "" : "unknown"}" title="${escapeHtml(costTitle)}">${escapeHtml(cost || "—")}</b></button>`;
   }).join("") || `<div class="empty-list">The timeline appears after the first task.</div>`;
   $$('[data-status-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.statusRun)));
 }
@@ -1194,7 +1213,7 @@ function renderWork() {
     [needs || deliveryBlocked ? "status-attention" : "status-accepted", "Needs you", needs + deliveryBlocked],
     ["status-accepted", "Delivered", delivered],
     [acceptedOnly ? "status-attention" : "status-queued", "Artifacts", acceptedOnly],
-  ].map(([tone, label, value]) => `<span class="repository-status-item ${escapeHtml(tone)}"><b>${escapeHtml(value)}</b>${escapeHtml(label)}</span>`).join("") + `<button class="text-button" data-status-focus="dashboard" type="button">View graph &amp; Gantt</button>` : "";
+  ].map(([tone, label, value]) => `<span class="repository-status-item ${escapeHtml(tone)}"><b>${escapeHtml(value)}</b>${escapeHtml(label)}</span>`).join("") + `<button class="repository-plan-cta" data-status-focus="dashboard" type="button"><span aria-hidden="true">↘</span><strong>Open delivery plan</strong><small>Dependencies, timeline &amp; cost</small></button>` : "";
   $("#workStatusStrip").classList.toggle("hidden", !project);
   $("#workMeta").innerHTML = project ? `<span>${escapeHtml(projectRepository(project))}</span><span>Folder: ${escapeHtml(project.path)}</span><span>${escapeHtml(project.branch || "Git repository")}</span>${(project.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}` : "";
   $("#workMeta").classList.toggle("hidden", !project);
@@ -3642,6 +3661,9 @@ async function runBrowserRegression() {
       const columns = getComputedStyle($(".repository-status-grid")).gridTemplateColumns.split(" ").map(Number.parseFloat);
       assert(columns.length >= 2 && columns[0] > columns[1], "dependency graph is wider than the Gantt timeline");
     }
+    assert($("#workStatusStrip [data-status-focus]").textContent.includes("Open delivery plan") && $("#workStatusStrip [data-status-focus]").textContent.includes("cost"), "repository status exposes a clear delivery-plan action");
+    assert($("#repositoryDeliveryMetrics").textContent.includes("Observed cost"), "repository metrics disclose observed cost coverage");
+    assert($$("#repositoryGantt .gantt-cost").some((item) => item.textContent.includes("$")), "repository timeline shows observed task cost where available");
     assert(!$("#repositoryDependencyGraph [style]"), "repository graph does not depend on CSP-blocked inline styles");
     assert($("#repositoryGantt .gantt-track"), "repository timeline uses CSP-safe SVG geometry");
   }

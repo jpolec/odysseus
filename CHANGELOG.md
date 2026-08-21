@@ -24,6 +24,9 @@ Git; this file records observable operator and product changes.
   exposed Copy answer and Create separate task without a More disclosure.
 - Balanced sidebar identity with a 23 px target mark and one-step larger
   Odysseus wordmark.
+- Replaced the vague graph/Gantt link with a visible Open delivery plan action,
+  plain-language Dependencies and Timeline & cost sections, per-task observed
+  or explicit estimated/cap costs, and repository cost coverage.
 - Reworked the web shell around four primary operator surfaces: Home, Needs
   You, Plans, and Outcomes, while keeping repositories and task history in the
   persistent sidebar.
