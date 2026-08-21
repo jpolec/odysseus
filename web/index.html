@@ -257,7 +257,7 @@
             <div class="detail-body">
               <div id="detailGrid" class="detail-main">
                 <nav class="task-section-tabs" aria-label="Task details">
-                  <button class="task-section-tab active" data-section="summary" type="button">Summary</button>
+                  <button class="task-section-tab active" data-section="summary" type="button">Overview</button>
                   <button class="task-section-tab" data-section="changes" type="button">Changes</button>
                   <button class="task-section-tab" data-section="activity" type="button">Activity</button>
                   <button class="task-section-tab" data-section="evidence" type="button">Evidence</button>
@@ -307,16 +307,24 @@
                       <button class="ghost" id="summaryAssistantSubmitFeedback" type="button">Submit answer</button>
                     </div>
                   </section>
-                  <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
-                    <li id="stageWorktree"><span>01</span><div><strong>Isolate</strong><small>Git worktree</small></div></li>
-                    <li id="stageIntegrate"><span>02</span><div><strong>Compose</strong><small>Artifacts</small></div></li>
-                    <li id="stageAgent"><span>03</span><div><strong>Agent</strong><small>Implement</small></div></li>
-                    <li id="stageCheck"><span>04</span><div><strong>Verify</strong><small>Checks</small></div></li>
-                    <li id="stageReview"><span>05</span><div><strong>Review</strong><small>Evidence gate</small></div></li>
-                    <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
-                  </ol>
-                  <div class="metrics" id="metrics"></div>
-                  <section class="environment-card" id="environmentCard"></section>
+                  <details class="execution-details" id="executionDetails">
+                    <summary>
+                      <span><strong>Execution details</strong><small>Workflow, usage, CI, and environment</small></span>
+                      <span id="executionDetailsSummary">Preparing task</span>
+                    </summary>
+                    <div class="execution-details-content">
+                      <ol class="workflow-strip" id="workflowStrip" aria-label="Workflow progress">
+                        <li id="stageWorktree"><span>01</span><div><strong>Isolate</strong><small>Git worktree</small></div></li>
+                        <li id="stageIntegrate"><span>02</span><div><strong>Compose</strong><small>Artifacts</small></div></li>
+                        <li id="stageAgent"><span>03</span><div><strong>Agent</strong><small>Implement</small></div></li>
+                        <li id="stageCheck"><span>04</span><div><strong>Verify</strong><small>Checks</small></div></li>
+                        <li id="stageReview"><span>05</span><div><strong>Review</strong><small>Evidence gate</small></div></li>
+                        <li id="stageCI"><span>06</span><div><strong>CI</strong><small>Reach green</small></div></li>
+                      </ol>
+                      <div class="metrics" id="metrics"></div>
+                      <section class="environment-card" id="environmentCard"></section>
+                    </div>
+                  </details>
                 </section>
                 <section class="task-section-pane" id="task-section-changes">
                   <section class="panel workspace-panel inspector-panel">

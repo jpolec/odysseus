@@ -1332,6 +1332,39 @@ summary:focus-visible {
 .home-portfolio .portfolio-method { max-width: none; }
 .home-portfolio .portfolio-hero { margin-top: 0; }
 
+/* Task detail: lead with the decision, keep runtime telemetry one level down. */
+.run-detail { max-width: 1180px; padding: 24px 36px 56px; }
+.detail-breadcrumb { margin-bottom: 18px; }
+.detail-head { gap: 22px; padding-bottom: 4px; }
+.detail-heading { max-width: 760px; }
+.detail-heading h2 { margin: 12px 0 8px; font-size: clamp(27px, 3vw, 36px); line-height: 1.08; letter-spacing: -.035em; }
+.detail-heading > p { max-width: 720px; font-size: 12.5px; line-height: 1.55; }
+.journey-context { border-radius: 9px; background: var(--surface); }
+.detail-body { grid-template-columns: minmax(0, 1fr) minmax(280px, 310px); gap: 16px; margin-top: 16px; }
+.task-section-tabs { gap: 12px; background: transparent; }
+.task-section-tab { min-height: 42px; padding: 0 2px; }
+.task-section-tab.active::after { right: 0; left: 0; background: var(--ink); }
+.task-section-pane { padding-top: 14px; }
+.review-decision,
+.run-narrative { margin-top: 0; }
+.assistant-panel { top: 10px; border-color: var(--line); border-radius: 11px; background: var(--surface); }
+.assistant-context { border-color: var(--line); background: var(--surface-2); }
+.execution-details { margin-top: 12px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.execution-details > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 58px; padding: 11px 14px; cursor: pointer; list-style: none; }
+.execution-details > summary::-webkit-details-marker { display: none; }
+.execution-details > summary:hover { background: var(--surface-2); }
+.execution-details > summary strong,
+.execution-details > summary small { display: block; }
+.execution-details > summary strong { font-size: 12px; font-weight: 650; }
+.execution-details > summary small { margin-top: 3px; color: var(--faint); font-size: 10px; }
+.execution-details > summary > span:last-child { overflow: hidden; max-width: 56%; color: var(--muted); font: 9.5px var(--mono); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.execution-details[open] > summary { border-bottom: 1px solid var(--line); }
+.execution-details-content { padding: 12px; background: var(--base); }
+.execution-details .workflow-strip { margin: 0; }
+.execution-details .metrics { margin-top: 10px; }
+.execution-details .environment-card { margin-bottom: 0; }
+.technical-details { max-width: 1180px; }
+
 @media (max-width: 700px) {
   .home-hero { margin-top: 6px; }
   .home-compose-bar { align-items: stretch; flex-wrap: wrap; }
@@ -1344,4 +1377,6 @@ summary:focus-visible {
   .home-row { grid-template-columns: 18px minmax(0, 1fr); }
   .home-row > b { display: none; }
   .home-portfolio > summary > span:last-child { display: none; }
+  .execution-details > summary { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .execution-details > summary > span:last-child { max-width: 100%; text-align: left; }
 }

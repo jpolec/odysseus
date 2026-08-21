@@ -1237,7 +1237,16 @@ function renderDetail(run) {
   $("#runDetail").classList.remove("hidden");
   $("#runDetail").removeAttribute("aria-busy");
   const interactive = run.kind === "tmux";
-  $(".journey-context").classList.toggle("hidden", interactive);
+  const journeyContext = $(".journey-context");
+  journeyContext.classList.toggle("hidden", interactive);
+  const journeyCopy = ["review", "attention", "failed"].includes(run.status)
+    ? ["3", "Decide", "One action is waiting."]
+    : ["accepted", "pr_created"].includes(run.status)
+      ? ["3", "Deliver", "Integrate when ready."]
+      : ["3", "Follow", "Act only when asked."];
+  journeyContext.querySelector("span").textContent = journeyCopy[0];
+  journeyContext.querySelector("strong").textContent = journeyCopy[1];
+  journeyContext.querySelector("small").textContent = journeyCopy[2];
   const discovered = interactive ? discoveredSessionForRun(run) : null;
   const status = $("#detailStatus");
   const delivered = run.delivery?.status;
@@ -1264,12 +1273,25 @@ function renderDetail(run) {
   $("#metrics").classList.toggle("hidden", interactive);
   $("#detailGrid").classList.toggle("hidden", interactive);
   const metrics = run.metrics || {};
+  const observedTokens = Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0);
   $("#metrics").innerHTML = [
-    ["Tokens", compactNumber(Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0))],
+    ["Tokens", compactNumber(observedTokens)],
     ["Cost", metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown],
     ["Evidence score", run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}/100`],
     ["GitHub CI", run.ci?.status || "not started"],
   ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
+  const executionDetails = $("#executionDetails");
+  if (executionDetails.dataset.runId !== run.id) {
+    executionDetails.dataset.runId = run.id;
+    executionDetails.open = false;
+  }
+  const executionFacts = [
+    statusLabel(run.stage || run.status),
+    `Tokens ${observedTokens ? compactNumber(observedTokens) : UI_COPY.notObserved}`,
+    `Cost ${metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown}`,
+    `CI ${statusLabel(run.ci?.status || "not started")}`,
+  ];
+  $("#executionDetailsSummary").textContent = executionFacts.join(" · ");
   renderEnvironment(run);
   const metadata = interactive ? [
     ["Run ID", run.id], ["Agent", run.lane], ["Repository", projectById(run.project_id) ? projectName(projectById(run.project_id)) : run.project_path],
@@ -3039,6 +3061,9 @@ async function runBrowserRegression() {
   await selectRun(running.id);
   assert($("#narrativeTitle").textContent === "Agent is working", "running task uses one-line progress");
   assert($("#narrativeCopy").textContent === "Progress appears in Activity.", "running task avoids essay");
+  assert($(".journey-context strong").textContent === "Follow", "running task gives a follow instruction");
+  assert(!$("#executionDetails").open, "execution telemetry starts folded");
+  assert($("#executionDetailsSummary").textContent.includes("Tokens") && $("#executionDetailsSummary").textContent.includes("CI"), "folded execution summary remains informative");
   assert($("#summaryAssistant").classList.contains("hidden"), "assistant hidden when no decision is needed");
   const blocked = state.runs.find((run) => run.status === "blocked");
   assert(blocked, "blocked task available");
@@ -3047,6 +3072,7 @@ async function runBrowserRegression() {
   const review = state.runs.find((run) => run.status === "review");
   assert(review, "review task available");
   await selectRun(review.id);
+  assert($(".journey-context strong").textContent === "Decide", "review task gives a decision instruction");
   assert($("#reviewDecisionCard").textContent.includes("Review result"), "review decision leads task detail");
   assert($("#reviewDecisionCard").textContent.includes("Evidence score"), "heuristic signal is labeled as evidence score");
   assert(!$("#reviewDecisionCard").textContent.includes("Confidence"), "uncalibrated confidence label is hidden");
@@ -3059,6 +3085,7 @@ async function runBrowserRegression() {
   assert(!$("#assistantPanel").classList.contains("hidden"), "one assistant rail remains available on decision states");
   assert(acceptedNotApplied, "accepted not-applied artifact available");
   await selectRun(acceptedNotApplied.id);
+  assert($(".journey-context strong").textContent === "Deliver", "accepted task gives a delivery instruction");
   assert($("#reviewDecisionCard").textContent.includes("Checks"), "decision evidence visible");
   assert($("#reviewDecisionCard").textContent.includes("Accepted artifact · not delivered"), "accepted-not-delivered is plain");
   assert($("#runNarrative").classList.contains("hidden"), "accepted avoids duplicate narrative status");
