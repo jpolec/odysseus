@@ -328,7 +328,7 @@
                   </section>
                 </section>
                 <section class="task-section-pane" id="task-section-activity">
-                  <section class="panel workspace-panel activity-panel"><div class="panel-head"><div><p class="eyebrow">LIVE EVENT STREAM</p><h3>Activity</h3></div><div class="activity-panel-actions"><span class="live-badge"><i></i> SSE</span><button class="activity-focus-toggle" id="activityFocusToggle" type="button" aria-pressed="false" aria-label="Widen Activity below the task context" title="Widen Activity below the task context">Widen <span aria-hidden="true">↔</span></button></div></div><div class="activity-summary" id="activitySummary" aria-label="Task time and cost breakdown"></div><div class="event-log" id="eventLog"></div></section>
+                  <section class="panel workspace-panel activity-panel"><div class="panel-head"><div><p class="eyebrow">LIVE EVENT STREAM</p><h3>Activity</h3></div><div class="activity-panel-actions"><span class="live-badge"><i></i> SSE</span><button class="activity-focus-toggle" id="activityFocusToggle" type="button" aria-pressed="false" aria-label="Expand Activity to the full workspace width" title="Expand Activity to the full workspace width">Expand <span aria-hidden="true">⤢</span></button></div></div><div class="activity-summary" id="activitySummary" aria-label="Task time and cost breakdown"></div><div class="event-log" id="eventLog"></div></section>
                 </section>
                 <section class="task-section-pane" id="task-section-evidence">
                   <section class="panel workspace-panel inspector-panel">
@@ -372,9 +372,10 @@
                   <button class="primary" id="assistantSend" type="button">Send</button>
                 </div>
                 <div class="assistant-actions">
-                  <button class="primary" id="assistantInsertFeedback" type="button" title="Copy the answer into the current task's feedback field without sending it">Use as feedback</button>
-                  <button class="ghost" id="assistantSubmitFeedback" type="button" title="Send this answer to the saved agent thread and resume the current task">Send &amp; resume</button>
-                  <details class="assistant-more-actions"><summary>More actions</summary><div><button class="ghost" id="assistantCopy" type="button">Copy answer</button><button class="ghost" id="assistantQueueTask" type="button">Create separate task</button></div></details>
+                  <button class="ghost" id="assistantInsertFeedback" type="button" title="Copy the answer into the current task's feedback field without sending it">Use as feedback</button>
+                  <button class="primary" id="assistantSubmitFeedback" type="button" title="Send this answer to the saved agent thread and resume the current task">Send &amp; resume</button>
+                  <button class="ghost" id="assistantCopy" type="button">Copy answer</button>
+                  <button class="ghost" id="assistantQueueTask" type="button">Create separate task</button>
                 </div>
                 <p class="assistant-status" id="assistantStatus">Selected context is attached explicitly. CLI helpers use a scratch workspace; direct API modes require server keys.</p>
                 <details class="assistant-code-scope"><summary>Security details</summary><p>Local CLI assistants run in a blank scratch workspace, not the task repository, but keep the Odysseus user's filesystem permissions. Direct API modes require server environment keys.</p></details>

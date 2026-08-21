@@ -15,10 +15,15 @@ Git; this file records observable operator and product changes.
 ## Unreleased
 
 - Enlarged Activity typography and added a wide event stream below the retained
-  task context, with distinct actor backgrounds and Escape to restore its size.
+  task context. It uses the full workspace width by default, has distinct actor
+  backgrounds, and offers diagonal expand/narrow controls plus Escape.
 - Added honest task economics beside the prompt and inside Activity: total
   elapsed time, observed Agent/Checks/Review time, per-event relative timing,
   reported event cost where available, and total observed provider cost.
+- Compacted the Decision Assistant, reduced its empty-state whitespace, and
+  exposed Copy answer and Create separate task without a More disclosure.
+- Balanced sidebar identity with a 23 px target mark and one-step larger
+  Odysseus wordmark.
 - Reworked the web shell around four primary operator surfaces: Home, Needs
   You, Plans, and Outcomes, while keeping repositories and task history in the
   persistent sidebar.

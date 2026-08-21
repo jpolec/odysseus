@@ -19,7 +19,7 @@ const state = {
   taskAgentRecommendation: null, taskAgentTimer: null,
   skillsProjectId: "", skillsCatalog: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
-  assistantOpen: false, helpOpen: false, activityFocus: false,
+  assistantOpen: false, helpOpen: false, activityFocus: false, activityWide: true,
   selectedDecisionPaths: [],
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
@@ -320,7 +320,7 @@ function setFormSubmitting(form, submitting, activeButton, label) {
 
 function setView(view) {
   if (view === "projects" && !$("#projectsView")) view = "work";
-  if (view !== "tasks" && state.activityFocus) setActivityFocus(false);
+  if (view !== "tasks" && state.activityFocus) setActivityFocus(false, false);
   state.view = view;
   document.body.dataset.view = view;
   document.body.classList.toggle("task-open", view === "tasks");
@@ -447,23 +447,25 @@ function activateTab(name) {
 }
 
 function activateTaskSection(name) {
-  if (name !== "activity" && state.activityFocus) setActivityFocus(false);
   state.taskSection = name;
+  if (name === "activity") setActivityFocus(state.activityWide, false);
+  else if (state.activityFocus) setActivityFocus(false, false);
   $$(".task-section-tab").forEach((item) => item.classList.toggle("active", item.dataset.section === name));
   $$(".task-section-pane").forEach((pane) => pane.classList.toggle("active", pane.id === `task-section-${name}`));
   renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
   if (state.helpOpen) renderHelpPanel();
 }
 
-function setActivityFocus(enabled) {
+function setActivityFocus(enabled, remember = true) {
+  if (remember) state.activityWide = Boolean(enabled);
   state.activityFocus = Boolean(enabled && state.view === "tasks" && state.taskSection === "activity");
   document.body.classList.toggle("activity-focus", state.activityFocus);
   const button = $("#activityFocusToggle");
   if (!button) return;
   button.setAttribute("aria-pressed", String(state.activityFocus));
-  button.setAttribute("aria-label", state.activityFocus ? "Restore the standard Activity width" : "Widen Activity below the task context");
-  button.title = state.activityFocus ? "Restore the standard Activity width (Esc)" : "Widen Activity below the task context";
-  button.innerHTML = state.activityFocus ? 'Standard <span aria-hidden="true">↔</span>' : 'Widen <span aria-hidden="true">↔</span>';
+  button.setAttribute("aria-label", state.activityFocus ? "Narrow Activity" : "Expand Activity to the full workspace width");
+  button.title = state.activityFocus ? "Narrow Activity (Esc)" : "Expand Activity to the full workspace width";
+  button.innerHTML = state.activityFocus ? 'Narrow <span aria-hidden="true">⤡</span>' : 'Expand <span aria-hidden="true">⤢</span>';
 }
 
 function filteredRuns() {
@@ -2401,7 +2403,7 @@ function renderAssistantMessages() {
       ${message.shared_context?.length ? `<em>Shared: ${escapeHtml(message.shared_context.join(", "))}</em>` : ""}
       ${assistantMessageAllowed(message) ? "" : `<em>Omitted from the next request because current context sharing is narrower.</em>`}
     </article>
-  `).join("") : `<div class="assistant-empty"><strong>This is not the worker or reviewer.</strong><br>The Decision Assistant helps prepare a precise next instruction. Nothing is sent to the task agent until you choose “Send &amp; resume”.</div>`;
+  `).join("") : `<div class="assistant-empty"><strong>Draft only.</strong> Nothing reaches the task agent until you choose “Send &amp; resume”.</div>`;
   $("#assistantMessages").scrollTop = $("#assistantMessages").scrollHeight;
 }
 
@@ -3540,7 +3542,7 @@ async function init() {
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
     else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["portfolio", "work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github", "settings"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView(state.runs.length ? "portfolio" : "work"); } }
     const requestedSection = params.get("section"); if (["summary", "changes", "activity", "evidence"].includes(requestedSection)) activateTaskSection(requestedSection);
-    if (requestedSection === "activity" && params.get("focus") === "1") setActivityFocus(true);
+    if (requestedSection === "activity" && params.get("focus") === "0") setActivityFocus(false);
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
     const requestedDialog = params.get("dialog"); if (requestedDialog === "task") openTaskDialog({prompt: params.get("prompt") || "", projectId: preferredProjectId()}); else if (requestedDialog === "epic") $("#newEpicButton").click();
     if (params.get("help") === "1") toggleHelp(true);
@@ -3674,16 +3676,25 @@ async function runBrowserRegression() {
   assert(!$("#executionDetails").open, "execution telemetry starts folded");
   assert($("#executionDetailsSummary").textContent.includes("Tokens") && $("#executionDetailsSummary").textContent.includes("CI"), "folded execution summary remains informative");
   assert($("#summaryAssistant").classList.contains("hidden"), "assistant hidden when no decision is needed");
+  state.assistantOpen = true;
+  renderDetail(running);
+  assert(!$(".assistant-more-actions") && !$("#assistantCopy").closest("details") && !$("#assistantQueueTask").closest("details"), "Decision Assistant exposes copy and separate-task actions directly");
+  assert($("#assistantMessages").textContent.includes("Draft only"), "empty Decision Assistant uses one compact explanation");
+  state.assistantOpen = false;
+  renderDetail(running);
   activateTaskSection("activity");
   await sleep(160);
   assert($("#eventLog").textContent.includes("Tool") && $("#eventLog").textContent.includes("python -m unittest"), "Activity separates tool execution from agent messages");
   assert($("#eventLog .event-tool .event-avatar"), "tool execution has a distinct visual actor");
   assert($("#activitySummary").textContent.includes("Total") && $("#activitySummary").textContent.includes("Agent") && $("#activitySummary").textContent.includes("Total cost"), "Activity summarizes total and phase economics");
   assert($("#eventLog time").textContent.includes("T+"), "each Activity entry shows relative task timing");
+  assert(state.activityFocus && document.body.classList.contains("activity-focus"), "Activity uses the full workspace width by default");
+  assert($("#activityFocusToggle").textContent.includes("Narrow"), "wide Activity exposes a diagonal narrow action");
   $("#activityFocusToggle").click();
-  assert(state.activityFocus && document.body.classList.contains("activity-focus"), "Activity widens below the task context");
-  assert(window.innerWidth <= 900 || getComputedStyle($(".project-explorer")).display !== "none", "wide Activity keeps repository navigation visible on desktop");
-  assert($("#activityFocusToggle").textContent.includes("Standard"), "wide Activity exposes the standard-width action");
+  assert(!state.activityFocus && !document.body.classList.contains("activity-focus"), "diagonal control narrows Activity");
+  assert($("#activityFocusToggle").textContent.includes("Expand"), "narrow Activity exposes a diagonal expand action");
+  $("#activityFocusToggle").click();
+  assert(state.activityFocus && (window.innerWidth <= 900 || getComputedStyle($(".project-explorer")).display !== "none"), "expanded Activity keeps repository navigation visible on desktop");
   document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
   assert(!state.activityFocus && !document.body.classList.contains("activity-focus"), "Escape restores the task view");
   activateTaskSection("summary");
