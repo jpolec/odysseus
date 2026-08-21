@@ -72,7 +72,8 @@ for _attempt in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then break; fi
   sleep 1
 done
-curl -fsS "http://127.0.0.1:$PORT/" | grep -q 'ODYSSEUS'
+curl -fsS "http://127.0.0.1:$PORT/" >"$TEMP_ROOT/index.html"
+grep -q 'ODYSSEUS' "$TEMP_ROOT/index.html"
 curl -fsS "http://127.0.0.1:$PORT/api/bootstrap" >"$TEMP_ROOT/bootstrap.json"
 python3 - "$TEMP_ROOT/bootstrap.json" "$EXPECTED_VERSION" <<'PY'
 import json
