@@ -784,11 +784,13 @@ function renderRepositoryStatus() {
   const known = new Set(nodes.flatMap((node) => [node.key, node.id].filter(Boolean)));
   const edgeCount = nodes.reduce((total, node) => total + (node.depends_on || []).filter((key) => known.has(key)).length, 0);
   $("#repositoryGraphCount").textContent = `${nodes.length} task${nodes.length === 1 ? "" : "s"} · ${edgeCount} edge${edgeCount === 1 ? "" : "s"}`;
-  $("#repositoryDependencyGraph").style.setProperty("--repo-graph-columns", String(maxDepth + 1));
-  $("#repositoryDependencyGraph").innerHTML = nodes.length ? nodes.map((node) => `
-    <button class="repository-graph-node repo-status-${node.status.toLowerCase()}" style="grid-column:${(depths.get(node.key) || 0) + 1}" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button">
-      <span>${escapeHtml(node.status)}</span><strong>${escapeHtml(node.title)}</strong><small>${escapeHtml((node.depends_on || []).length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>
-    </button>`).join("") : `<div class="empty-list">A task graph appears after you create a plan.</div>`;
+  $("#repositoryDependencyGraph").innerHTML = nodes.length ? Array.from({length: maxDepth + 1}, (_, depth) => `
+    <div class="repository-graph-column" aria-label="Dependency level ${depth + 1}">
+      ${nodes.filter((node) => (depths.get(node.key) || 0) === depth).map((node) => `
+        <button class="repository-graph-node repo-status-${node.status.toLowerCase()}" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button">
+          <span>${escapeHtml(node.status)}</span><strong>${escapeHtml(node.title)}</strong><small>${escapeHtml((node.depends_on || []).length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>
+        </button>`).join("")}
+    </div>`).join("") : `<div class="empty-list">A task graph appears after you create a plan.</div>`;
 
   const now = Date.now();
   const timeline = nodes.map((node) => {
@@ -807,7 +809,7 @@ function renderRepositoryStatus() {
   $("#repositoryGantt").innerHTML = timeline.slice(0, 18).map((node) => {
     const left = Math.max(0, Math.min(96, ((node.start - min) / range) * 100));
     const width = Math.max(4, Math.min(100 - left, ((node.end - node.start) / range) * 100));
-    return `<button class="gantt-row" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button"><span title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span><i><b class="repo-status-${node.status.toLowerCase()}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%"></b></i><em>${escapeHtml(node.status)}</em></button>`;
+    return `<button class="gantt-row" ${node.id ? `data-status-run="${escapeHtml(node.id)}"` : "disabled"} type="button"><span title="${escapeHtml(node.title)}">${escapeHtml(node.title)}</span><svg class="gantt-track" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="repo-status-${node.status.toLowerCase()}" x="${left.toFixed(2)}" y="0" width="${width.toFixed(2)}" height="10" rx="5"></rect></svg><em>${escapeHtml(node.status)}</em></button>`;
   }).join("") || `<div class="empty-list">The timeline appears after the first task.</div>`;
   $$('[data-status-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.statusRun)));
 }
@@ -2333,16 +2335,17 @@ function renderEpicGraph(epic) {
   nodes.forEach(depthOf);
   const maxDepth = Math.max(...nodes.map((node) => depthMemo.get(node.key) || 0), 0);
   const edges = nodes.flatMap((node) => (node.depends_on || []).filter((parent) => keys.has(parent)).map((parent) => `${parent} -> ${node.key}`));
-  return `<div class="dag-graph" style="--dag-columns:${maxDepth + 1}" role="img" aria-label="Task dependency graph with ${nodes.length} tasks and ${edges.length} dependencies">
-    ${nodes.map((node) => {
-      const stateLabel = epicNodeState(node.run, node.task);
-      const parentRuns = (node.depends_on || []).map((key) => runByKey.get(key) || state.runs.find((run) => run.id === key)).filter(Boolean);
-      const waiting = stateLabel === "Blocked" ? parentRuns.find((run) => !["accepted", "pr_created", "completed"].includes(run.status)) : null;
-      return `<div class="dag-graph-node dag-state-${stateLabel.toLowerCase().replaceAll(" ", "-")}" style="grid-column:${(depthMemo.get(node.key) || 0) + 1}" tabindex="0">
-        <span>${escapeHtml(stateLabel)}</span><strong>${escapeHtml(node.title || node.key)}</strong><small>${escapeHtml(node.depends_on?.length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>${waiting ? `<em>Waiting for ${escapeHtml(runTitle(waiting, waiting.id))}</em>` : ""}</div>`;
-    }).join("")}
-    ${edges.length ? `<p class="dag-edge-list">Edges: ${escapeHtml(edges.join("; "))}</p>` : `<p class="dag-edge-list">No dependencies.</p>`}
-  </div><ol class="dag-linear-fallback">${nodes.map((node) => `<li><strong>${escapeHtml(node.title || node.key)}</strong><span>${escapeHtml(epicNodeState(node.run, node.task))}</span><small>${escapeHtml(node.depends_on?.length ? `Depends on ${node.depends_on.join(", ")}` : "No dependencies")}</small></li>`).join("")}</ol>`;
+  return `<div class="dag-graph" role="img" aria-label="Task dependency graph with ${nodes.length} tasks and ${edges.length} dependencies">
+    ${Array.from({length: maxDepth + 1}, (_, depth) => `<div class="dag-column" aria-label="Dependency level ${depth + 1}">
+      ${nodes.filter((node) => (depthMemo.get(node.key) || 0) === depth).map((node) => {
+        const stateLabel = epicNodeState(node.run, node.task);
+        const parentRuns = (node.depends_on || []).map((key) => runByKey.get(key) || state.runs.find((run) => run.id === key)).filter(Boolean);
+        const waiting = stateLabel === "Blocked" ? parentRuns.find((run) => !["accepted", "pr_created", "completed"].includes(run.status)) : null;
+        return `<div class="dag-graph-node dag-state-${stateLabel.toLowerCase().replaceAll(" ", "-")}" tabindex="0">
+          <span>${escapeHtml(stateLabel)}</span><strong>${escapeHtml(node.title || node.key)}</strong><small>${escapeHtml(node.depends_on?.length ? `after ${node.depends_on.join(", ")}` : "root task")}</small>${waiting ? `<em>Waiting for ${escapeHtml(runTitle(waiting, waiting.id))}</em>` : ""}</div>`;
+      }).join("")}
+    </div>`).join("")}
+  </div>${edges.length ? `<p class="dag-edge-list">Edges: ${escapeHtml(edges.join("; "))}</p>` : `<p class="dag-edge-list">No dependencies.</p>`}<ol class="dag-linear-fallback">${nodes.map((node) => `<li><strong>${escapeHtml(node.title || node.key)}</strong><span>${escapeHtml(epicNodeState(node.run, node.task))}</span><small>${escapeHtml(node.depends_on?.length ? `Depends on ${node.depends_on.join(", ")}` : "No dependencies")}</small></li>`).join("")}</ol>`;
 }
 
 async function refreshEpics() {
@@ -2679,7 +2682,7 @@ function renderPortfolio(payload) {
   const failureTotal = failures.reduce((sum, row) => sum + Number(row.count || 0), 0);
   const failureMax = Math.max(1, ...failures.map((row) => Number(row.count || 0)));
   $("#portfolioFailureCount").textContent = `${failureTotal} failure${failureTotal === 1 ? "" : "s"}`;
-  $("#portfolioFailures").innerHTML = failures.length ? failures.map((row) => `<div class="failure-row"><div><strong>${escapeHtml(row.reason)}</strong><span>${escapeHtml(row.count)}</span></div><i><b style="width:${Math.round(Number(row.count || 0) / failureMax * 100)}%"></b></i></div>`).join("") : `<div class="portfolio-empty">No attributed failures in this window.</div>`;
+  $("#portfolioFailures").innerHTML = failures.length ? failures.map((row) => `<div class="failure-row"><div><strong>${escapeHtml(row.reason)}</strong><span>${escapeHtml(row.count)}</span></div><progress class="failure-meter" max="100" value="${Math.round(Number(row.count || 0) / failureMax * 100)}">${Math.round(Number(row.count || 0) / failureMax * 100)}%</progress></div>`).join("") : `<div class="portfolio-empty">No attributed failures in this window.</div>`;
   $("#portfolioBlockers").innerHTML = blocked.length ? blocked.map((item) => `<button class="portfolio-blocker" data-portfolio-run="${escapeHtml(item.run_id)}" type="button"><span class="mini-status status-${escapeHtml(item.status)}">${escapeHtml(item.status)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.reason)} · ${escapeHtml(projectName(projectById(item.project_id)) || "Repository")}</small><em>Open →</em></button>`).join("") : `<div class="portfolio-empty"><strong>Nothing is blocked.</strong><span>Odysseus will surface the next decision here.</span></div>`;
   $$('[data-portfolio-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.portfolioRun)));
   $("#portfolioMethod").textContent = `Window starts ${new Date(payload.window?.starts_at).toLocaleString()}. ${payload.definitions?.autonomous_delivery_rate || ""} Cost: ${payload.definitions?.cost || "missing remains unknown"}.`;
@@ -3060,6 +3063,8 @@ async function runBrowserRegression() {
       const columns = getComputedStyle($(".repository-status-grid")).gridTemplateColumns.split(" ").map(Number.parseFloat);
       assert(columns.length >= 2 && columns[0] > columns[1], "dependency graph is wider than the Gantt timeline");
     }
+    assert(!$("#repositoryDependencyGraph [style]"), "repository graph does not depend on CSP-blocked inline styles");
+    assert($("#repositoryGantt .gantt-track"), "repository timeline uses CSP-safe SVG geometry");
   }
 
   $("#newTaskButton").click();
@@ -3163,6 +3168,7 @@ async function runBrowserRegression() {
   setView("epics");
   assert($("#epicsView").textContent.includes("Approve a graph before agents start."), "Plans concise header");
   assert($$("#epicList .epic-card").every((card) => card.querySelector(".epic-progress") && card.querySelector(".epic-graph-details")), "Plans expose compact progress and a drill-down graph");
+  assert(!$("#epicList [style]"), "Plan graphs do not depend on CSP-blocked inline styles");
   const proposedPlan = $$("#epicList .epic-card").find((card) => card.querySelector(".mini-status")?.textContent.trim() === "proposed");
   if (proposedPlan) assert(proposedPlan.querySelector(".epic-graph-details").open, "proposed plan opens the graph required for approval");
   setView("inbox");
@@ -3171,6 +3177,7 @@ async function runBrowserRegression() {
   await refreshInsights();
   assert($("#insightsView").querySelector("#portfolioKpis"), "Outcomes owns the engineering portfolio");
   assert($("#insightsView").textContent.includes("Delivery, not activity."), "Outcomes leads with delivered work");
+  assert(!$("#portfolioFailures [style]"), "failure attribution does not depend on CSP-blocked inline styles");
   assert($("#economicsFormula").textContent.includes("Expected cost"), "economics formula visible");
   assert($("#economicsFormula").textContent.includes("Sample"), "economics sample size visible");
   assert($("#economicsLeadTable").textContent.includes("Observed cost"), "lead economics table visible");

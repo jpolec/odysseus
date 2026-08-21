@@ -105,9 +105,11 @@ import pathlib
 import sys
 expected = {
     "web-first-run.png",
+    "web-home.png",
     "web-portfolio.png",
     "web-workspace.png",
     "web-project.png",
+    "web-plans.png",
     "web-attention.png",
     "web-task-review.png",
     "web-task-delivery.png",

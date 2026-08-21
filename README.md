@@ -92,8 +92,10 @@ is shipped and proven; planned architecture remains in the
 
 Click any image for the full-size interface.
 
-| Start with the outcome | Approve and follow the task graph |
+| Start from one clear outcome | Approve the execution graph |
 | --- | --- |
+| [![Odysseus Home](docs/screenshots/web-home.png)](docs/screenshots/web-home.png) | [![Odysseus Plans](docs/screenshots/web-plans.png)](docs/screenshots/web-plans.png) |
+| **Choose the repository and worker** | **Follow repository-wide delivery** |
 | [![New Task with Agent Auto](docs/screenshots/web-new-task.png)](docs/screenshots/web-new-task.png) | [![Repository task graph](docs/screenshots/web-project.png)](docs/screenshots/web-project.png) |
 | **Only decisions need you** | **Review evidence before delivery** |
 | [![Needs You queue](docs/screenshots/web-attention.png)](docs/screenshots/web-attention.png) | [![Evidence-backed review](docs/screenshots/web-task-review.png)](docs/screenshots/web-task-review.png) |
@@ -247,9 +249,10 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes twelve real browser captures—First run, Engineering Portfolio,
-Repositories, Repository, Attention, Review, Delivery, Integration, CI repair,
-Context Receipt, New task, and Settings—to `docs/screenshots/` and
+The script writes fourteen real browser captures—First run, Home, Engineering
+Portfolio, Repositories, Repository, Plans, Attention, Review, Delivery,
+Integration, CI repair, Context Receipt, New task, and Settings—to
+`docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
 
@@ -266,10 +269,22 @@ frames, and disposable Odysseus state.
 
 ### Start with the outcome
 
-New Task keeps the default path to three choices: the finished change, its
+Home asks only what should be delivered and where. Continue opens the same real
+Task flow; Plan first opens the approval-gated Planner flow.
+
+![Odysseus Home](docs/screenshots/web-home.png)
+
+New Task keeps the detailed path to three choices: the finished change, its
 repository, and **Agent: Auto**. Runtime and budget overrides stay collapsed.
 
 ![Odysseus New Task with Agent Auto](docs/screenshots/web-new-task.png)
+
+### Approve the graph before execution
+
+Plans keep proposed graphs open for review. Active plans collapse the graph
+behind a compact progress summary until an operator needs the dependency view.
+
+![Odysseus Plans](docs/screenshots/web-plans.png)
 
 ### One queue for human decisions
 

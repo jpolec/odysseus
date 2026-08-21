@@ -381,6 +381,53 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "operator",
             {"message": "Keep the browser retry contract visible and run the Chromium checkout scenario before review."},
         )
+    store.epics.create(
+        {
+            "title": "Durable release delivery",
+            "description": "Make release publication retry-safe and independently verifiable.",
+            "project_path": str(project),
+            "status": "proposed",
+            "evidence_class": "demo",
+            "plan": {
+                "summary": "Record publication intent before the external effect, then reconcile and verify the receipt.",
+                "tasks": [
+                    {
+                        "task_key": "release-intent",
+                        "title": "Persist publication intent",
+                        "task": "Add an idempotent durable publication request.",
+                        "role": "implementer",
+                        "depends_on": [],
+                        "parallelizable": True,
+                        "lane": "codex",
+                        "review_lane": "claude",
+                        "project_path": str(project),
+                    },
+                    {
+                        "task_key": "release-reconcile",
+                        "title": "Reconcile external receipt",
+                        "task": "Recover an interrupted publication without duplicating it.",
+                        "role": "implementer",
+                        "depends_on": ["release-intent"],
+                        "parallelizable": False,
+                        "lane": "codex",
+                        "review_lane": "claude",
+                        "project_path": str(project),
+                    },
+                    {
+                        "task_key": "release-proof",
+                        "title": "Verify release lineage",
+                        "task": "Validate the artifact and external receipt independently.",
+                        "role": "reviewer",
+                        "depends_on": ["release-reconcile"],
+                        "parallelizable": False,
+                        "lane": "claude",
+                        "review_lane": "codex",
+                        "project_path": str(project),
+                    },
+                ],
+            },
+        }
+    )
     return store
 
 

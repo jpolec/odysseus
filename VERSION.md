@@ -23,6 +23,15 @@ state verification, supply-chain assets, and remote-access guardrails.
 the latest stable release unless the operator explicitly selects `--edge`, a
 version, or an exact ref.
 
+### Unreleased on `main`
+
+The current development checkout also contains the conversation-first web
+shell planned for the next release: a focused Home composer, one grouped Needs
+You queue, compact approval-gated Plans, a dedicated Outcomes portfolio, and a
+task decision surface that keeps execution telemetry folded until requested.
+These changes reuse the existing Task, Plan, evidence, CI, integration, Skill,
+ADR, and Settings APIs; the UI is not a separate system of record.
+
 ## Product contract
 
 Odysseus is a free, local-first delivery system for coding agents:

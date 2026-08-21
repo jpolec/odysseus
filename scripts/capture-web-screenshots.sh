@@ -69,9 +69,11 @@ BASE_URL="http://127.0.0.1:$PORT"
 COMMON=(--headless=new --disable-gpu --no-sandbox --hide-scrollbars --force-device-scale-factor=1 --window-size=1440,1000)
 
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-first-run.png" "http://127.0.0.1:$FIRST_RUN_PORT/"
-"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-portfolio.png" "$BASE_URL/?view=portfolio"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-home.png" "$BASE_URL/?view=portfolio"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-portfolio.png" "$BASE_URL/?view=insights"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-workspace.png" "$BASE_URL/?view=work"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-project.png" "$BASE_URL/#project/$PROJECT_ID"
+"$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-plans.png" "$BASE_URL/?view=epics"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-attention.png" "$BASE_URL/?view=attention"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-task-review.png" "$BASE_URL/#task/$REVIEW_RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-task-delivery.png" "$BASE_URL/#task/$ACCEPTED_RUN_ID"
@@ -80,4 +82,4 @@ COMMON=(--headless=new --disable-gpu --no-sandbox --hide-scrollbars --force-devi
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-context-receipt.png" "$BASE_URL/?tab=context#task/$RUN_ID"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-new-task.png" "$BASE_URL/?view=work&dialog=task&prompt=Review%20authentication%20security"
 "$BROWSER" "${COMMON[@]}" --screenshot="$OUTPUT_DIR/web-settings.png" "$BASE_URL/?view=settings"
-printf 'Twelve real screenshots written to %s\n' "$OUTPUT_DIR"
+printf 'Fourteen real screenshots written to %s\n' "$OUTPUT_DIR"

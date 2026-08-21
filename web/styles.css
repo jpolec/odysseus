@@ -245,16 +245,17 @@ pre { margin: 0; white-space: pre-wrap; }
 .dag { display: grid; gap: 8px; margin: 18px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: linear-gradient(135deg, #f3f6ef, #f8faf5); }
 .dag-node { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 11px 12px 11px 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 2px 6px rgba(29,38,24,.03); }.dag-node::before { position: absolute; top: 10px; bottom: 10px; left: 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent-strong); content: ""; }
 .dag-node strong, .dag-node small { display: block; }.dag-node strong { font-size: 12px; }.dag-node small, .dag-node > span { margin-top: 3px; color: var(--faint); font: 9px var(--mono); }
-.dag-graph { display: grid; grid-template-columns: repeat(var(--dag-columns), minmax(128px,1fr)); gap: 10px 18px; margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfa; }
+.dag-graph { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 18px; margin: 16px 0 8px; padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfa; }
+.dag-column { display: grid; min-width: 0; align-content: start; gap: 10px; }
 .dag-graph-node { position: relative; min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: 5px; background: white; }
 .dag-graph-node::before { position: absolute; top: 50%; left: -19px; width: 18px; height: 1px; background: var(--line-bright); content: ""; }
-.dag-graph-node[style*="grid-column:1"]::before { display: none; }
+.dag-column:first-child .dag-graph-node::before { display: none; }
 .dag-graph-node span, .dag-graph-node strong, .dag-graph-node small, .dag-graph-node em { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dag-graph-node span { color: var(--faint); font: 700 9px var(--mono); text-transform: uppercase; }
 .dag-graph-node strong { margin-top: 4px; font-size: 12px; }
 .dag-graph-node small, .dag-graph-node em { margin-top: 4px; color: var(--muted); font-size: 10px; font-style: normal; }
 .dag-state-running { border-left-color: var(--cyan); }.dag-state-needs-you, .dag-state-blocked { border-left-color: var(--amber); }.dag-state-accepted { border-left-color: #107c10; }.dag-state-failed { border-left-color: var(--red); }
-.dag-edge-list { grid-column: 1 / -1; margin: 0; color: var(--faint); font: 9px/1.45 var(--mono); }
+.dag-edge-list { margin: 0; color: var(--faint); font: 9px/1.45 var(--mono); }
 .dag-linear-fallback { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .evaluation-head, .evaluation-row { display: grid; align-items: center; gap: 12px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
 .evaluation-head { grid-template-columns: 1fr auto; background: var(--surface-2); }.evaluation-head strong { font: 600 18px var(--mono); }.evaluation-head span { color: var(--muted); font: 10px var(--mono); }
@@ -795,11 +796,12 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 .repository-status-grid article { min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); }
 .repository-dependency-graph {
   display: grid;
-  grid-template-columns: repeat(var(--repo-graph-columns,1),minmax(132px,1fr));
+  grid-template-columns: repeat(auto-fit,minmax(150px,1fr));
   gap: 8px;
   margin-top: 11px;
   overflow-x: auto;
 }
+.repository-graph-column { display: grid; min-width: 0; align-content: start; gap: 8px; }
 .repository-graph-node {
   min-width: 132px;
   min-height: 76px;
@@ -838,8 +840,8 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 .gantt-row span,
 .gantt-row em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gantt-row span { font-size: 11px; font-weight: 560; }
-.gantt-row i { position: relative; height: 10px; overflow: hidden; border-radius: 6px; background: var(--surface-3); }
-.gantt-row b { position: absolute; top: 0; bottom: 0; min-width: 7px; border-radius: 6px; }
+.gantt-track { width: 100%; height: 10px; overflow: hidden; border-radius: 6px; background: var(--surface-3); }
+.gantt-track rect { stroke: none; }
 .gantt-row em { color: var(--faint); font-size: 9px; font-style: normal; text-align: right; }
 .repo-status-delivered { border-color: #107c10; background: #107c10; }
 .repository-graph-node.repo-status-delivered { background: #f1faf1; }
@@ -853,6 +855,12 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 .repository-graph-node.repo-status-review { background: #f7f3fb; }
 .repo-status-planned { border-color: #8a8886; background: #8a8886; }
 .repository-graph-node.repo-status-planned { background: #f6f6f6; }
+.gantt-track .repo-status-delivered { fill: #107c10; }
+.gantt-track .repo-status-accepted { fill: var(--accent); }
+.gantt-track .repo-status-running { fill: var(--cyan); }
+.gantt-track .repo-status-blocked { fill: var(--red); }
+.gantt-track .repo-status-review { fill: #8764b8; }
+.gantt-track .repo-status-planned { fill: #8a8886; }
 
 .skills-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin: -12px 0 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .skills-toolbar label { width: min(420px,100%); margin: 0; }
@@ -891,8 +899,10 @@ dialog { border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,.24); }dialog fo
 .failure-row > div { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .failure-row strong { font-size: 11px; font-weight: 560; }
 .failure-row span { color: var(--faint); font: 10px var(--mono); }
-.failure-row i { display: block; height: 5px; overflow: hidden; border-radius: 4px; background: var(--surface-3); }
-.failure-row b { display: block; height: 100%; border-radius: 4px; background: var(--red); }
+.failure-meter { display: block; width: 100%; height: 5px; overflow: hidden; border: 0; border-radius: 4px; background: var(--surface-3); appearance: none; }
+.failure-meter::-webkit-progress-bar { border-radius: 4px; background: var(--surface-3); }
+.failure-meter::-webkit-progress-value { border-radius: 4px; background: var(--red); }
+.failure-meter::-moz-progress-bar { border-radius: 4px; background: var(--red); }
 .portfolio-blockers { max-width: 1480px; margin: 0 auto; }
 .portfolio-blocker-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
 .portfolio-blocker { position: relative; display: grid; grid-template-columns: auto minmax(0,1fr) auto; grid-template-rows: auto auto; align-items: center; gap: 3px 12px; min-width: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: 5px; color: inherit; background: var(--surface); text-align: left; }

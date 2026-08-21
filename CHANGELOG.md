@@ -14,7 +14,23 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
-No unreleased user-facing changes yet.
+- Reworked the web shell around four primary operator surfaces: Home, Needs
+  You, Plans, and Outcomes, while keeping repositories and task history in the
+  persistent sidebar.
+- Added a real outcome-first Home composer that hands work to the existing Task
+  or approval-gated Plan flow instead of introducing a second execution path.
+- Made task pages decision-first: Follow, Decide, and Deliver change with the
+  lifecycle, while workflow stages, usage, CI, and environment remain available
+  in one compact execution disclosure.
+- Made proposed Plan graphs visible for approval and active Plan graphs
+  collapsible behind live task, dependency, attention, and acceptance counts.
+- Moved the engineering portfolio to the Outcomes page so Home is no longer a
+  dashboard hidden inside a task composer.
+- Grouped Settings into execution, resource lifecycle, and optional assistant
+  sections with progressive disclosure.
+- Unified the visual system around a warm neutral canvas, black primary
+  actions, cherry identity, a resizable repository sidebar, and responsive
+  layouts verified in the real-browser regression suite.
 
 ## Released history
 
