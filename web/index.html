@@ -168,7 +168,7 @@
             </div>
             <article class="project-knowledge-card project-decisions-card">
               <header>
-                <div><p class="eyebrow">PROJECT DECISIONS</p><h2>Architecture decisions</h2></div>
+                <div><p class="eyebrow">PROJECT DECISIONS</p><h2>Architecture decisions (ADRs)</h2></div>
                 <div class="decision-head-actions"><span class="quiet-badge" id="projectDecisionCount">0 ADRs</span><button class="primary compact" id="planSelectedDecisions" type="button" disabled>Plan selected</button></div>
               </header>
               <p class="project-decisions-intro">Odysseus reads ADRs from <code>_ADR/</code> and common ADR folders. Select accepted or proposed decisions to turn them into one reviewable task graph.</p>
@@ -210,7 +210,7 @@
         </section>
 
         <section class="view-panel collection-view" id="skillsView">
-          <div class="page-head"><div><p class="eyebrow">ENGINEERING GUIDANCE</p><h1>Skills</h1><p>Choose how each repository guides its agents.</p></div><button class="primary" id="addSkillButton" type="button">＋ Add skill</button></div>
+          <div class="page-head"><div><p class="eyebrow">ENGINEERING GUIDANCE</p><h1>Skills</h1><p>Versioned procedures attached to matching tasks and measured by outcomes.</p></div><button class="primary" id="addSkillButton" type="button">＋ Add skill</button></div>
           <div class="skills-toolbar">
             <label>Repository <select id="skillsProjectSelect"><option value="">Add a repository first</option></select></label>
             <span class="quiet-badge" id="skillsPageCount">0 enabled</span>
@@ -419,8 +419,9 @@
           <div class="page-head"><div><p class="eyebrow">CONTROL</p><h1>Settings</h1><p>Capacity, agents, CI, resources, assistants.</p></div><button class="ghost" id="refreshSettings" type="button">Refresh</button></div>
           <div class="settings-grid">
             <form class="settings-panel" id="settingsForm">
-              <div class="panel-head"><div><p class="eyebrow">TASK EXECUTION</p><h3>Defaults for new work</h3></div></div>
-              <div class="settings-body">
+              <details class="settings-disclosure" open>
+                <summary><span><small>TASK EXECUTION</small><strong>Defaults for new work</strong></span><span>Agents, limits, CI</span></summary>
+                <div class="settings-body">
                 <div class="form-row"><label>Parallel agents <input name="max_parallel" type="number" min="1" max="32" value="2"></label><label>Retry limit <input name="max_retries" type="number" min="0" max="10" value="2"></label></div>
                 <div class="form-row"><label>Default agent <select name="default_lane" id="settingsDefaultLane"></select></label><label>Planner agent <select name="planner_lane" id="settingsPlannerLane"></select></label></div>
                 <label>Review agent <select name="review_lane" id="settingsReviewLane"></select></label>
@@ -433,19 +434,23 @@
                 <label>Resource retention days <input name="resource_retention_days" type="number" min="1" max="365" value="14"></label>
                 <p class="settings-note">Task overrides live under <strong>More options</strong>.</p>
                 <div class="dialog-actions"><button class="primary" type="submit">Save settings</button></div>
-              </div>
+                </div>
+              </details>
             </form>
             <section class="settings-panel">
-              <div class="panel-head"><div><p class="eyebrow">RESOURCE LIFECYCLE</p><h3>Worktrees and runtime directories</h3></div></div>
-              <div class="settings-body">
+              <details class="settings-disclosure">
+                <summary><span><small>RESOURCE LIFECYCLE</small><strong>Worktrees and runtime directories</strong></span><span>Retention and cleanup</span></summary>
+                <div class="settings-body">
                 <div id="resourceSettings"><div class="empty-list">Loading retained resources...</div></div>
                 <p class="settings-note">Recovery and delivery worktrees are kept. Branches are preserved.</p>
                 <div class="dialog-actions"><button class="ghost" data-reclaim-resources="expired" type="button">Reclaim expired</button><button class="ghost" data-reclaim-resources="force" type="button">Reclaim now</button></div>
-              </div>
+                </div>
+              </details>
             </section>
             <form class="settings-panel" id="assistantSettingsForm">
-              <div class="panel-head"><div><p class="eyebrow">ASSISTANT CHAT</p><h3>Models and API keys</h3></div></div>
-              <div class="settings-body">
+              <details class="settings-disclosure">
+                <summary><span><small>ASSISTANT CHAT</small><strong>Models and API keys</strong></span><span>Optional helper</span></summary>
+                <div class="settings-body">
                 <div id="assistantSettings"></div>
                 <div class="assistant-model-fields">
                   <label>OpenAI API model <input name="openai_model" placeholder="Use server default"></label>
@@ -453,13 +458,14 @@
                 </div>
                 <p class="settings-note"><strong>API keys are never saved.</strong> Direct API modes read server environment keys.</p>
                 <div class="dialog-actions"><button class="ghost" type="submit">Save models</button></div>
-              </div>
+                </div>
+              </details>
             </form>
           </div>
         </section>
 
         <section class="view-panel collection-view" id="insightsView">
-          <div class="page-head"><div><p class="eyebrow">ENGINEERING OUTCOMES</p><h1>Insights</h1><p>Search the complete local record and measure agents by successful changes, not activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
+          <div class="page-head"><div><p class="eyebrow">ENGINEERING OUTCOMES</p><h1>Outcomes</h1><p>Measure delivered changes, cost, evidence, and failures — not agent activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
           <div class="insight-grid" id="insightStats"></div>
           <section class="search-panel economics-panel" aria-label="Outcome economics">
             <div class="panel-head"><div><p class="eyebrow">OUTCOME ECONOMICS</p><h3>Lead view</h3></div><div class="inline-controls"><a class="ghost button-link" href="/api/economics?format=csv&view=lead">CSV</a><a class="ghost button-link" href="/api/economics?format=ndjson&view=lead">NDJSON</a></div></div>

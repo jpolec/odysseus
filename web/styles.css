@@ -1365,6 +1365,48 @@ summary:focus-visible {
 .execution-details .environment-card { margin-bottom: 0; }
 .technical-details { max-width: 1180px; }
 
+/* Plans stay scannable; the full DAG opens only when it is useful. */
+.epic-card { display: grid; gap: 10px; }
+.epic-card > h3,
+.epic-card > p { margin: 0; }
+.epic-card > p { max-width: 760px; }
+.epic-progress { display: flex; flex-wrap: wrap; gap: 6px; }
+.epic-progress span { display: inline-flex; align-items: baseline; gap: 4px; min-height: 27px; padding: 5px 8px; border-radius: 7px; color: var(--muted); background: var(--surface-2); font-size: 10px; }
+.epic-progress strong { color: var(--ink); font: 650 11px var(--mono); }
+.epic-progress .needs { color: var(--brand); background: var(--brand-soft); }
+.epic-progress .needs strong { color: var(--brand); }
+.epic-graph-details { margin-top: 2px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.epic-graph-details > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; padding: 9px 12px; cursor: pointer; list-style: none; }
+.epic-graph-details > summary::-webkit-details-marker { display: none; }
+.epic-graph-details > summary:hover { background: var(--surface-2); }
+.epic-graph-details > summary strong,
+.epic-graph-details > summary small { display: block; }
+.epic-graph-details > summary strong { font-size: 11.5px; }
+.epic-graph-details > summary small { margin-top: 3px; color: var(--faint); font-size: 9.5px; }
+.epic-graph-details > summary > span:last-child { color: var(--brand); font: 650 9px var(--mono); white-space: nowrap; }
+.epic-graph-details[open] > summary { border-bottom: 1px solid var(--line); }
+.epic-graph-details[open] > summary > span:last-child { font-size: 0; }
+.epic-graph-details[open] > summary > span:last-child::after { font-size: 9px; content: "Close"; }
+.epic-graph-content { padding: 12px; background: var(--base); }
+.epic-graph-content .epic-source-line { margin-bottom: 10px; }
+.epic-graph-content .dag-graph { margin-top: 0; }
+
+/* Settings use progressive disclosure instead of presenting every control at once. */
+.settings-grid { align-items: start; }
+.settings-panel { overflow: hidden; }
+.settings-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 66px; padding: 12px 15px; cursor: pointer; list-style: none; }
+.settings-disclosure > summary::-webkit-details-marker { display: none; }
+.settings-disclosure > summary:hover { background: var(--surface-2); }
+.settings-disclosure > summary small,
+.settings-disclosure > summary strong { display: block; }
+.settings-disclosure > summary small { margin-bottom: 4px; color: var(--brand); font: 650 8.5px var(--mono); letter-spacing: .08em; }
+.settings-disclosure > summary strong { font-size: 13px; font-weight: 650; }
+.settings-disclosure > summary > span:last-child { color: var(--faint); font-size: 10px; white-space: nowrap; }
+.settings-disclosure[open] > summary { border-bottom: 1px solid var(--line); }
+.settings-disclosure[open] > summary > span:last-child { font-size: 0; }
+.settings-disclosure[open] > summary > span:last-child::after { color: var(--muted); font: 600 9px var(--mono); content: "Close"; }
+.settings-disclosure .settings-body { padding-top: 15px; }
+
 @media (max-width: 700px) {
   .home-hero { margin-top: 6px; }
   .home-compose-bar { align-items: stretch; flex-wrap: wrap; }

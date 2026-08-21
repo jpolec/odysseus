@@ -2354,9 +2354,28 @@ async function refreshEpics() {
     const epicProject = projectById(epic.project_id);
     const sources = epic.source_documents || [];
     const linkedRuns = (epic.run_ids || []).map((runId) => state.runs.find((run) => run.id === runId)).filter(Boolean);
+    const plannedTasks = epic.plan?.tasks || [];
+    const taskCount = linkedRuns.length || plannedTasks.length;
+    const nodeStates = linkedRuns.length
+      ? linkedRuns.map((run) => epicNodeState(run))
+      : plannedTasks.map((task) => epicNodeState(null, task));
+    const activeNodes = nodeStates.filter((value) => value === "Running" || value === "Ready").length;
+    const attentionNodes = nodeStates.filter((value) => value === "Needs You" || value === "Blocked" || value === "Failed").length;
+    const acceptedNodes = nodeStates.filter((value) => value === "Accepted").length;
+    const dependencyCount = (linkedRuns.length ? linkedRuns : plannedTasks).reduce((total, item) => total + (item.dependency_keys || item.depends_on || []).length, 0);
     const sourceLine = sources.length ? `<div class="epic-source-line"><strong>Source decision${sources.length === 1 ? "" : "s"}</strong>${sources.map((source) => `<span title="${escapeHtml(source.sha256 || "")}">${escapeHtml(source.path)} <code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></span>`).join("")}</div>` : "";
     const runButtons = (epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("");
-    return `<article class="stack-card epic-card"><div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div><h3>${escapeHtml(epic.title)}</h3><p>${escapeHtml(epic.status === "proposed" ? "Review graph, then approve." : epic.status === "active" ? "Tasks are running or waiting." : epic.plan?.summary || epic.description || "Planning...")}</p>${sourceLine}${graph}<div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve plan</button>` : ""}${runButtons ? `<details class="card-more-actions"><summary>${linkedRuns.length} task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div></article>`;
+    return `<article class="stack-card epic-card">
+      <div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div>
+      <h3>${escapeHtml(epic.title)}</h3>
+      <p>${escapeHtml(epic.status === "proposed" ? "Review the dependency graph, then approve execution." : epic.status === "active" ? "Odysseus is scheduling dependency-ready tasks." : epic.plan?.summary || epic.description || "Planning...")}</p>
+      <div class="epic-progress" aria-label="Plan progress"><span><strong>${taskCount}</strong> tasks</span><span><strong>${activeNodes}</strong> active</span><span class="${attentionNodes ? "needs" : ""}"><strong>${attentionNodes}</strong> need you</span><span><strong>${acceptedNodes}</strong> accepted</span></div>
+      <details class="epic-graph-details" ${epic.status === "proposed" ? "open" : ""}>
+        <summary><span><strong>${epic.status === "proposed" ? "Review execution graph" : "Execution graph"}</strong><small>${dependencyCount} dependenc${dependencyCount === 1 ? "y" : "ies"} · ${taskCount} task${taskCount === 1 ? "" : "s"}</small></span><span>${epic.status === "proposed" ? "Approval required" : "Open"}</span></summary>
+        <div class="epic-graph-content">${sourceLine}${graph}</div>
+      </details>
+      <div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve and start</button>` : ""}${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
+    </article>`;
   }).join("") : `<div class="empty-card">No plans yet.</div>`;
   $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => {
     const approved = await confirmChoice({eyebrow: "START A TASK PLAN", title: "Approve this plan?", lead: "Every dependency-ready root task will start.", message: "Review the task graph first. Dependent tasks remain blocked until their predecessors produce accepted artifacts.", confirmLabel: "Approve and start"});
@@ -3140,6 +3159,9 @@ async function runBrowserRegression() {
   assert($("#attentionView").textContent.includes("Answer these to continue work."), "Needs You concise header");
   setView("epics");
   assert($("#epicsView").textContent.includes("Approve a graph before agents start."), "Plans concise header");
+  assert($$("#epicList .epic-card").every((card) => card.querySelector(".epic-progress") && card.querySelector(".epic-graph-details")), "Plans expose compact progress and a drill-down graph");
+  const proposedPlan = $$("#epicList .epic-card").find((card) => card.querySelector(".mini-status")?.textContent.trim() === "proposed");
+  if (proposedPlan) assert(proposedPlan.querySelector(".epic-graph-details").open, "proposed plan opens the graph required for approval");
   setView("inbox");
   assert($("#inboxView").textContent.includes("Park work; queue explicitly."), "Follow-ups concise header");
   setView("insights");
@@ -3155,6 +3177,9 @@ async function runBrowserRegression() {
   assert($("#settingsView").textContent.includes("Capacity, agents, CI, resources, assistants."), "Settings concise header");
   assert($("#settingsView").textContent.includes("API keys are never saved."), "settings security detail preserved");
   assert($$("#settingsView .primary").length === 1, "Settings exposes one primary action");
+  assert($$("#settingsView .settings-disclosure").length === 3, "Settings groups advanced controls into three sections");
+  assert($("#settingsForm .settings-disclosure").open, "execution defaults open first");
+  assert(!$("#assistantSettingsForm .settings-disclosure").open, "optional assistant settings start folded");
   document.documentElement.dataset.theme = "dark";
   syncThemeButton();
   assert($("#themeToggle").getAttribute("aria-label") === "Switch to light theme", "dark theme toggle accessible state");
