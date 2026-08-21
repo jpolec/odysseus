@@ -300,8 +300,8 @@ function setView(view) {
   if (view === "epics") refreshEpics();
   if (view === "settings") refreshSettings();
   if (view === "github" && project && [...$("#githubProject").options].some((option) => option.value === project.id)) $("#githubProject").value = project.id;
-  if (view === "insights") refreshInsights();
-  if (view === "portfolio") { renderPortfolioPreview(); refreshPortfolio(); }
+  if (view === "insights") { renderPortfolioPreview(); refreshPortfolio(); refreshInsights(); }
+  if (view === "portfolio") renderHome();
   if (view === "work") renderWork();
   updateGitHubLink();
 }
@@ -3018,13 +3018,16 @@ async function init() {
       api("/api/inbox", {method: "POST", body: JSON.stringify({title: "FAIL browser regression", task: error.message})}).catch(() => {});
     });
     window.setInterval(() => refreshRuns().catch(() => setConnection(false)), 3000);
-    window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics(), state.view === "portfolio" ? refreshPortfolio() : Promise.resolve()]).catch(() => setConnection(false)), 6000);
+    window.setInterval(() => Promise.all([refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics(), state.view === "insights" ? refreshPortfolio() : Promise.resolve()]).catch(() => setConnection(false)), 6000);
   } catch (error) { setConnection(false); toast(error.message, true); }
 }
 
 async function runBrowserRegression() {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+  setView("portfolio");
+  assert($("#portfolioView").textContent.includes("What should we deliver?"), "Home leads with outcome intake");
+  assert(!$("#portfolioView").querySelector("#portfolioKpis"), "Home does not duplicate the Outcomes portfolio");
   assert($("#workDescription").textContent.includes("Choose where") || $("#workDescription").textContent.includes("task"), "repository default summary is concise");
   assert($('[data-journey-step="3"] strong')?.textContent === "Review", "first-run journey uses short review label");
   assert($("#sidebarResizer")?.getAttribute("aria-label") === "Resize repository sidebar", "sidebar resize handle accessible name");
@@ -3166,6 +3169,8 @@ async function runBrowserRegression() {
   assert($("#inboxView").textContent.includes("Park work; queue explicitly."), "Follow-ups concise header");
   setView("insights");
   await refreshInsights();
+  assert($("#insightsView").querySelector("#portfolioKpis"), "Outcomes owns the engineering portfolio");
+  assert($("#insightsView").textContent.includes("Delivery, not activity."), "Outcomes leads with delivered work");
   assert($("#economicsFormula").textContent.includes("Expected cost"), "economics formula visible");
   assert($("#economicsFormula").textContent.includes("Sample"), "economics sample size visible");
   assert($("#economicsLeadTable").textContent.includes("Observed cost"), "lead economics table visible");

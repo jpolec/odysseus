@@ -1407,6 +1407,19 @@ summary:focus-visible {
 .settings-disclosure[open] > summary > span:last-child::after { color: var(--muted); font: 600 9px var(--mono); content: "Close"; }
 .settings-disclosure .settings-body { padding-top: 15px; }
 
+/* Outcomes owns the portfolio; Home stays a focused intake and attention surface. */
+#insightsView { max-width: 1260px; }
+.outcomes-portfolio { margin: 4px 0 28px; }
+.outcomes-summary-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 16px; padding: 18px 0 20px; border-top: 1px solid var(--line); }
+.outcomes-summary-head h2 { margin: 2px 0 0; font-size: clamp(22px, 3vw, 30px); font-weight: 650; letter-spacing: -.035em; }
+.outcomes-summary-head p:last-child { max-width: 660px; margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.outcomes-portfolio .portfolio-kpis,
+.outcomes-portfolio .portfolio-grid,
+.outcomes-portfolio .portfolio-blockers,
+.outcomes-portfolio .portfolio-method { max-width: none; }
+.outcomes-portfolio .portfolio-kpis { margin-bottom: 14px; }
+.outcomes-portfolio .portfolio-grid { margin-bottom: 14px; }
+
 @media (max-width: 700px) {
   .home-hero { margin-top: 6px; }
   .home-compose-bar { align-items: stretch; flex-wrap: wrap; }
@@ -1421,4 +1434,5 @@ summary:focus-visible {
   .home-portfolio > summary > span:last-child { display: none; }
   .execution-details > summary { align-items: flex-start; flex-direction: column; gap: 5px; }
   .execution-details > summary > span:last-child { max-width: 100%; text-align: left; }
+  .outcomes-summary-head { align-items: stretch; flex-direction: column; }
 }

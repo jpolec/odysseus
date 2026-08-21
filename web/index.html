@@ -94,31 +94,6 @@
               <div id="homeWorkingList" class="home-list"><div class="home-empty">No agents are running.</div></div>
             </section>
           </div>
-          <details class="home-portfolio">
-            <summary><span><strong>Delivery outcomes</strong><small>Cost, quality, failures, and agent effectiveness</small></span><span>Open portfolio</span></summary>
-            <div class="home-portfolio-body">
-              <header class="portfolio-hero">
-                <div><p class="eyebrow">ENGINEERING PORTFOLIO</p><h1>Delivery, not activity.</h1><p>Audited outcomes across every coding agent. Missing cost stays unknown and every percentage includes its observed sample.</p></div>
-                <div class="portfolio-controls"><label>Window <select id="portfolioWindow"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label><button class="ghost" id="refreshPortfolio" type="button">Refresh</button></div>
-              </header>
-              <div class="portfolio-kpis" id="portfolioKpis"><div class="portfolio-loading">Loading delivery outcomes…</div></div>
-              <div class="portfolio-grid">
-                <section class="portfolio-panel portfolio-agents">
-                  <header><div><p class="eyebrow">AGENT EFFECTIVENESS</p><h2>Workers measured by outcomes</h2></div><span class="quiet-badge" id="portfolioAgentCount">Loading…</span></header>
-                  <div class="portfolio-table-wrap"><table class="portfolio-table" id="portfolioAgentTable"></table></div>
-                </section>
-                <section class="portfolio-panel portfolio-failures">
-                  <header><div><p class="eyebrow">FAILURE ATTRIBUTION</p><h2>Where delivery stops</h2></div><span class="quiet-badge" id="portfolioFailureCount">Loading…</span></header>
-                  <div class="failure-bars" id="portfolioFailures"></div>
-                </section>
-              </div>
-              <section class="portfolio-panel portfolio-blockers">
-                <header><div><p class="eyebrow">OPEN BLOCKERS</p><h2>Currently blocked</h2></div><button class="ghost compact" data-open-view="attention" type="button">Open Needs You</button></header>
-                <div class="portfolio-blocker-list" id="portfolioBlockers"></div>
-              </section>
-              <p class="portfolio-method" id="portfolioMethod">Metrics are derived from the local event journal. Missing cost stays unknown.</p>
-            </div>
-          </details>
         </section>
 
         <section class="view-panel work-view" id="workView">
@@ -466,6 +441,28 @@
 
         <section class="view-panel collection-view" id="insightsView">
           <div class="page-head"><div><p class="eyebrow">ENGINEERING OUTCOMES</p><h1>Outcomes</h1><p>Measure delivered changes, cost, evidence, and failures — not agent activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
+          <section class="outcomes-portfolio" aria-label="Engineering portfolio">
+            <header class="outcomes-summary-head">
+              <div><p class="eyebrow">DELIVERY PORTFOLIO</p><h2>Delivery, not activity.</h2><p>Audited outcomes across every coding agent. Missing cost stays unknown and every percentage includes its observed sample.</p></div>
+              <div class="portfolio-controls"><label>Window <select id="portfolioWindow"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label><button class="ghost" id="refreshPortfolio" type="button">Refresh</button></div>
+            </header>
+            <div class="portfolio-kpis" id="portfolioKpis"><div class="portfolio-loading">Loading delivery outcomes…</div></div>
+            <div class="portfolio-grid">
+              <section class="portfolio-panel portfolio-agents">
+                <header><div><p class="eyebrow">AGENT EFFECTIVENESS</p><h2>Workers measured by outcomes</h2></div><span class="quiet-badge" id="portfolioAgentCount">Loading…</span></header>
+                <div class="portfolio-table-wrap"><table class="portfolio-table" id="portfolioAgentTable"></table></div>
+              </section>
+              <section class="portfolio-panel portfolio-failures">
+                <header><div><p class="eyebrow">FAILURE ATTRIBUTION</p><h2>Where delivery stops</h2></div><span class="quiet-badge" id="portfolioFailureCount">Loading…</span></header>
+                <div class="failure-bars" id="portfolioFailures"></div>
+              </section>
+            </div>
+            <section class="portfolio-panel portfolio-blockers">
+              <header><div><p class="eyebrow">OPEN BLOCKERS</p><h2>Currently blocked</h2></div><button class="ghost compact" data-open-view="attention" type="button">Open Needs You</button></header>
+              <div class="portfolio-blocker-list" id="portfolioBlockers"></div>
+            </section>
+            <p class="portfolio-method" id="portfolioMethod">Metrics are derived from the local event journal. Missing cost stays unknown.</p>
+          </section>
           <div class="insight-grid" id="insightStats"></div>
           <section class="search-panel economics-panel" aria-label="Outcome economics">
             <div class="panel-head"><div><p class="eyebrow">OUTCOME ECONOMICS</p><h3>Lead view</h3></div><div class="inline-controls"><a class="ghost button-link" href="/api/economics?format=csv&view=lead">CSV</a><a class="ghost button-link" href="/api/economics?format=ndjson&view=lead">NDJSON</a></div></div>
