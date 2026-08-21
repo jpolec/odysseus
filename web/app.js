@@ -1,8 +1,8 @@
 "use strict";
 
 const THEME_KEY = "odysseus-theme";
-const SIDEBAR_WIDTH_KEY = "odysseus-sidebar-width";
-const DEFAULT_SIDEBAR_WIDTH = 340;
+const SIDEBAR_WIDTH_KEY = "odysseus-sidebar-width-v2";
+const DEFAULT_SIDEBAR_WIDTH = 288;
 const MIN_SIDEBAR_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 520;
 let savedTheme = "";
@@ -281,16 +281,15 @@ function setView(view) {
   state.view = view;
   document.body.dataset.view = view;
   document.body.classList.toggle("task-open", view === "tasks");
-  $$(".nav-button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+  $$(".nav-button, .sidebar-primary-link").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $$(".view-panel").forEach((panel) => panel.classList.remove("active"));
   $(`#${view}View`)?.classList.add("active");
-  const surfaceNames = {portfolio: "Portfolio", work: "Repositories", attention: "Needs You", skills: "Skills", epics: "Plans", tasks: "Task", sessions: "Terminals", inbox: "Follow-ups", projects: "Manage repositories", insights: "Search & insights", github: "GitHub issues", settings: "Settings"};
+  const surfaceNames = {portfolio: "Home", work: "Repositories", attention: "Needs You", skills: "Skills", epics: "Plans", tasks: "Task", sessions: "Terminals", inbox: "Follow-ups", projects: "Manage repositories", insights: "Outcomes", github: "GitHub issues", settings: "Settings"};
   const project = activeProject();
   const scopedProject = ["work", "tasks", "epics", "github"].includes(view) ? project : null;
   $("#titleProject").textContent = scopedProject ? projectName(scopedProject) : "Odysseus";
   $("#titleSurface").textContent = surfaceNames[view] || "Overview";
   $("#allWorkButton").classList.toggle("selected", view === "work" && state.projectFilter === "all");
-  $("#sidebarAttentionButton").classList.toggle("selected", view === "attention");
   if (view !== "tasks") closeStream();
   if (view === "tasks" && state.selectedId) openStream(state.selectedId);
   if (view === "tasks" && !state.selectedId && state.runs.length) selectRun(state.runs[0].id);
@@ -377,6 +376,7 @@ function repositoryScopedSessions() {
 function updateSessionNavCount() {
   const count = repositoryScopedSessions().length;
   $("#sessionNavCount").textContent = count || "";
+  $("#sidebarSessionCount").textContent = count || "";
 }
 
 function environmentFromForm(data) {
@@ -405,7 +405,7 @@ function environmentFromForm(data) {
 function renderProjectTree() {
   $("#projectCount").textContent = state.projects.length;
   $("#allWorkCount").textContent = state.projects.length;
-  $("#sidebarAttentionCount").textContent = attentionTaskCount();
+  $("#sidebarPrimaryAttentionCount").textContent = attentionTaskCount() || "";
   updateSessionNavCount();
   const currentProject = activeProject();
   $(".task-section").classList.toggle("hidden", !currentProject);
@@ -1072,6 +1072,7 @@ function renderWork() {
   $("#workPlanButton").classList.toggle("hidden", !project);
   $("#workNewTaskButton").classList.toggle("hidden", !state.projects.length);
   $("#newTaskButton").classList.toggle("hidden", !state.projects.length);
+  $$('[data-new-task]').forEach((button) => button.classList.toggle("hidden", !state.projects.length));
   $("#workListEyebrow").textContent = project ? "TASKS" : "REPOSITORIES";
   $("#workListTitle").textContent = project ? "Recent work" : "Your repositories";
   $("#workListDescription").textContent = project ? "Latest tasks for this repository." : "Saved local checkouts.";
@@ -2220,6 +2221,7 @@ async function refreshAttention() {
   const highPriority = groups.filter((group) => ["critical", "high"].includes(group.priority)).length;
   const multiple = groups.filter((group) => group.items.length > 1).length;
   $("#attentionNavCount").textContent = groups.length || "";
+  $("#sidebarPrimaryAttentionCount").textContent = groups.length || "";
   renderProjectTree(); renderWork();
   $("#attentionSummary").innerHTML = [
     [groups.length, "tasks need you"],
@@ -2703,7 +2705,7 @@ function bindDialogs() {
     finally { submit.disabled = false; }
   });
   const taskDialog = $("#taskDialog");
-  [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton")].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); state.taskAgentRecommendation = null; renderTaskAgentRecommendation(); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); scheduleTaskAgentRecommendation(); taskDialog.showModal(); }));
+  [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton"), ...$$('[data-new-task]')].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); state.taskAgentRecommendation = null; renderTaskAgentRecommendation(); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); scheduleTaskAgentRecommendation(); taskDialog.showModal(); }));
   $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); scheduleTaskAgentRecommendation(); });
   $("#taskPrompt").addEventListener("input", () => { scheduleTaskSkillRecommendations(); scheduleTaskAgentRecommendation(); });
   $("#laneSelect").addEventListener("change", scheduleTaskAgentRecommendation);
@@ -2904,11 +2906,11 @@ async function init() {
     syncThemeButton();
     initSidebarResize();
     $("#themeToggle").addEventListener("click", toggleTheme);
-    $$(".nav-button").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
+    $$(".nav-button, .sidebar-primary-link").forEach((button) => button.addEventListener("click", () => setView(button.dataset.view))); $$('[data-open-view]').forEach((button) => button.addEventListener("click", () => setView(button.dataset.openView)));
     $$(".filter").forEach((button) => button.addEventListener("click", () => { state.filter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderRuns(); }));
     $$(".tab").forEach((button) => button.addEventListener("click", () => activateTab(button.dataset.tab)));
     $$(".task-section-tab").forEach((button) => button.addEventListener("click", () => activateTaskSection(button.dataset.section)));
-    $("#allWorkButton").addEventListener("click", () => selectProject("all")); $("#sidebarAttentionButton").addEventListener("click", () => setView("attention")); $("#backToProject").addEventListener("click", () => selectProject(state.selected?.project_id || state.projectFilter));
+    $("#allWorkButton").addEventListener("click", () => selectProject("all")); $("#backToProject").addEventListener("click", () => selectProject(state.selected?.project_id || state.projectFilter));
     $("#parallelLabel").addEventListener("click", () => setView("settings"));
     $("#workListToggle").addEventListener("click", () => setWorkListExpanded(!state.workListExpanded));
     $(".brand").addEventListener("click", (event) => { event.preventDefault(); setView("portfolio"); });

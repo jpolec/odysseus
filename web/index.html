@@ -12,7 +12,7 @@
     <header class="titlebar">
       <a class="brand" href="#" aria-label="Open Odysseus portfolio">
         <img class="brand-mark" src="/odysseus-icon.svg" alt="" aria-hidden="true">
-        <span class="brand-copy"><strong>ODYSSEUS</strong><small>The delivery system for coding agents</small></span>
+        <span class="brand-copy"><strong>ODYSSEUS</strong><small>Delivery system for coding agents</small></span>
       </a>
       <div class="title-context" aria-label="Current location"><span id="titleProject">Odysseus</span><i>/</i><strong id="titleSurface">Portfolio</strong></div>
       <label class="global-search" title="Press Enter to search all local Odysseus history"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m14.2 13.3 3.4 3.4-.9.9-3.4-3.4a6.5 6.5 0 1 1 .9-.9ZM9.1 14.2a5.1 5.1 0 1 0 0-10.2 5.1 5.1 0 0 0 0 10.2Z"/></svg><input id="globalSearch" type="search" placeholder="Search tasks and events" aria-label="Search all Odysseus history"><kbd>⌘K</kbd></label>
@@ -25,7 +25,7 @@
     </header>
 
     <main class="workbench">
-      <nav class="activity-bar" aria-label="Primary views">
+      <nav class="activity-bar" aria-label="Compact primary views">
         <button class="nav-button active" data-view="portfolio" type="button" aria-label="Engineering portfolio" title="Engineering portfolio"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5V11h3v8.5H4Zm6.5 0V4.5h3v15h-3Zm6.5 0V8h3v11.5h-3Z"/></svg></button>
         <button class="nav-button" data-view="work" type="button" aria-label="Repositories and tasks" title="Repositories and tasks"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 5.5h6l2 2h9v11h-17v-13Zm1.5 2v9.5h14V9h-8.1l-2-2H5Z"/></svg></button>
         <button class="nav-button" data-view="attention" type="button" aria-label="Needs You" title="Needs You"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6v3.8L4.4 16v1.5h15.2V16L18 12.8V9a6 6 0 0 0-6-6Zm-4.5 6a4.5 4.5 0 0 1 9 0v4.2l1.4 2.8H6.1l1.4-2.8V9Zm2.2 10a2.5 2.5 0 0 0 4.6 0H9.7Z"/></svg><span class="activity-badge nav-count" id="attentionNavCount"></span></button>
@@ -36,9 +36,15 @@
       </nav>
 
       <aside class="project-explorer" id="projectExplorer">
-        <div class="explorer-title"><span>REPOSITORIES</span><button class="icon-button small" id="addProjectButton" type="button" aria-label="Add repository" title="Add repository">＋</button></div>
+        <div class="explorer-title"><span>WORKSPACE</span><button class="icon-button small" id="addProjectButton" type="button" aria-label="Add repository" title="Add repository">＋</button></div>
+        <button class="sidebar-new-task" data-new-task type="button"><span>＋</span><strong>New task</strong><kbd>N</kbd></button>
+        <nav class="sidebar-primary" aria-label="Odysseus views">
+          <button class="sidebar-primary-link active" data-view="portfolio" type="button"><span>⌂</span><strong>Home</strong></button>
+          <button class="sidebar-primary-link" data-view="attention" type="button"><span>!</span><strong>Needs You</strong><small id="sidebarPrimaryAttentionCount"></small></button>
+          <button class="sidebar-primary-link" data-view="epics" type="button"><span>◇</span><strong>Plans</strong><small id="epicNavCount"></small></button>
+          <button class="sidebar-primary-link" data-view="insights" type="button"><span>↗</span><strong>Outcomes</strong></button>
+        </nav>
         <button class="workspace-link selected" id="allWorkButton" type="button"><span class="workspace-icon">⌂</span><strong>All repositories</strong><span id="allWorkCount">0</span></button>
-        <button class="workspace-link" id="sidebarAttentionButton" type="button"><span class="workspace-icon">!</span><strong>Needs You</strong><span id="sidebarAttentionCount">0</span></button>
         <section class="explorer-section">
           <header><span>YOUR REPOSITORIES</span><small id="projectCount">0</small></header>
           <div class="project-tree" id="projectTree"></div>
@@ -51,15 +57,15 @@
         </section>
         <section class="explorer-section explorer-tools">
           <header><span>MORE</span></header>
-          <button data-open-view="epics" type="button"><span>◇</span> Plans <small class="nav-count" id="epicNavCount"></small></button>
           <button data-open-view="inbox" type="button"><span>□</span> Follow-ups <small class="nav-count" id="inboxNavCount"></small></button>
           <button data-open-view="github" type="button"><span>#</span> GitHub issues</button>
-          <button data-open-view="insights" type="button"><span>⌕</span> Search &amp; insights</button>
+          <button data-open-view="skills" type="button"><span>◆</span> Skills</button>
+          <button data-open-view="sessions" type="button"><span>›_</span> Terminals <small class="nav-count" id="sidebarSessionCount"></small></button>
           <button data-open-view="projects" type="button"><span>⚙</span> Manage repositories</button>
           <button data-open-view="settings" type="button"><span>⚙</span> Settings</button>
         </section>
       </aside>
-      <button class="sidebar-resizer" id="sidebarResizer" type="button" aria-label="Resize repository sidebar" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="520" aria-valuenow="340" title="Drag or use arrow keys to resize sidebar"></button>
+      <button class="sidebar-resizer" id="sidebarResizer" type="button" aria-label="Resize repository sidebar" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="520" aria-valuenow="288" title="Drag or use arrow keys to resize sidebar"></button>
 
       <section class="workspace">
         <section class="view-panel portfolio-view active" id="portfolioView">
