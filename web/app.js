@@ -1121,6 +1121,7 @@ function renderRuns() {
   }).join("") : `<div class="empty-list">No tasks in this view.</div>`;
   $$(".task-card[data-run-id]").forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.runId)));
   renderProjectTree();
+  renderHome();
 }
 
 async function refreshRuns() {
@@ -2222,7 +2223,7 @@ async function refreshAttention() {
   const multiple = groups.filter((group) => group.items.length > 1).length;
   $("#attentionNavCount").textContent = groups.length || "";
   $("#sidebarPrimaryAttentionCount").textContent = groups.length || "";
-  renderProjectTree(); renderWork();
+  renderProjectTree(); renderWork(); renderHome();
   $("#attentionSummary").innerHTML = [
     [groups.length, "tasks need you"],
     [state.attention.length, "open decisions"],
@@ -2351,12 +2352,13 @@ async function refreshProjects() {
   $("#taskProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
   $("#epicProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
   $("#skillsProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
-  if (preferred) { $("#taskProjectSelect").value = preferred; $("#epicProjectSelect").value = preferred; $("#skillsProjectSelect").value = preferred; }
+  $("#homeProjectSelect").innerHTML = projectOptions || `<option value="">Add a repository first</option>`;
+  if (preferred) { $("#taskProjectSelect").value = preferred; $("#epicProjectSelect").value = preferred; $("#skillsProjectSelect").value = preferred; $("#homeProjectSelect").value = preferred; }
   syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject"));
   syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject"));
   $("#inboxProjectSelect").innerHTML = `<option value="">No repository</option>${projectOptions}`;
   $("#githubProject").innerHTML = state.projects.filter((project) => project.github_url).map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(projectOptionLabel(project))}</option>`).join("") || `<option value="">No GitHub repositories</option>`;
-  renderProjects(); renderRuns(); renderProjectTree(); renderWork(); updateGitHubLink();
+  renderProjects(); renderRuns(); renderProjectTree(); renderWork(); renderHome(); updateGitHubLink();
 }
 
 async function forgetProject(identifier) {
@@ -2536,6 +2538,42 @@ function portfolioMoney(value) {
 
 function portfolioMetric(label, value, note, tone = "") {
   return `<article class="portfolio-kpi ${escapeHtml(tone)}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><p>${escapeHtml(note)}</p></article>`;
+}
+
+function renderHome() {
+  const attention = groupAttention().slice(0, 4);
+  const workingStatuses = new Set(["queued", "starting", "running", "checking", "reviewing", "planning"]);
+  const working = state.runs
+    .filter((run) => run.kind !== "tmux" && workingStatuses.has(run.status))
+    .sort((left, right) => new Date(right.updated_at || 0) - new Date(left.updated_at || 0))
+    .slice(0, 6);
+  $("#homeAttentionList").innerHTML = attention.length ? attention.map((group) => {
+    const first = group.items[0] || {};
+    const project = projectById(group.project_id);
+    return `<button class="home-row needs-action" data-home-run="${escapeHtml(group.run_id)}" type="button"><span class="home-row-state">${escapeHtml(String(group.items.length))}</span><span><small>${escapeHtml(projectName(project))} · ${escapeHtml(attentionItemLabel(first))}</small><strong>${escapeHtml(first.run_title || first.title || "Decision required")}</strong><em>${escapeHtml(first.message || first.task || "Open the task to continue.")}</em></span><b>${group.items.length > 1 ? `${group.items.length} decisions` : "Review"} →</b></button>`;
+  }).join("") : `<div class="home-empty"><strong>Nothing needs you.</strong><span>Odysseus will surface a decision here instead of making you watch logs.</span></div>`;
+  $("#homeWorkingList").innerHTML = working.length ? working.map((run) => `<button class="home-row" data-home-run="${escapeHtml(run.id)}" type="button"><span class="home-row-state is-running"></span><span><small>${escapeHtml(projectName(projectById(run.project_id)))} · ${escapeHtml(statusLabel(run.status))}</small><strong>${escapeHtml(runTitle(run))}</strong><em>${escapeHtml(runActionLine(run))}</em></span><b>${escapeHtml(relativeTime(run.updated_at))} →</b></button>`).join("") : `<div class="home-empty"><strong>No agents are running.</strong><span>Describe one finished change above to start.</span></div>`;
+  $$('[data-home-run]').forEach((button) => button.addEventListener("click", () => button.dataset.homeRun ? selectRun(button.dataset.homeRun) : setView("attention")));
+}
+
+function continueHomeTask(asPlan = false) {
+  if (!state.projects.length) { $("#projectDialog").showModal(); return; }
+  const prompt = $("#homeTaskPrompt").value.trim();
+  if (!prompt) { $("#homeTaskPrompt").focus(); toast("Describe the finished change first.", true); return; }
+  const projectId = $("#homeProjectSelect").value || preferredProjectId();
+  if (asPlan) {
+    openEpicDialog();
+    $("#epicProjectSelect").value = projectId;
+    $("#epicProjectSelect").dispatchEvent(new Event("change"));
+    $("#epicForm").elements.requirement.value = prompt;
+    return;
+  }
+  $("#newTaskButton").click();
+  $("#taskProjectSelect").value = projectId;
+  $("#taskProjectSelect").dispatchEvent(new Event("change"));
+  $("#taskPrompt").value = prompt;
+  $("#taskPrompt").dispatchEvent(new Event("input"));
+  $("#taskPrompt").focus();
 }
 
 function renderPortfolioPreview() {
@@ -2912,10 +2950,17 @@ async function init() {
     $$(".task-section-tab").forEach((button) => button.addEventListener("click", () => activateTaskSection(button.dataset.section)));
     $("#allWorkButton").addEventListener("click", () => selectProject("all")); $("#backToProject").addEventListener("click", () => selectProject(state.selected?.project_id || state.projectFilter));
     $("#parallelLabel").addEventListener("click", () => setView("settings"));
+    $("#homeStartTask").addEventListener("click", () => continueHomeTask(false));
+    $("#homePlanTask").addEventListener("click", () => continueHomeTask(true));
+    $("#homeOpenRepositories").addEventListener("click", () => selectProject("all"));
+    $("#homeTaskPrompt").addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); continueHomeTask(false); } });
     $("#workListToggle").addEventListener("click", () => setWorkListExpanded(!state.workListExpanded));
     $(".brand").addEventListener("click", (event) => { event.preventDefault(); setView("portfolio"); });
     $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#refreshPortfolio").addEventListener("click", refreshPortfolio); $("#portfolioWindow").addEventListener("change", refreshPortfolio); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
-    document.addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#globalSearch").focus(); } });
+    document.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#globalSearch").focus(); return; }
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "n" && !/input|textarea|select/i.test(event.target.tagName) && !$("dialog[open]")) { event.preventDefault(); $("[data-new-task]").click(); }
+    });
     await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns(); await refreshAttention();
     const params = new URLSearchParams(location.search);
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);

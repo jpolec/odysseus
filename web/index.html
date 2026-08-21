@@ -69,26 +69,56 @@
 
       <section class="workspace">
         <section class="view-panel portfolio-view active" id="portfolioView">
-          <header class="portfolio-hero">
-            <div><p class="eyebrow">ENGINEERING PORTFOLIO</p><h1>Delivery, not activity.</h1><p>Planning, isolation, execution, verification, review, delivery, memory, and economics — across every coding agent.</p></div>
-            <div class="portfolio-controls"><label>Window <select id="portfolioWindow"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label><button class="ghost" id="refreshPortfolio" type="button">Refresh</button></div>
+          <header class="home-hero">
+            <p class="eyebrow">ODYSSEUS</p>
+            <h1>What should we deliver?</h1>
+            <p>Describe the finished change. Odysseus chooses a worker, isolates the repository, verifies the result, and asks you only when a decision is needed.</p>
           </header>
-          <div class="portfolio-kpis" id="portfolioKpis"><div class="portfolio-loading">Loading delivery outcomes…</div></div>
-          <div class="portfolio-grid">
-            <section class="portfolio-panel portfolio-agents">
-              <header><div><p class="eyebrow">AGENT EFFECTIVENESS</p><h2>Workers measured by outcomes</h2></div><span class="quiet-badge" id="portfolioAgentCount">Loading…</span></header>
-              <div class="portfolio-table-wrap"><table class="portfolio-table" id="portfolioAgentTable"></table></div>
+          <section class="home-compose" aria-label="Start engineering work">
+            <textarea id="homeTaskPrompt" rows="3" placeholder="Example: Fix CSV import errors, preserve the public API, add a regression test, and run the existing suite."></textarea>
+            <div class="home-compose-bar">
+              <label><span>Repository</span><select id="homeProjectSelect"><option value="">Add a repository first</option></select></label>
+              <span class="home-agent-note">Agent <strong>Auto</strong> · recommended</span>
+              <span class="home-compose-spacer"></span>
+              <button class="ghost" id="homePlanTask" type="button">Plan first</button>
+              <button class="primary" id="homeStartTask" type="button">Continue</button>
+            </div>
+          </section>
+          <div class="home-queues">
+            <section class="home-queue">
+              <header><div><p class="eyebrow">NEEDS YOU</p><h2>Decisions, not notifications</h2></div><button class="text-button" data-open-view="attention" type="button">View all</button></header>
+              <div id="homeAttentionList" class="home-list"><div class="home-empty">Nothing needs you.</div></div>
             </section>
-            <section class="portfolio-panel portfolio-failures">
-              <header><div><p class="eyebrow">FAILURE ATTRIBUTION</p><h2>Where delivery stops</h2></div><span class="quiet-badge" id="portfolioFailureCount">Loading…</span></header>
-              <div class="failure-bars" id="portfolioFailures"></div>
+            <section class="home-queue">
+              <header><div><p class="eyebrow">WORKING NOW</p><h2>Active delivery</h2></div><button class="text-button" id="homeOpenRepositories" type="button">Repositories</button></header>
+              <div id="homeWorkingList" class="home-list"><div class="home-empty">No agents are running.</div></div>
             </section>
           </div>
-          <section class="portfolio-panel portfolio-blockers">
-            <header><div><p class="eyebrow">NEEDS ATTENTION</p><h2>Currently blocked</h2></div><button class="ghost compact" data-open-view="attention" type="button">Open Needs You</button></header>
-            <div class="portfolio-blocker-list" id="portfolioBlockers"></div>
-          </section>
-          <p class="portfolio-method" id="portfolioMethod">Metrics are derived from the local event journal. Missing cost stays unknown.</p>
+          <details class="home-portfolio">
+            <summary><span><strong>Delivery outcomes</strong><small>Cost, quality, failures, and agent effectiveness</small></span><span>Open portfolio</span></summary>
+            <div class="home-portfolio-body">
+              <header class="portfolio-hero">
+                <div><p class="eyebrow">ENGINEERING PORTFOLIO</p><h1>Delivery, not activity.</h1><p>Audited outcomes across every coding agent. Missing cost stays unknown and every percentage includes its observed sample.</p></div>
+                <div class="portfolio-controls"><label>Window <select id="portfolioWindow"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label><button class="ghost" id="refreshPortfolio" type="button">Refresh</button></div>
+              </header>
+              <div class="portfolio-kpis" id="portfolioKpis"><div class="portfolio-loading">Loading delivery outcomes…</div></div>
+              <div class="portfolio-grid">
+                <section class="portfolio-panel portfolio-agents">
+                  <header><div><p class="eyebrow">AGENT EFFECTIVENESS</p><h2>Workers measured by outcomes</h2></div><span class="quiet-badge" id="portfolioAgentCount">Loading…</span></header>
+                  <div class="portfolio-table-wrap"><table class="portfolio-table" id="portfolioAgentTable"></table></div>
+                </section>
+                <section class="portfolio-panel portfolio-failures">
+                  <header><div><p class="eyebrow">FAILURE ATTRIBUTION</p><h2>Where delivery stops</h2></div><span class="quiet-badge" id="portfolioFailureCount">Loading…</span></header>
+                  <div class="failure-bars" id="portfolioFailures"></div>
+                </section>
+              </div>
+              <section class="portfolio-panel portfolio-blockers">
+                <header><div><p class="eyebrow">OPEN BLOCKERS</p><h2>Currently blocked</h2></div><button class="ghost compact" data-open-view="attention" type="button">Open Needs You</button></header>
+                <div class="portfolio-blocker-list" id="portfolioBlockers"></div>
+              </section>
+              <p class="portfolio-method" id="portfolioMethod">Metrics are derived from the local event journal. Missing cost stays unknown.</p>
+            </div>
+          </details>
         </section>
 
         <section class="view-panel work-view" id="workView">
