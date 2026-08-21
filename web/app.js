@@ -19,7 +19,7 @@ const state = {
   taskAgentRecommendation: null, taskAgentTimer: null,
   skillsProjectId: "", skillsCatalog: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
-  assistantOpen: false, helpOpen: false,
+  assistantOpen: false, helpOpen: false, activityFocus: false,
   selectedDecisionPaths: [],
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
@@ -147,6 +147,25 @@ function compactMoney(value) {
   const amount = Number(value || 0);
   if (amount > 0 && amount < 0.01) return `$${amount.toFixed(4)}`;
   return `$${amount.toFixed(2)}`;
+}
+function formatDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return "—";
+  if (value < 60) return `${Math.round(value)}s`;
+  const minutes = Math.floor(value / 60);
+  const remainingSeconds = Math.round(value % 60);
+  if (minutes < 60) return remainingSeconds ? `${minutes}m ${remainingSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+function runElapsedSeconds(run) {
+  const start = new Date(run?.started_at || run?.created_at || "").getTime();
+  if (!Number.isFinite(start)) return null;
+  const terminal = !activeStatuses.has(run?.status);
+  const endValue = run?.finished_at || run?.artifact_created_at || (terminal ? run?.updated_at : "");
+  const end = endValue ? new Date(endValue).getTime() : Date.now();
+  return Number.isFinite(end) ? Math.max(0, (end - start) / 1000) : null;
 }
 function formatBytes(value) {
   let size = Number(value || 0);
@@ -301,6 +320,7 @@ function setFormSubmitting(form, submitting, activeButton, label) {
 
 function setView(view) {
   if (view === "projects" && !$("#projectsView")) view = "work";
+  if (view !== "tasks" && state.activityFocus) setActivityFocus(false);
   state.view = view;
   document.body.dataset.view = view;
   document.body.classList.toggle("task-open", view === "tasks");
@@ -427,11 +447,23 @@ function activateTab(name) {
 }
 
 function activateTaskSection(name) {
+  if (name !== "activity" && state.activityFocus) setActivityFocus(false);
   state.taskSection = name;
   $$(".task-section-tab").forEach((item) => item.classList.toggle("active", item.dataset.section === name));
   $$(".task-section-pane").forEach((pane) => pane.classList.toggle("active", pane.id === `task-section-${name}`));
   renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
   if (state.helpOpen) renderHelpPanel();
+}
+
+function setActivityFocus(enabled) {
+  state.activityFocus = Boolean(enabled && state.view === "tasks" && state.taskSection === "activity");
+  document.body.classList.toggle("activity-focus", state.activityFocus);
+  const button = $("#activityFocusToggle");
+  if (!button) return;
+  button.setAttribute("aria-pressed", String(state.activityFocus));
+  button.setAttribute("aria-label", state.activityFocus ? "Restore the standard Activity width" : "Widen Activity below the task context");
+  button.title = state.activityFocus ? "Restore the standard Activity width (Esc)" : "Widen Activity below the task context";
+  button.innerHTML = state.activityFocus ? 'Standard <span aria-hidden="true">↔</span>' : 'Widen <span aria-hidden="true">↔</span>';
 }
 
 function filteredRuns() {
@@ -1456,6 +1488,10 @@ function renderDetail(run) {
   $("#detailTitle").textContent = discovered?.title || discovered?.window_name || runTitle(run);
   $("#detailAgent").textContent = `Agent ${run.lane || "—"}`;
   $("#detailStage").textContent = `Stage ${statusLabel(run.stage || run.status)}`;
+  $("#detailElapsed").textContent = `Time ${formatDuration(runElapsedSeconds(run))}`;
+  $("#detailElapsed").title = "Total elapsed task time";
+  $("#detailCost").textContent = `Cost ${run.metrics?.cost_observed ? compactMoney(run.metrics.cost_usd) : "—"}`;
+  $("#detailCost").title = run.metrics?.cost_observed ? "Total observed provider cost" : "Total provider cost not observed";
   $("#detailTask").textContent = interactive ? `Existing ${run.lane} session in tmux ${discovered?.tmux_session || run.tmux_session || "—"}${(discovered?.tmux_target || run.tmux_target) ? `, pane ${discovered?.tmux_target || run.tmux_target}` : ""}.` : run.task;
   $("#observedSession").classList.toggle("hidden", !interactive);
   const decisionVisible = !interactive && ["review", "accepted", "pr_created"].includes(run.status);
@@ -2049,8 +2085,60 @@ function eventPlaceholder(type, message) {
   return `<div class="event event-system"><span class="event-avatar" aria-hidden="true">S</span><div class="event-content"><header><strong>System</strong><span>${escapeHtml(type)}</span><time>—</time></header><div class="event-message">${escapeHtml(message)}</div></div></div>`;
 }
 
+function activityPhaseDurations(events) {
+  const totals = {agent: 0, check: 0, review: 0};
+  const observed = {agent: false, check: false, review: false};
+  const active = {agent: [], check: [], review: []};
+  const phaseFor = (value) => {
+    const phase = String(value || "").toLowerCase();
+    if (["agent", "implement", "implementation"].includes(phase)) return "agent";
+    if (["check", "checks", "ci", "verify", "verification"].includes(phase)) return "check";
+    if (["review", "reviewer", "evaluation", "evaluator"].includes(phase)) return "review";
+    return "";
+  };
+  for (const event of events) {
+    if (!["step.started", "step.completed"].includes(event.type)) continue;
+    const phase = phaseFor(event.data?.step || event.data?.phase);
+    const timestamp = new Date(event.ts || "").getTime();
+    if (!phase || !Number.isFinite(timestamp)) continue;
+    if (event.type === "step.started") active[phase].push(timestamp);
+    else if (active[phase].length) {
+      const started = active[phase].pop();
+      totals[phase] += Math.max(0, (timestamp - started) / 1000);
+      observed[phase] = true;
+    }
+  }
+  return {totals, observed};
+}
+
+function renderActivitySummary() {
+  const run = state.selected || {};
+  const phases = activityPhaseDurations(state.eventsLoadedRunId === state.selectedId ? state.events : []);
+  const items = [
+    ["Total", formatDuration(runElapsedSeconds(run)), "Task start to finish"],
+    ["Agent", phases.observed.agent ? formatDuration(phases.totals.agent) : "—", "Observed worker execution"],
+    ["Checks", phases.observed.check ? formatDuration(phases.totals.check) : "—", "Observed verification"],
+    ["Review", phases.observed.review ? formatDuration(phases.totals.review) : "—", "Observed independent review"],
+    ["Total cost", run.metrics?.cost_observed ? compactMoney(run.metrics.cost_usd) : "—", run.metrics?.cost_observed ? "Observed provider cost" : "Provider cost not observed"],
+  ];
+  $("#activitySummary").innerHTML = items.map(([label, value, title]) => `<span title="${escapeHtml(title)}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span>`).join("");
+}
+
+function eventTiming(event, baseline) {
+  const timestamp = new Date(event.ts || "").getTime();
+  const clock = Number.isFinite(timestamp) ? new Date(timestamp).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "—";
+  const parts = [clock];
+  if (Number.isFinite(timestamp) && Number.isFinite(baseline)) parts.push(`T+${formatDuration(Math.max(0, (timestamp - baseline) / 1000))}`);
+  const elapsed = Number(event.data?.duration_seconds ?? event.data?.elapsed_seconds);
+  if (Number.isFinite(elapsed) && elapsed >= 0) parts.push(`${formatDuration(elapsed)} elapsed`);
+  const cost = Number(event.data?.cost_usd);
+  if (event.data?.cost_usd !== undefined && Number.isFinite(cost) && cost >= 0) parts.push(`${compactMoney(cost)} cost`);
+  return parts.join(" · ");
+}
+
 function renderEvents() {
   const log = $("#eventLog");
+  renderActivitySummary();
   if (state.eventsLoadingRunId === state.selectedId && state.eventsLoadedRunId !== state.selectedId) {
     log.innerHTML = eventPlaceholder("loading", "Reading this task's activity history…");
     return;
@@ -2061,11 +2149,15 @@ function renderEvents() {
   }
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   const hiddenCount = Math.max(0, state.events.length - state.eventVisibleLimit);
+  const firstEvent = new Date(state.events[0]?.ts || "").getTime();
+  const runStart = new Date(state.selected?.started_at || state.selected?.created_at || "").getTime();
+  const runDuration = runElapsedSeconds(state.selected);
+  const baseline = Number.isFinite(runStart) && Number.isFinite(firstEvent) && firstEvent >= runStart && firstEvent - runStart <= Math.max(86_400_000, Number(runDuration || 0) * 1000 + 3_600_000) ? runStart : firstEvent;
   const eventRows = state.events.slice(-state.eventVisibleLimit).map((event) => {
     const presentation = eventPresentation(event);
-    const time = new Date(event.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+    const timing = eventTiming(event, baseline);
     const mark = {you: "Y", agent: "A", question: "?", tool: "›_", reviewer: "R", git: "G", failed: "!", system: "S"}[presentation.kind] || "S";
-    return `<div class="event event-${presentation.kind}"><span class="event-avatar" aria-hidden="true">${escapeHtml(mark)}</span><div class="event-content"><header><strong>${escapeHtml(presentation.actor)}</strong><span title="${escapeHtml(event.type)}">${escapeHtml(presentation.detail)}</span><time>${escapeHtml(time)}</time></header><div class="event-message">${escapeHtml(eventMessage(event))}</div></div></div>`;
+    return `<div class="event event-${presentation.kind}"><span class="event-avatar" aria-hidden="true">${escapeHtml(mark)}</span><div class="event-content"><header><strong>${escapeHtml(presentation.actor)}</strong><span title="${escapeHtml(event.type)}">${escapeHtml(presentation.detail)}</span><time>${escapeHtml(timing)}</time></header><div class="event-message">${escapeHtml(eventMessage(event))}</div></div></div>`;
   }).join("");
   log.innerHTML = `${hiddenCount ? `<button class="ghost activity-load-older" id="loadOlderEvents" type="button">Load ${Math.min(150, hiddenCount)} earlier events · ${hiddenCount} hidden</button>` : ""}${eventRows || eventPlaceholder("waiting", "No events yet.")}`;
   $("#loadOlderEvents")?.addEventListener("click", () => { state.eventVisibleLimit += 150; renderEvents(); });
@@ -3432,12 +3524,14 @@ async function init() {
     });
     $("#taskList").addEventListener("scroll", hideTaskHover, {passive: true});
     window.addEventListener("resize", hideTaskHover, {passive: true});
+    $("#activityFocusToggle").addEventListener("click", () => setActivityFocus(!state.activityFocus));
     $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#refreshPortfolio").addEventListener("click", refreshPortfolio); $("#portfolioWindow").addEventListener("change", refreshPortfolio); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => {
       if (event.key === "Enter") { event.preventDefault(); runSearch(event.currentTarget.value); }
       if (event.key === "Escape") { event.currentTarget.value = ""; event.currentTarget.blur(); }
     });
     document.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#globalSearch").focus(); return; }
+      if (event.key === "Escape" && state.activityFocus) { event.preventDefault(); setActivityFocus(false); return; }
       if (event.key === "Escape" && state.helpOpen) { event.preventDefault(); toggleHelp(false); return; }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "n" && !/input|textarea|select/i.test(event.target.tagName) && !$("dialog[open]")) { event.preventDefault(); $("[data-new-task]").click(); }
     });
@@ -3446,6 +3540,7 @@ async function init() {
     const match = decodeURIComponent(location.hash.slice(1)).match(/^task\/(.+)$/); if (match && state.runs.some((run) => run.id === match[1])) await selectRun(match[1]);
     else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["portfolio", "work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github", "settings"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView(state.runs.length ? "portfolio" : "work"); } }
     const requestedSection = params.get("section"); if (["summary", "changes", "activity", "evidence"].includes(requestedSection)) activateTaskSection(requestedSection);
+    if (requestedSection === "activity" && params.get("focus") === "1") setActivityFocus(true);
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
     const requestedDialog = params.get("dialog"); if (requestedDialog === "task") openTaskDialog({prompt: params.get("prompt") || "", projectId: preferredProjectId()}); else if (requestedDialog === "epic") $("#newEpicButton").click();
     if (params.get("help") === "1") toggleHelp(true);
@@ -3575,6 +3670,7 @@ async function runBrowserRegression() {
   assert(!$(".detail-breadcrumb") && $(".task-context-bar"), "task context is one compact metadata row");
   assert($("#narrativeTitle").textContent === "Agent is working", "running task uses one-line progress");
   assert($("#narrativeCopy").textContent === "Progress appears in Activity.", "running task avoids essay");
+  assert($("#detailElapsed").textContent.startsWith("Time ") && $("#detailCost").textContent.startsWith("Cost "), "task heading exposes total time and cost");
   assert(!$("#executionDetails").open, "execution telemetry starts folded");
   assert($("#executionDetailsSummary").textContent.includes("Tokens") && $("#executionDetailsSummary").textContent.includes("CI"), "folded execution summary remains informative");
   assert($("#summaryAssistant").classList.contains("hidden"), "assistant hidden when no decision is needed");
@@ -3582,6 +3678,14 @@ async function runBrowserRegression() {
   await sleep(160);
   assert($("#eventLog").textContent.includes("Tool") && $("#eventLog").textContent.includes("python -m unittest"), "Activity separates tool execution from agent messages");
   assert($("#eventLog .event-tool .event-avatar"), "tool execution has a distinct visual actor");
+  assert($("#activitySummary").textContent.includes("Total") && $("#activitySummary").textContent.includes("Agent") && $("#activitySummary").textContent.includes("Total cost"), "Activity summarizes total and phase economics");
+  assert($("#eventLog time").textContent.includes("T+"), "each Activity entry shows relative task timing");
+  $("#activityFocusToggle").click();
+  assert(state.activityFocus && document.body.classList.contains("activity-focus"), "Activity widens below the task context");
+  assert(window.innerWidth <= 900 || getComputedStyle($(".project-explorer")).display !== "none", "wide Activity keeps repository navigation visible on desktop");
+  assert($("#activityFocusToggle").textContent.includes("Standard"), "wide Activity exposes the standard-width action");
+  document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+  assert(!state.activityFocus && !document.body.classList.contains("activity-focus"), "Escape restores the task view");
   activateTaskSection("summary");
   const blocked = state.runs.find((run) => run.status === "blocked");
   assert(blocked, "blocked task available");

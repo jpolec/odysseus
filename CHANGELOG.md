@@ -14,6 +14,11 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
+- Enlarged Activity typography and added a wide event stream below the retained
+  task context, with distinct actor backgrounds and Escape to restore its size.
+- Added honest task economics beside the prompt and inside Activity: total
+  elapsed time, observed Agent/Checks/Review time, per-event relative timing,
+  reported event cost where available, and total observed provider cost.
 - Reworked the web shell around four primary operator surfaces: Home, Needs
   You, Plans, and Outcomes, while keeping repositories and task history in the
   persistent sidebar.
