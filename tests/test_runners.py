@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -80,6 +81,37 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertEqual([item[0] for item in events], ["agent.session", "agent.tool.started", "agent.usage"])
         self.assertEqual(events[-1][1]["cached_input_tokens"], 12)
+
+    def test_codex_linked_worktree_gets_scoped_git_metadata_access(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repository = root / "repository"
+            worktree = root / "worktree"
+            repository.mkdir()
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            subprocess.run(["git", "-C", str(repository), "config", "user.email", "tests@example.com"], check=True)
+            subprocess.run(["git", "-C", str(repository), "config", "user.name", "Odysseus Tests"], check=True)
+            (repository / "README.md").write_text("test\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "README.md"], check=True)
+            subprocess.run(["git", "-C", str(repository), "commit", "-qm", "initial"], check=True)
+            subprocess.run(["git", "-C", str(repository), "worktree", "add", "-qb", "task", str(worktree)], check=True)
+
+            command = AgentRunner().command("codex", worktree, "implement", review=False)
+            common = Path(
+                subprocess.run(
+                    ["git", "-C", str(worktree), "rev-parse", "--git-common-dir"],
+                    check=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                ).stdout.strip()
+            ).resolve()
+
+            self.assertIn("--add-dir", command)
+            self.assertEqual(Path(command[command.index("--add-dir") + 1]), common)
+            self.assertNotIn(str(repository), command)
+
+            review = AgentRunner().command("codex", worktree, "review", review=True)
+            self.assertNotIn("--add-dir", review)
 
     def test_host_checks_preserve_server_path_without_a_login_shell(self) -> None:
         runner = CheckRunner()

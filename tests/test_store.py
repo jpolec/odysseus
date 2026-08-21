@@ -117,7 +117,22 @@ class StoreTests(unittest.TestCase):
             )
 
             self.assertEqual(run["title"], "Fix the popup")
+            self.assertTrue(run["title_generated"])
             self.assertNotIn("none", run["id"].lower())
+
+    def test_generated_title_is_short_but_full_prompt_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            task = "Please fix the repository sidebar so every long task remains on one readable line while the complete original instruction remains available in the task body. Add a regression test."
+
+            run = store.create({"task": task, "project_path": str(project)})
+
+            self.assertLessEqual(len(run["title"]), 83)
+            self.assertNotIn("Please", run["title"])
+            self.assertEqual(run["task"], task)
 
     def test_persistent_config_updates_concurrency(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

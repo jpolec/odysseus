@@ -99,8 +99,9 @@ Completed, accepted, integrated, and delivered are separate states.
   durable JSON snapshots and append-only NDJSON events.
 - Run repository checks and a separate evaluator/reviewer lane. A worker cannot
   turn its own completion statement into independent validation.
-- Present an explicitly heuristic Evidence score rather than an uncalibrated
-  probability of delivery.
+- Present qualitative evidence strength with hard gates, soft evidence, and
+  unknowns separated; do not expose an uncalibrated percentage as delivery
+  probability.
 - Distinguish passed, failed, and inconclusive evaluation; inconclusive
   evidence becomes an operator review item instead of a false failure.
 - Support opt-in implementation variants and a Pareto decision surface while
@@ -114,7 +115,7 @@ Completed, accepted, integrated, and delivered are separate states.
 - Answer structured agent questions and permission requests from the web UI.
 - Resume the exact saved agent thread, branch, worktree, and execution profile
   with operator feedback.
-- Ask a local Codex or Claude Context Assistant for suggested feedback using
+- Ask a local Codex or Claude Decision Assistant for suggested feedback using
   explicitly selected, redacted evidence, then insert, submit, copy, or queue
   its answer.
 - Preserve stopped and failed work for inspection and recovery rather than

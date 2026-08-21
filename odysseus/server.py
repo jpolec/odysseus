@@ -86,7 +86,42 @@ RUN_SUMMARY_FIELDS = (
 def _run_summary(run: Mapping[str, Any]) -> dict[str, Any]:
     """Return only fields needed by repository and task navigation lists."""
 
+    def observed_int(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def observed_float(value: Any) -> float | None:
+        try:
+            return round(float(value), 8)
+        except (TypeError, ValueError):
+            return None
+
     summary = {key: run.get(key) for key in RUN_SUMMARY_FIELDS}
+    artifact_files = run.get("artifact_files") if isinstance(run.get("artifact_files"), list) else []
+    metrics = run.get("metrics") if isinstance(run.get("metrics"), Mapping) else {}
+    checks = run.get("check_results") if isinstance(run.get("check_results"), list) else []
+    environment = run.get("environment") if isinstance(run.get("environment"), Mapping) else {}
+    passed_checks = sum(
+        1
+        for check in checks
+        if isinstance(check, Mapping)
+        and (bool(check.get("skipped")) or str(check.get("returncode", "")).strip() == "0")
+    )
+    cost_usd = observed_float(metrics.get("cost_usd")) if metrics.get("cost_observed") else None
+    summary["navigation"] = {
+        "files_changed": len([path for path in artifact_files if str(path)]),
+        "tool_calls": observed_int(metrics.get("tool_calls")),
+        "total_tokens": sum(observed_int(metrics.get(key)) for key in ("input_tokens", "output_tokens", "reasoning_output_tokens")),
+        "cost_observed": cost_usd is not None,
+        "cost_usd": cost_usd,
+        "checks_passed": passed_checks,
+        "checks_total": len(checks),
+        "evidence_score": run.get("confidence"),
+        "environment": str(environment.get("profile") or "host"),
+        "isolated": bool(run.get("worktree")),
+    }
     summary["merge_analysis"] = {"risk": (run.get("merge_analysis") or {}).get("risk", "none")}
     summary["ci"] = {"status": (run.get("ci") or {}).get("status", "not_started")}
     summary["delivery"] = {"status": (run.get("delivery") or {}).get("status", "not_started")}

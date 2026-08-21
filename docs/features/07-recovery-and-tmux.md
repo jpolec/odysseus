@@ -30,7 +30,8 @@ they are not silently converted into autonomous Odysseus tasks.
 
 - On a failed or decision-ready task, enter precise feedback and choose
   **Resume with feedback**.
-- Use the Context Assistant to draft an answer, then insert or submit it.
+- Use the Decision Assistant to draft an answer, then insert or submit it to
+  the exact saved task thread.
 - Choose **Continue in terminal** when direct interactive debugging is useful.
 - Use **Agent terminals** to see existing panes; choose **Track in Odysseus**
   only when you want a durable shortcut in the task list.
@@ -58,4 +59,3 @@ Optional tmux setup and key bindings are documented in the
 tmux provides interactive continuity, not process isolation or distributed
 worker ownership. Durable Worker Leases and fencing are being developed
 separately for v0.9.2; they are not a property of tmux.
-

@@ -51,7 +51,7 @@ The image must contain the selected agent CLI and project toolchain.
 - Requested Docker isolation fails closed when Docker cannot be prepared.
 - Untrusted host/devcontainer execution is rejected.
 - Review mounts are read-only where the runtime supports it.
-- Server-only Context Assistant keys are not inherited by task processes unless
+- Server-only Decision Assistant keys are not inherited by task processes unless
   explicitly allowlisted.
 
 ## Current boundary
@@ -61,4 +61,3 @@ still trusts the host kernel, Docker engine, and selected image. Rootless
 runtime enforcement, deny-by-default egress allowlists, PID/disk quotas,
 short-lived secret brokerage, signed images, and service sidecars remain
 planned.
-

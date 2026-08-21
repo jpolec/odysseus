@@ -160,22 +160,7 @@ class AgentRunner:
     ) -> list[str]:
         if lane == "codex":
             sandbox = "read-only" if review else "workspace-write"
-            if resume_session_id:
-                return [
-                    "codex",
-                    "exec",
-                    "--json",
-                    "--color",
-                    "never",
-                    "-C",
-                    str(worktree),
-                    "--sandbox",
-                    sandbox,
-                    "resume",
-                    resume_session_id,
-                    prompt,
-                ]
-            return [
+            command = [
                 "codex",
                 "exec",
                 "--json",
@@ -185,8 +170,13 @@ class AgentRunner:
                 str(worktree),
                 "--sandbox",
                 sandbox,
-                prompt,
             ]
+            if not review:
+                for git_directory in self._linked_git_directories(worktree):
+                    command.extend(["--add-dir", str(git_directory)])
+            if resume_session_id:
+                return [*command, "resume", resume_session_id, prompt]
+            return [*command, prompt]
         if lane == "claude":
             permission_mode = "plan" if review else "acceptEdits"
             command = [
@@ -218,6 +208,38 @@ class AgentRunner:
         if not any("{prompt}" in item for item in args):
             replaced.append(prompt)
         return replaced
+
+    @staticmethod
+    def _linked_git_directories(worktree: Path) -> list[Path]:
+        """Return only Git metadata roots outside a linked worktree.
+
+        A linked worktree's `.git` file points back to the source repository's
+        `.git/worktrees/...` directory. Codex workspace-write otherwise cannot
+        create `index.lock`, finish a rebase, or commit. The additional root is
+        limited to Git metadata; the source checkout itself is not exposed.
+        """
+
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(worktree), "rev-parse", "--git-common-dir"],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        if result.returncode or not result.stdout.strip():
+            return []
+        value = Path(result.stdout.strip()).expanduser()
+        common = (worktree / value).resolve() if not value.is_absolute() else value.resolve()
+        root = worktree.resolve()
+        try:
+            common.relative_to(root)
+            return []
+        except ValueError:
+            return [common]
 
     def run(
         self,

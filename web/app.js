@@ -1,8 +1,8 @@
 "use strict";
 
 const THEME_KEY = "odysseus-theme";
-const SIDEBAR_WIDTH_KEY = "odysseus-sidebar-width-v2";
-const DEFAULT_SIDEBAR_WIDTH = 288;
+const SIDEBAR_WIDTH_KEY = "odysseus-sidebar-width-v3";
+const DEFAULT_SIDEBAR_WIDTH = 320;
 const MIN_SIDEBAR_WIDTH = 280;
 const MAX_SIDEBAR_WIDTH = 520;
 let savedTheme = "";
@@ -19,6 +19,7 @@ const state = {
   taskAgentRecommendation: null, taskAgentTimer: null,
   skillsProjectId: "", skillsCatalog: null,
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
+  assistantOpen: false, helpOpen: false,
   selectedDecisionPaths: [],
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
@@ -39,7 +40,7 @@ const UI_COPY = {
   deliver: "Choose delivery",
   unknown: "Unknown",
   notObserved: "Not observed",
-  notApplied: "Accepted artifact · not delivered",
+  notApplied: "Approved change · not applied",
 };
 
 async function api(path, options = {}) {
@@ -142,6 +143,11 @@ function unknownNumber(value, formatter = (item) => String(item)) {
   return value === null || value === undefined || value === "" ? UI_COPY.unknown : formatter(value);
 }
 function money(value) { return unknownNumber(value, (item) => `$${Number(item).toFixed(4)}`); }
+function compactMoney(value) {
+  const amount = Number(value || 0);
+  if (amount > 0 && amount < 0.01) return `$${amount.toFixed(4)}`;
+  return `$${amount.toFixed(2)}`;
+}
 function formatBytes(value) {
   let size = Number(value || 0);
   for (const unit of ["B", "KB", "MB", "GB"]) {
@@ -152,7 +158,7 @@ function formatBytes(value) {
 }
 function statusClass(status) { return `status-${String(status || "unknown").replace(/[^a-z_]/g, "")}`; }
 function statusLabel(status) {
-  const labels = {queued: "waiting", waiting_variants: "running variants", review: "ready for review", decided: "decided", rejected: "rejected"};
+  const labels = {queued: "waiting", waiting_variants: "running variants", review: "ready for review", accepted: "approved", decided: "decided", rejected: "rejected"};
   const key = String(status || "unknown");
   return labels[key] || key.replaceAll("_", " ");
 }
@@ -163,8 +169,8 @@ function runActionLine(run) {
   if (run?.status === "pr_created") return ciActionLine(run);
   if (run?.status === "accepted" && delivery.status === "integrated_pr_created") return "Delivered in integration PR.";
   if (run?.status === "accepted" && deliveredDeliveryStatuses.has(delivery.status)) return "No action needed.";
-  if (run?.status === "accepted" && delivery.status === "failed") return "Resolve integration conflict.";
-  if (run?.status === "accepted") return "Integrate or keep the artifact.";
+  if (run?.status === "accepted" && delivery.status === "failed") return "Resolve the apply conflict.";
+  if (run?.status === "accepted") return "Apply it to the repository or keep it for later.";
   if (run?.status === "decided") return "No action needed.";
   if (run?.status === "attention") return "Answer Needs You.";
   if (run?.status === "failed") return "Resume with feedback.";
@@ -226,7 +232,24 @@ function projectCheckoutLabel(project) {
   return project?.folder_name || project?.path || "Local repository";
 }
 function runTitle(run, fallback = "task") {
-  return String(run?.title || run?.task || fallback).split("\n")[0].trim() || fallback;
+  const raw = String(run?.title || run?.task || fallback).replace(/\s+/g, " ").trim();
+  if (!raw) return fallback;
+  const withoutLead = raw
+    .replace(/^(?:please|could you|can you|prosz[eę]|czy mo[zż]esz|jeszcze|zobacz)\s*[:,—-]?\s*/i, "")
+    .replace(/^[-*#\s]+/, "")
+    .trim();
+  const sentence = withoutLead.split(/[.!?](?:\s|$)/)[0] || withoutLead;
+  if (sentence.length <= 82) return sentence;
+  const clipped = sentence.slice(0, 82).replace(/\s+\S*$/, "").replace(/[,:;\-–—\s]+$/, "");
+  return `${clipped || sentence.slice(0, 78)}…`;
+}
+
+function evidenceStrength(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return {label: UI_COPY.unknown, tone: "unknown"};
+  const score = Number(value);
+  if (score >= 0.85) return {label: "Strong", tone: "strong"};
+  if (score >= 0.65) return {label: "Moderate", tone: "moderate"};
+  return {label: "Limited", tone: "limited"};
 }
 function projectOptionLabel(project) {
   const name = projectName(project);
@@ -281,7 +304,8 @@ function setView(view) {
   state.view = view;
   document.body.dataset.view = view;
   document.body.classList.toggle("task-open", view === "tasks");
-  $$(".nav-button, .sidebar-primary-link").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
+  $$(".nav-button, .sidebar-primary-link, .explorer-tools [data-open-view]").forEach((button) => button.classList.toggle("active", button.dataset.view === view || button.dataset.openView === view));
+  if (["inbox", "github", "projects", "settings"].includes(view)) $("#sidebarMore").open = true;
   $$(".view-panel").forEach((panel) => panel.classList.remove("active"));
   $(`#${view}View`)?.classList.add("active");
   const surfaceNames = {portfolio: "Home", work: "Repositories", attention: "Needs You", skills: "Skills", epics: "Plans", tasks: "Task", sessions: "Terminals", inbox: "Follow-ups", projects: "Manage repositories", insights: "Outcomes", github: "GitHub issues", settings: "Settings"};
@@ -304,6 +328,92 @@ function setView(view) {
   if (view === "portfolio") renderHome();
   if (view === "work") renderWork();
   updateGitHubLink();
+  if (state.helpOpen) renderHelpPanel();
+}
+
+function helpForCurrentView() {
+  const project = activeProject();
+  const run = state.selected;
+  const general = {
+    portfolio: {
+      title: "Start here",
+      intro: "Create one clear piece of engineering work. Odysseus chooses the agent, isolates the repository, runs checks, and brings the result back for review.",
+      next: "Write what should change, choose a repository, then press Start task.",
+      steps: [["1", "Describe the outcome", "Say what must change and what must stay unchanged.", "blue"], ["2", "Choose the repository", "Odysseus already knows its folder on this machine.", "violet"], ["3", "Review only when asked", "Needs You collects decisions that require a person.", "green"]],
+    },
+    work: {
+      title: project ? `Repository: ${projectName(project)}` : "Your repositories",
+      intro: project ? "This is the repository overview: what the codebase is, what has been done, and which tasks are active." : "Repositories are local Git folders registered with Odysseus. Adding one does not move or upload its code.",
+      next: project ? "Start a task here, or open a task in the left sidebar to inspect its state." : "Choose a repository on the left, or add a local Git folder with +.",
+      steps: [["R", "Repository", "The source checkout Odysseus protects.", "blue"], ["●", "Tasks", "Each task runs in its own branch and worktree.", "violet"], ["✓", "Delivery", "Approved work is still separate until you apply it or create a PR.", "green"]],
+    },
+    attention: {
+      title: "Needs You",
+      intro: "This is the human decision queue. Events from the same task are grouped so you can resolve work, not notifications.",
+      next: "Open the highest-priority task, read the requested decision, and answer or review it.",
+      steps: [["!", "High", "A blocked or risky task needs a decision now.", "red"], ["?", "Question", "The agent needs one clear answer to continue.", "amber"], ["✓", "Review", "Changes and evidence are ready for your decision.", "green"]],
+    },
+    epics: {
+      title: "Plans",
+      intro: "Plans turn a larger outcome into a dependency-aware task graph. Agents do not start until you approve the proposed graph.",
+      next: "Open a proposed plan, verify its tasks and dependencies, then approve it.",
+      steps: [["1", "Requirement", "Describe the finished outcome and constraints.", "blue"], ["2", "Task graph", "The planner separates parallel work and dependencies.", "violet"], ["3", "Approval", "You decide whether execution may begin.", "green"]],
+    },
+    insights: {
+      title: "Outcomes",
+      intro: "This page measures delivered engineering work—not agent activity. Unknown cost remains unknown, and percentages include their sample size.",
+      next: "Start with delivered changes, human interventions, and failure attribution. Open a row only when you need the evidence behind it.",
+      steps: [["✓", "Delivered", "The change reached its recorded delivery target.", "green"], ["$", "Economics", "Tokens, observed cost, retries, and human attention.", "blue"], ["!", "Failures", "Where work stopped and whether it recovered.", "red"]],
+    },
+    skills: {title: "Skills", intro: "Skills are reusable engineering procedures, such as security review or database migration guidance. They are not project-specific memory.", next: "Inspect a skill, then enable it for repositories where that procedure should be available.", steps: [["◆", "Procedure", "Instructions and evidence requirements for an agent.", "violet"], ["A", "Auto selection", "Odysseus can attach relevant skills to a task.", "blue"], ["N", "Evidence", "Performance is meaningful only together with sample size.", "green"]]},
+    sessions: {title: "Agent terminals", intro: "Odysseus discovers Codex and Claude panes already running in tmux. Discovery does not take control of them.", next: "Track a terminal if you want a durable shortcut; use the copied tmux command to continue in your terminal.", steps: [["1", "See", "Detected panes appear automatically.", "blue"], ["2", "Track", "Create a durable task entry without moving the session.", "violet"], ["3", "Open", "Continue in the original terminal.", "green"]]},
+    inbox: {title: "Follow-ups", intro: "Inbox holds ideas that should not start yet. It is a parking place, not the execution queue.", next: "Add a follow-up, then explicitly turn it into a task when you are ready.", steps: [["+", "Capture", "Save the idea without starting an agent.", "blue"], ["→", "Queue", "Convert it into executable work deliberately.", "green"]]},
+    projects: {title: "Manage repositories", intro: "These are local Git checkouts known to Odysseus. Removing one from the list never deletes its folder or files.", next: "Add a repository by entering its absolute local folder path.", steps: [["+", "Add", "Register an existing local Git checkout.", "blue"], ["×", "Remove", "Forget the registration; leave source files untouched.", "amber"]]},
+    settings: {title: "Settings", intro: "Global defaults control capacity, agents, CI, retained resources, and the optional Decision Assistant. Advanced controls stay folded until needed.", next: "Change only the setting you need, then save that section.", steps: [["A", "Execution", "Default agent, concurrent running tasks, retries, and budgets.", "blue"], ["⌁", "Resources", "Retention and cleanup for worktrees and runtimes.", "violet"], ["?", "Assistant", "Optional models; API keys are read from the server environment and are not saved here.", "green"]]},
+    github: {title: "GitHub issues", intro: "Turn an open GitHub issue into a proposed plan. This screen does not start implementation immediately.", next: "Choose a repository, load issues, then select one to create a plan proposal.", steps: [["#", "Issue", "The original requirement from GitHub.", "blue"], ["◇", "Plan", "A proposed task graph for your approval.", "violet"], ["✓", "Run", "Agents start only after approval.", "green"]]},
+  };
+  if (state.view !== "tasks") return general[state.view] || general.portfolio;
+  const sectionCopy = {
+    summary: "Overview answers whether you need to act and what happens next.",
+    changes: "Changes shows the exact diff from the isolated task worktree.",
+    activity: "Activity is the detailed event stream for debugging and progress.",
+    evidence: "Evidence contains checks, context, independent review, evaluation, and CI.",
+  };
+  const hasQuestion = run && relevantAttentionItems(state.attention).some((item) => item.run_id === run.id && item.type === "question");
+  const statusCopy = !run ? ["Choose a task", "Select a task from the repository sidebar.", "blue"]
+    : hasQuestion ? ["Answer the question", "The agent needs one clear answer before it can continue.", "blue"]
+    : ["review", "attention"].includes(run.status) ? ["Review the decision", "Inspect Changes and Evidence, then approve or send precise feedback.", "red"]
+    : ["failed", "blocked"].includes(run.status) ? ["Resolve the blocker", "Read the reason shown at the top. Resume with guidance or continue in the preserved terminal.", "red"]
+    : ["accepted", "pr_created"].includes(run.status) ? ["Choose delivery", "Approval preserves the result. Apply it to the repository or deliver it through a PR.", "green"]
+    : activeStatuses.has(run.status) ? ["No action needed", "The agent is working. Return when this task appears in Needs You.", "amber"]
+    : ["Inspect the current state", "Use the primary action at the top of the task.", "violet"];
+  return {
+    title: run ? `Task: ${run.title}` : "Task",
+    intro: sectionCopy[state.taskSection] || sectionCopy.summary,
+    next: statusCopy[1],
+    steps: [["1", "Overview", "Decision and next action.", statusCopy[2]], ["2", "Changes", "Files and exact diff.", "violet"], ["3", "Evidence", "Checks, review, and CI proof.", "green"]],
+    current: statusCopy[0],
+  };
+}
+
+function renderHelpPanel() {
+  const help = helpForCurrentView();
+  $("#helpTitle").textContent = help.title;
+  $("#helpContent").innerHTML = `
+    <section class="help-callout"><strong><span aria-hidden="true">ⓘ</span> What is this?</strong><p>${escapeHtml(help.intro)}</p></section>
+    <section class="help-next"><small>${help.current ? "CURRENT STATE" : "WHAT TO DO NOW"}</small><strong>${escapeHtml(help.current || "Next step")}</strong><p>${escapeHtml(help.next)}</p></section>
+    <section class="help-guide"><small>HOW TO READ THIS SCREEN</small>${help.steps.map(([mark, title, copy, tone]) => `<div class="help-step tone-${tone}"><span>${escapeHtml(mark)}</span><div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(copy)}</p></div></div>`).join("")}</section>
+    <section class="help-status-legend" aria-label="Task status colors"><small>TASK COLORS</small><span><i class="status-done"></i>Done</span><span><i class="status-in-progress"></i>Working</span><span><i class="status-question"></i>Question</span><span><i class="status-needs-action"></i>Needs you</span></section>
+    <p class="help-foot">Help follows the screen you are viewing. It never starts, changes, or approves work.</p>`;
+}
+
+function toggleHelp(force) {
+  state.helpOpen = typeof force === "boolean" ? force : !state.helpOpen;
+  document.body.classList.toggle("help-open", state.helpOpen);
+  $("#helpPanel").setAttribute("aria-hidden", String(!state.helpOpen));
+  $("#helpToggle").setAttribute("aria-expanded", String(state.helpOpen));
+  $("#helpToggle").classList.toggle("active", state.helpOpen);
+  if (state.helpOpen) renderHelpPanel();
 }
 
 function activateTab(name) {
@@ -321,14 +431,25 @@ function activateTaskSection(name) {
   $$(".task-section-tab").forEach((item) => item.classList.toggle("active", item.dataset.section === name));
   $$(".task-section-pane").forEach((pane) => pane.classList.toggle("active", pane.id === `task-section-${name}`));
   renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
+  if (state.helpOpen) renderHelpPanel();
 }
 
 function filteredRuns() {
   let runs = state.runs;
   if (state.projectFilter !== "all") runs = runs.filter((run) => run.project_id === state.projectFilter);
-  if (state.filter === "active") return runs.filter((run) => activeStatuses.has(run.status));
-  if (state.filter === "review") return runs.filter((run) => ["attention", "blocked", "review", "failed", "accepted"].includes(run.status));
-  return runs;
+  return runs.filter((run) => runMatchesFilter(run, state.filter));
+}
+
+function runMatchesFilter(run, filter = state.filter) {
+  if (filter === "all") return true;
+  if (filter === "active") return activeStatuses.has(run.status);
+  if (filter === "review") return ["attention", "blocked", "review", "failed", "accepted"].includes(run.status);
+  const tone = taskDotTone(run);
+  if (filter === "working") return tone === "status-in-progress";
+  if (filter === "question") return tone === "status-question";
+  if (filter === "needs") return tone === "status-needs-action";
+  if (filter === "done") return tone === "status-done";
+  return true;
 }
 
 function runsForProject(projectId) { return state.runs.filter((run) => run.project_id === projectId); }
@@ -548,7 +669,7 @@ function renderSkillCatalog(catalog, listSelector, countSelector) {
   const skills = catalog?.skills || [];
   const projectId = catalog?.project_id || "";
   $(countSelector).textContent = `${skills.filter((skill) => skill.mode !== "disabled").length} enabled`;
-  $(listSelector).innerHTML = skills.length ? skills.map((skill) => { const stats = skill.effectiveness || {}; const outcome = stats.runs ? `${stats.runs} run${stats.runs === 1 ? "" : "s"}${stats.success_rate === null ? " · awaiting outcomes" : ` · ${Math.round(Number(stats.success_rate) * 100)}% successful`}` : "No repository history yet"; return `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small><em class="skill-effectiveness">${escapeHtml(outcome)}</em></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" data-skill-project="${escapeHtml(projectId)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div>${stats.runs ? `<p class="skill-stats">Average ${compactNumber(stats.avg_tokens)} tokens · $${Number(stats.avg_cost_usd || 0).toFixed(4)} · ${Number(stats.interventions || 0)} human interventions</p>` : ""}<pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`; }).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
+  $(listSelector).innerHTML = skills.length ? skills.map((skill) => { const stats = skill.effectiveness || {}; const runs = Number(stats.runs || 0); const terminalRuns = Number(stats.terminal_runs || 0); const successes = stats.success_rate === null || stats.success_rate === undefined ? null : Math.round(Number(stats.success_rate) * terminalRuns); const outcome = runs ? `N=${runs}${successes === null ? " · awaiting terminal outcomes" : runs < 20 ? ` · ${successes}/${terminalRuns} observed successes · low sample` : ` · ${Math.round(Number(stats.success_rate) * 100)}% observed success`}` : "No repository history yet"; const averageCost = stats.avg_cost_usd === null || stats.avg_cost_usd === undefined ? "cost Unknown" : `$${Number(stats.avg_cost_usd).toFixed(4)} avg cost · coverage ${Number(stats.cost_coverage || 0)}/${runs}`; return `<details class="project-skill" data-skill="${escapeHtml(skill.name)}"><summary><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small><em class="skill-effectiveness ${runs > 0 && runs < 20 ? "low-sample" : ""}">${escapeHtml(outcome)}</em></span><span class="skill-source">${escapeHtml(skill.scope)}</span><select class="skill-policy" data-skill-policy="${escapeHtml(skill.name)}" data-skill-project="${escapeHtml(projectId)}" aria-label="Policy for ${escapeHtml(skill.name)}"><option value="auto" ${skill.mode === "auto" ? "selected" : ""}>Auto</option><option value="required" ${skill.mode === "required" ? "selected" : ""}>Required</option><option value="disabled" ${skill.mode === "disabled" ? "selected" : ""}>Disabled</option></select></summary><div class="skill-preview"><div>${(skill.triggers || []).map((trigger) => `<span>${escapeHtml(trigger)}</span>`).join("")}</div>${stats.runs ? `<p class="skill-stats">Average ${compactNumber(stats.avg_tokens)} tokens · ${escapeHtml(averageCost)} · ${Number(stats.interventions || 0)} human interventions</p>` : ""}<pre>${escapeHtml(skill.preview || "No preview available.")}</pre></div></details>`; }).join("") : `<div class="empty-list">No valid SKILL.md files found.</div>`;
   $$(`${listSelector} [data-skill-policy]`).forEach((select) => {
     select.addEventListener("click", (event) => event.stopPropagation());
     select.addEventListener("change", async (event) => {
@@ -965,14 +1086,13 @@ function renderQuickStart() {
     return;
   }
   container.className = "quick-start quick-task-card";
-  const laneOptions = state.bootstrap.lanes.map((lane) => `<option value="${escapeHtml(lane)}" ${lane === state.bootstrap.default_lane ? "selected" : ""}>${escapeHtml(lane)}</option>`).join("");
   container.innerHTML = `
     <form id="quickTaskForm">
-      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>NEW TASK</span></span><h2>Describe the finished change.</h2></div><span class="safety-note">Source checkout untouched</span></div>
-      <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Example: Make installation errors short and actionable, and add a regression test."></textarea>
-      <div class="quick-task-toolbar"><label><span>Agent</span><select name="lane" aria-label="Implementation agent">${laneOptions}</select></label><p><strong>${escapeHtml(state.bootstrap.max_parallel)} slots.</strong> Extra work waits. <button class="text-button" id="quickQueueSettings" type="button">Settings</button></p></div>
+      <div class="quick-task-heading"><div><span class="inline-step"><b>2</b><span>NEW TASK</span></span><h2>What should the agent change?</h2></div><span class="safety-note">Source checkout untouched</span></div>
+      <textarea name="task" id="quickTaskPrompt" required rows="3" placeholder="Example: Make installation errors short and actionable, add a regression test, and run the existing tests."></textarea>
+      <div class="quick-task-toolbar"><span class="home-agent-note">Agent <strong>Auto</strong> · recommended</span><button class="text-button" id="quickAdvancedTask" type="button">Advanced options</button></div>
       <p class="task-submit-status hidden" id="quickTaskStatus" aria-live="polite"></p>
-      <div class="quick-task-actions"><button class="primary" value="default" type="submit">Start task</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="text-button" id="quickPlanTask" type="button">Plan</button><button class="text-button" id="quickAdvancedTask" type="button">More options</button></div>
+      <div class="quick-task-actions"><button class="primary" value="default" type="submit">Start task</button></div>
     </form>`;
   $("#quickTaskForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -981,24 +1101,18 @@ function renderQuickStart() {
     const originalLabel = button.textContent;
     const data = new FormData(form);
     const task = String(data.get("task") || "").trim();
-    const addAnother = button.value === "another";
     if (!task) return;
     const status = $("#quickTaskStatus");
-    const lane = data.get("lane") || state.bootstrap.default_lane;
     try {
       form.elements.task.value = "";
-      status.textContent = `Starting ${lane} on ${projectName(project)}...`;
+      status.textContent = `Starting the task in ${projectName(project)}...`;
       status.classList.remove("hidden");
       setFormSubmitting(form, true, button, "Starting...");
-      const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task, project_path: project.path, lane, skill_mode: "auto"})});
-      status.textContent = addAnother ? "Task started. Add the next request." : "Task started. Opening the live task view...";
+      const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task, project_path: project.path, lane: state.bootstrap.default_lane, auto_route: true, origin: "web", skill_mode: "auto"})});
+      status.textContent = "Task started. Opening it now...";
       toast(`Task started: ${runTitle(run)}`);
       await Promise.all([refreshRuns(), refreshProjects()]);
-      if (addAnother) {
-        window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
-        window.setTimeout(() => status.classList.add("hidden"), 2200);
-      }
-      else await selectRun(run.id);
+      await selectRun(run.id);
     } catch (error) {
       form.elements.task.value = task;
       status.classList.add("hidden");
@@ -1006,22 +1120,12 @@ function renderQuickStart() {
     }
     finally {
       setFormSubmitting(form, false, button, originalLabel);
-      if (!addAnother && state.view === "tasks") status.classList.add("hidden");
+      if (state.view === "tasks") status.classList.add("hidden");
     }
-  });
-  $("#quickQueueSettings").addEventListener("click", () => setView("settings"));
-  $("#quickPlanTask").addEventListener("click", () => {
-    const prompt = $("#quickTaskPrompt").value;
-    prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject"));
-    $("#epicForm").elements.requirement.value = prompt;
-    $("#epicDialog").showModal();
   });
   $("#quickAdvancedTask").addEventListener("click", () => {
     const prompt = $("#quickTaskPrompt").value;
-    prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject"));
-    $("#taskPrompt").value = prompt;
-    refreshTaskSkillChoices().catch((error) => toast(error.message, true));
-    $("#taskDialog").showModal();
+    openTaskDialog({prompt, projectId: project.id});
   });
 }
 
@@ -1047,9 +1151,10 @@ function renderWork() {
   const acceptedOnly = runs.filter((run) => run.status === "accepted" && !deliveredDeliveryStatuses.has(run.delivery?.status)).length;
   const deliveryBlocked = runs.filter((run) => run.status === "accepted" && run.delivery?.status === "failed").length;
   $("#workView").classList.toggle("repository-selected", !!project);
-  $("#workBreadcrumb").textContent = project ? "GIT REPOSITORY" : "ODYSSEUS";
+  $("#workBreadcrumb").textContent = project ? "GIT REPOSITORY" : "";
+  $("#workBreadcrumb").classList.toggle("hidden", !project);
   $("#workTitle").textContent = project ? projectName(project) : (state.projects.length ? "Repositories" : "Welcome to Odysseus");
-  $("#workDescription").textContent = project ? `${runs.length} task${runs.length === 1 ? "" : "s"} · ${needs ? `${needs} need you` : UI_COPY.noAction}.` : state.projects.length ? "Choose where the agent should work." : "Add one repository to start.";
+  $("#workDescription").textContent = project ? `${runs.length} task${runs.length === 1 ? "" : "s"} · ${needs ? `${needs} need you` : UI_COPY.noAction}.` : "Add or choose a local Git folder. Odysseus never moves your code.";
   $("#workStatusStrip").innerHTML = project ? [
     ["status-running", "Running", active],
     [needs || deliveryBlocked ? "status-attention" : "status-accepted", "Needs you", needs + deliveryBlocked],
@@ -1065,19 +1170,20 @@ function renderWork() {
     [needs, "Needs you", needs ? "decisions waiting" : "nothing waiting"],
     [project ? terminals : complete, project ? "Terminals" : "Completed", project ? "agent panes" : "accepted changes"],
   ].map(([value, label, note]) => `<div class="work-stat"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><span>${escapeHtml(note)}</span></div>`).join("");
-  $("#workSummary").classList.toggle("hidden", !!project);
-  $("#journeyStepper").classList.toggle("hidden", !!project);
+  $("#workSummary").classList.add("hidden");
+  $("#journeyStepper").classList.add("hidden");
   renderJourney();
   renderCurrentRepositoryHint();
   renderQuickStart();
   renderProjectKnowledge();
   $("#workPlanButton").classList.toggle("hidden", !project);
-  $("#workNewTaskButton").classList.toggle("hidden", !state.projects.length);
+  $("#workNewTaskButton").classList.remove("hidden");
+  $("#workNewTaskButton").textContent = project ? "＋ New task" : "＋ Add repository";
   $("#newTaskButton").classList.toggle("hidden", !state.projects.length);
   $$('[data-new-task]').forEach((button) => button.classList.toggle("hidden", !state.projects.length));
   $("#workListEyebrow").textContent = project ? "TASKS" : "REPOSITORIES";
-  $("#workListTitle").textContent = project ? "Recent work" : "Your repositories";
-  $("#workListDescription").textContent = project ? "Latest tasks for this repository." : "Saved local checkouts.";
+  $("#workListTitle").textContent = project ? "Recent work" : "Repository folders";
+  $("#workListDescription").textContent = project ? "Latest tasks for this repository." : "Local Git checkouts known to Odysseus.";
   const workListScope = project?.id || "all-repositories";
   if (state.workListScope !== workListScope) {
     state.workListScope = workListScope;
@@ -1086,6 +1192,7 @@ function renderWork() {
   setWorkListExpanded(state.workListExpanded);
   const secondary = $("#workSecondaryAction");
   secondary.textContent = project ? "View plans" : "Add repository";
+  secondary.classList.toggle("hidden", !project);
   secondary.onclick = () => project ? setView("epics") : $("#projectDialog").showModal();
   $("#workList").closest(".work-section").classList.toggle("hidden", !state.projects.length);
   if (!project) {
@@ -1097,10 +1204,20 @@ function renderWork() {
     $$('[data-work-project]').forEach((button) => button.addEventListener("click", () => selectProject(button.dataset.workProject)));
     $$('[data-forget-project-inline]').forEach((button) => button.addEventListener("click", () => forgetProject(button.dataset.forgetProjectInline)));
   } else {
-    $("#workList").innerHTML = runs.length ? runs.map((run) => { const deliveryState = run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "Delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "Integration blocked" : run.status === "accepted" ? "Accepted · not delivered" : statusLabel(run.status); const tone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status); return `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button" title="${escapeHtml(runActionLine(run))}"><span class="mini-status ${tone}">${escapeHtml(deliveryState)}</span><time class="work-task-time">${escapeHtml(relativeTime(run.updated_at))}</time><h3>${escapeHtml(run.title)}</h3></button>`; }).join("") : `<div class="empty-card"><strong>No tasks yet.</strong><br>Describe the first change above.</div>`;
+    $("#workList").innerHTML = runs.length ? runs.map((run) => { const deliveryState = run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "Delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "Apply blocked" : run.status === "accepted" ? "Approved · not applied" : statusLabel(run.status); const tone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status); return `<button class="work-task-row" data-work-run="${escapeHtml(run.id)}" type="button" title="${escapeHtml(runActionLine(run))}"><span class="mini-status ${tone}">${escapeHtml(deliveryState)}</span><time class="work-task-time">${escapeHtml(relativeTime(run.updated_at))}</time><h3>${escapeHtml(runTitle(run))}</h3></button>`; }).join("") : `<div class="empty-card"><strong>No tasks yet.</strong><br>Describe the first change above.</div>`;
     $$('[data-work-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.workRun)));
   }
   $("#workStatusStrip [data-status-focus]")?.addEventListener("click", () => $("#repositoryStatusView")?.scrollIntoView({behavior: "smooth", block: "start"}));
+}
+
+function taskDotTone(run) {
+  if (run.status === "accepted" && run.delivery?.status === "failed") return "status-needs-action";
+  const openItems = relevantAttentionItems(state.attention).filter((item) => item.run_id === run.id);
+  if (openItems.some((item) => item.type === "question")) return "status-question";
+  if (["review", "attention", "blocked", "failed", "cancelled"].includes(run.status)) return "status-needs-action";
+  if (activeStatuses.has(run.status)) return "status-in-progress";
+  if (["accepted", "completed", "pr_created", "decided"].includes(run.status)) return "status-done";
+  return statusClass(run.status);
 }
 
 function renderRuns() {
@@ -1108,22 +1225,97 @@ function renderRuns() {
   $("#runCount").textContent = runs.length;
   $("#taskList").innerHTML = runs.length ? runs.map((run) => {
     const session = run.kind === "tmux" ? discoveredSessionForRun(run) : null;
-    const title = session?.title || session?.window_name || run.title;
-    const status = run.kind === "tmux" ? "tracked terminal" : run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "integration blocked" : run.status === "accepted" ? "accepted · not delivered" : statusLabel(run.status);
-    const statusTone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status);
+    const title = session?.title || session?.window_name || runTitle(run);
+    const status = run.kind === "tmux" ? "tracked terminal" : run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status) ? "delivered" : run.status === "accepted" && run.delivery?.status === "failed" ? "apply blocked" : run.status === "accepted" ? "approved · not applied" : statusLabel(run.status);
+    const statusTone = taskDotTone(run);
+    const navigation = run.navigation || {};
+    const filesChanged = Number(navigation.files_changed || 0);
+    const checksTotal = Number(navigation.checks_total || 0);
+    const costSignal = navigation.cost_observed
+      ? `<span class="task-row-cost" title="Observed task cost">${escapeHtml(compactMoney(navigation.cost_usd))}</span>`
+      : `<span class="task-row-cost unknown" title="Task cost is not reported by this provider">—</span>`;
+    const outcomeSignal = filesChanged
+      ? `<span class="task-row-stat" title="${filesChanged} changed file${filesChanged === 1 ? "" : "s"}">${filesChanged}f</span>`
+      : checksTotal ? `<span class="task-row-stat" title="${checksTotal} recorded check${checksTotal === 1 ? "" : "s"}">✓${checksTotal}</span>` : "";
     const signals = run.kind === "tmux"
       ? `<span>tmux ${escapeHtml(session?.tmux_session || run.tmux_session || "session")} · ${escapeHtml(session?.tmux_target || run.tmux_target || "pane")}</span>`
       : `<span class="risk-${escapeHtml(run.merge_analysis?.risk || "none")}">${escapeHtml(run.merge_analysis?.risk || "none")} merge risk</span>${run.ci?.status && run.ci.status !== "not_started" ? `<span class="ci-${escapeHtml(run.ci.status)}">CI ${escapeHtml(run.ci.status)}</span>` : ""}`;
-    return `<button class="task-card ${run.id === state.selectedId ? "selected" : ""}" data-run-id="${escapeHtml(run.id)}" type="button">
-      <div class="task-card-top"><span class="mini-status ${statusTone}">${escapeHtml(status)}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
+    return `<button class="task-card ${run.id === state.selectedId ? "selected" : ""}" data-run-id="${escapeHtml(run.id)}" type="button" aria-label="${escapeHtml(`${title}. ${status}. Updated ${relativeTime(run.updated_at)} ago.`)}">
+      <span class="task-state-dot ${statusTone}" aria-hidden="true"></span>
       <h3>${escapeHtml(title)}</h3>
+      <span class="task-row-meta">${costSignal}<i aria-hidden="true">·</i>${outcomeSignal}${outcomeSignal ? `<i aria-hidden="true">·</i>` : ""}<time>${relativeTime(run.updated_at)}</time></span>
+      <div class="task-card-top"><span class="mini-status ${statusTone}">${escapeHtml(status)}</span><span class="run-id">${relativeTime(run.updated_at)}</span></div>
       <div class="task-card-meta"><span>${escapeHtml(run.lane)}${run.kind === "tmux" ? "" : ` · P${escapeHtml(run.priority ?? 50)}`}</span><span>${escapeHtml(projectById(run.project_id) ? projectName(projectById(run.project_id)) : run.kind || run.workflow)}</span></div>
       <div class="task-signals">${signals}</div>
     </button>`;
   }).join("") : `<div class="empty-list">No tasks in this view.</div>`;
-  $$(".task-card[data-run-id]").forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.runId)));
+  $$(".task-card[data-run-id]").forEach((button) => {
+    button.addEventListener("click", () => selectRun(button.dataset.runId));
+    button.addEventListener("pointerenter", () => showTaskHover(button));
+    button.addEventListener("pointerleave", hideTaskHover);
+    button.addEventListener("focus", () => showTaskHover(button));
+    button.addEventListener("blur", hideTaskHover);
+  });
   renderProjectTree();
   renderHome();
+}
+
+function taskHoverMarkup(run) {
+  const navigation = run.navigation || {};
+  const project = projectById(run.project_id);
+  const title = runTitle(run, run.id);
+  const status = run.kind === "tmux"
+    ? "Tracked terminal"
+    : run.status === "accepted" && deliveredDeliveryStatuses.has(run.delivery?.status)
+      ? "Delivered"
+      : run.status === "accepted" && run.delivery?.status === "failed"
+        ? "Integration blocked"
+      : run.status === "accepted" ? "Approved · not applied" : statusLabel(run.status);
+  const statusTone = taskDotTone(run);
+  const files = Number(navigation.files_changed || 0);
+  const checks = Number(navigation.checks_total || 0);
+  const passed = Number(navigation.checks_passed || 0);
+  const tools = Number(navigation.tool_calls || 0);
+  const tokens = Number(navigation.total_tokens || 0);
+  const cost = navigation.cost_observed ? `${compactMoney(navigation.cost_usd)} cost` : "Cost unknown";
+  const environment = run.kind === "tmux"
+    ? "Existing terminal session"
+    : navigation.isolated ? "Runs in an isolated git worktree" : `Execution: ${navigation.environment || "host"}`;
+  const metrics = [
+    files ? `${files} file${files === 1 ? "" : "s"}` : "No artifact yet",
+    checks ? `${passed}/${checks} checks` : "Checks pending",
+    tools ? `${compactNumber(tools)} tools` : "No tools yet",
+    tokens ? `${compactNumber(tokens)} tokens` : "Tokens pending",
+    cost,
+  ];
+  return `<header><strong>${escapeHtml(title)}</strong><time>${escapeHtml(relativeTime(run.updated_at))}</time></header>
+    <p><span aria-hidden="true">□</span>${escapeHtml(project ? projectName(project) : "Repository")}</p>
+    <p><span class="task-state-dot ${statusTone}" aria-hidden="true"></span>${escapeHtml(status)} · ${escapeHtml(run.lane || "agent")}</p>
+    <p><span aria-hidden="true">▱</span>${escapeHtml(environment)}</p>
+    <footer>${metrics.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</footer>`;
+}
+
+function showTaskHover(button) {
+  if (window.matchMedia("(max-width: 900px)").matches) return;
+  const run = state.runs.find((item) => item.id === button.dataset.runId);
+  const card = $("#taskHoverCard");
+  if (!run || !card) return;
+  card.innerHTML = taskHoverMarkup(run);
+  card.hidden = false;
+  card.dataset.tone = run.status === "accepted" && run.delivery?.status === "failed" ? "status-failed" : statusClass(run.status);
+  window.requestAnimationFrame(() => {
+    const row = button.getBoundingClientRect();
+    const bounds = card.getBoundingClientRect();
+    const left = Math.min(row.right + 10, window.innerWidth - bounds.width - 12);
+    const top = Math.max(12, Math.min(row.top - 7, window.innerHeight - bounds.height - 12));
+    document.documentElement.style.setProperty("--task-hover-left", `${Math.max(12, left)}px`);
+    document.documentElement.style.setProperty("--task-hover-top", `${top}px`);
+  });
+}
+
+function hideTaskHover() {
+  const card = $("#taskHoverCard");
+  if (card) card.hidden = true;
 }
 
 async function refreshRuns() {
@@ -1152,12 +1344,20 @@ function resetHeavyTaskState() {
 
 async function selectRun(runId) {
   const target = state.runs.find((run) => run.id === runId);
-  if (target?.project_id) state.projectFilter = target.project_id;
+  if (target?.project_id) {
+    state.projectFilter = target.project_id;
+    const visibleInCurrentFilter = runMatchesFilter(target, state.filter);
+    if (!visibleInCurrentFilter) {
+      state.filter = ["attention", "blocked", "review", "failed", "accepted"].includes(target.status) ? "review" : "all";
+      $$(".filter").forEach((button) => button.classList.toggle("active", button.dataset.filter === state.filter));
+    }
+  }
   const generation = state.selectionGeneration + 1;
   state.selectionGeneration = generation;
   closeStream();
   state.selectedId = runId;
   state.selected = null;
+  state.assistantOpen = false;
   state.taskSection = "summary";
   resetHeavyTaskState();
   location.hash = `task/${encodeURIComponent(runId)}`;
@@ -1168,7 +1368,7 @@ async function selectRun(runId) {
   $("#runDetail").setAttribute("aria-busy", "true");
   $("#detailStatus").textContent = "opening task";
   $("#detailStatus").className = "status-pill status-queued";
-  $("#detailTitle").textContent = target?.title || "Opening task…";
+  $("#detailTitle").textContent = target ? runTitle(target) : "Opening task…";
   $("#detailTask").textContent = "Loading the task summary. Changes, activity, and evidence load only when you open them.";
   try {
     await refreshSelected(false, runId, generation);
@@ -1239,35 +1439,29 @@ function renderDetail(run) {
   $("#runDetail").classList.remove("hidden");
   $("#runDetail").removeAttribute("aria-busy");
   const interactive = run.kind === "tmux";
-  const journeyContext = $(".journey-context");
-  journeyContext.classList.toggle("hidden", interactive);
-  const journeyCopy = ["review", "attention", "failed"].includes(run.status)
-    ? ["3", "Decide", "One action is waiting."]
-    : ["accepted", "pr_created"].includes(run.status)
-      ? ["3", "Deliver", "Integrate when ready."]
-      : ["3", "Follow", "Act only when asked."];
-  journeyContext.querySelector("span").textContent = journeyCopy[0];
-  journeyContext.querySelector("strong").textContent = journeyCopy[1];
-  journeyContext.querySelector("small").textContent = journeyCopy[2];
   const discovered = interactive ? discoveredSessionForRun(run) : null;
   const status = $("#detailStatus");
   const delivered = run.delivery?.status;
   const visibleStatus = run.status === "review" ? "ready for review"
     : run.status === "accepted" && delivered === "applied" ? "applied"
     : run.status === "accepted" && deliveredDeliveryStatuses.has(delivered) && delivered !== "applied" ? "delivered by integration"
-    : run.status === "accepted" ? "accepted · not delivered"
+    : run.status === "accepted" ? "approved · not applied"
     : statusLabel(run.status);
   status.textContent = interactive ? "tracked tmux terminal" : visibleStatus; status.className = `status-pill ${statusClass(run.status)}`;
   $("#detailId").textContent = run.id;
   const project = projectById(run.project_id);
   $("#detailProjectName").textContent = projectName(project);
   $("#titleProject").textContent = projectName(project);
-  $("#titleSurface").textContent = run.title;
-  $("#detailTitle").textContent = discovered?.title || discovered?.window_name || run.title;
+  $("#titleSurface").textContent = runTitle(run);
+  $("#detailTitle").textContent = discovered?.title || discovered?.window_name || runTitle(run);
+  $("#detailAgent").textContent = `Agent ${run.lane || "—"}`;
+  $("#detailStage").textContent = `Stage ${statusLabel(run.stage || run.status)}`;
   $("#detailTask").textContent = interactive ? `Existing ${run.lane} session in tmux ${discovered?.tmux_session || run.tmux_session || "—"}${(discovered?.tmux_target || run.tmux_target) ? `, pane ${discovered?.tmux_target || run.tmux_target}` : ""}.` : run.task;
   $("#observedSession").classList.toggle("hidden", !interactive);
   const decisionVisible = !interactive && ["review", "accepted", "pr_created"].includes(run.status);
-  $("#assistantPanel").classList.toggle("hidden", interactive);
+  const assistantVisible = !interactive && state.assistantOpen;
+  $("#assistantPanel").classList.toggle("hidden", !assistantVisible);
+  $(".detail-body").classList.toggle("assistant-closed", !assistantVisible);
   $("#summaryAssistant").classList.add("hidden");
   renderAssistantPanel(run);
   renderRecoveryCard(run);
@@ -1276,12 +1470,15 @@ function renderDetail(run) {
   $("#detailGrid").classList.toggle("hidden", interactive);
   const metrics = run.metrics || {};
   const observedTokens = Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0);
+  const tokenLimit = Number(run.budgets?.max_tokens || 0);
+  const tokenLabel = tokenLimit ? `${compactNumber(observedTokens)} / ${compactNumber(tokenLimit)}` : compactNumber(observedTokens);
+  const strength = evidenceStrength(run.confidence);
   $("#metrics").innerHTML = [
-    ["Tokens", compactNumber(observedTokens)],
+    ["Tokens", tokenLabel, tokenLimit && observedTokens >= tokenLimit * .8 ? "budget-warning" : ""],
     ["Cost", metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown],
-    ["Evidence score", run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}/100`],
+    ["Evidence strength", strength.label, `evidence-${strength.tone}`],
     ["GitHub CI", run.ci?.status || "not started"],
-  ].map(([label, value]) => `<div class="metric"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
+  ].map(([label, value, tone = ""]) => `<div class="metric ${tone}"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
   const executionDetails = $("#executionDetails");
   if (executionDetails.dataset.runId !== run.id) {
     executionDetails.dataset.runId = run.id;
@@ -1316,12 +1513,12 @@ function renderDetail(run) {
   const changedRun = $("#runDetail").dataset.runId !== run.id;
   if (changedRun) { $("#runDetail").dataset.runId = run.id; activateTaskSection("summary"); }
   $("#workflowStrip").classList.toggle("hidden", interactive);
-  renderActions(run); renderReviewDecision(run); renderNarrative(run); renderRecoveryCard(run); renderWorkflow(run);
+  renderActions(run); renderReviewDecision(run); renderNarrative(run); renderRecoveryCard(run); renderWorkflow(run); renderDeliveryLifecycle(run);
   loadDecisionDiff(run);
   if (changedRun) {
     $("#diffStat").textContent = "Open Changes to load the diff.";
     $("#diffPatch").textContent = "Large diffs are loaded only when this tab is visible.";
-    $("#eventLog").innerHTML = `<div class="event"><time>—</time><span class="event-type">on demand</span><span class="event-message">Open Activity to load the event history.</span></div>`;
+    $("#eventLog").innerHTML = eventPlaceholder("on demand", "Open Activity to load the event history.");
     $("#integrationResults").innerHTML = `<div class="empty-card">Open Integration to inspect predecessor artifacts.</div>`;
     $("#checkResults").innerHTML = `<div class="empty-card">Open Evidence to inspect checks.</div>`;
     $("#contextReceipt").innerHTML = `<div class="empty-card">Open Context to inspect attached snapshots.</div>`;
@@ -1330,6 +1527,7 @@ function renderDetail(run) {
     $("#ciResults").innerHTML = `<div class="empty-card">Open CI to inspect GitHub checks.</div>`;
   }
   renderVisibleHeavyPanels().catch((error) => toast(error.message, true));
+  if (state.helpOpen) renderHelpPanel();
 }
 
 function renderEnvironment(run) {
@@ -1368,17 +1566,57 @@ function renderNarrative(run) {
     review: ["REVIEW", "Ready for your decision", "Nothing has been applied.", UI_COPY.review, "attention", "!"],
     attention: ["NEEDS YOU", "One decision required", "Answer to continue this task.", UI_COPY.needsYou, "attention", "?"],
     failed: ["FAILED", "Stopped safely", "Resume or take over from the preserved worktree.", UI_COPY.needsYou, "danger", "×"],
-    accepted: ["ACCEPTED", UI_COPY.notApplied, "Integrate it, create a PR, or keep the artifact.", UI_COPY.deliver, "attention", "✓"],
+    accepted: ["APPROVED", UI_COPY.notApplied, "Apply it to the repository, create a PR, or keep it for later.", UI_COPY.deliver, "attention", "✓"],
     publishing: ["PUBLISHING", "Creating draft PR", "Task branch is being pushed.", UI_COPY.noAction, "active", "↗"],
     pr_created: ["PR CREATED", ciStatus === "failed" ? "CI failed" : ciStatus === "passed" ? "CI passed" : "CI pending", ciStatus === "failed" ? "Failure logs are captured." : "GitHub checks are tracked here.", ciStatus === "failed" ? "Repair in progress" : ciStatus === "passed" ? "Complete" : UI_COPY.noAction, ciStatus === "failed" ? "danger" : ciStatus === "passed" ? "success" : "active", ciStatus === "passed" ? "✓" : "↻"],
   };
   const environmentApproval = run.status === "attention" && run.environment?.trust_status === "pending";
   let narrative = environmentApproval ? ["TRUST GATE", "Approve repository commands", "No repository command has run.", UI_COPY.needsYou, "attention", "!"] : values[run.status] || ["WORKFLOW", "Tracking task", "Open Activity for events.", UI_COPY.noAction, "calm", "→"];
   if (run.status === "accepted" && ["applied", "integrated_applied"].includes(run.delivery?.status)) narrative = ["APPLIED", `Applied to ${run.delivery.target_branch || run.base_ref}`, `HEAD ${String(run.delivery.target_after_sha || "").slice(0, 12) || UI_COPY.unknown}. Artifact remains auditable.`, run.delivery?.status === "integrated_applied" ? "Delivered by integration" : "Delivered locally", "success", "✓"];
-  if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["INTEGRATION BLOCKED", "Artifact saved; source unchanged", run.delivery.error || "Resolve the source/artifact conflict.", UI_COPY.needsYou, "danger", "!"];
+  if (run.status === "accepted" && run.delivery?.status === "failed") narrative = ["APPLY BLOCKED", "Approved change saved; repository unchanged", run.delivery.error || "Resolve the repository conflict.", UI_COPY.needsYou, "danger", "!"];
   if (run.status === "accepted" && run.delivery?.status === "integration_queued") narrative = ["INTEGRATION QUEUED", "Artifact selected for integration", `Run ${run.delivery.integration_run_id || UI_COPY.unknown} will compose delivery.`, "Integration queued", "attention", "→"];
   const [label, title, copy, tail, tone, mark] = narrative;
   $("#narrativeLabel").textContent = label; $("#narrativeTitle").textContent = title; $("#narrativeCopy").textContent = copy; $("#narrativeTail").textContent = tail; $("#narrativeMark").textContent = mark; $("#runNarrative").dataset.tone = tone;
+}
+
+function lifecycleModel(run) {
+  const checks = run.check_results || [];
+  const verified = checks.length > 0 && checks.every((item) => item.skipped || Number(item.returncode) === 0);
+  const accepted = ["accepted", "pr_created"].includes(run.status);
+  const published = Boolean(run.pull_request_url) || ["pr_created", "integrated_pr_created"].includes(run.delivery?.status);
+  const integrated = ["applied", "integrated_applied", "integrated_pr_created"].includes(run.delivery?.status);
+  const deployment = String(run.deployment?.status || "").toLowerCase();
+  const observation = String(run.observation?.status || run.outcome?.observation_status || "").toLowerCase();
+  const outcome = String(run.outcome?.final_outcome || run.outcome?.status || "").toLowerCase();
+  const executed = Boolean(run.artifact_sha) || ["review", "accepted", "publishing", "pr_created"].includes(run.status);
+  const steps = [
+    ["Executed", executed, "Immutable artifact produced"],
+    ["Verified", verified, checks.length ? `${checks.filter((item) => item.skipped || Number(item.returncode) === 0).length}/${checks.length} checks passed` : "Required evidence not observed"],
+    ["Accepted", accepted, "Human or policy accepted this artifact"],
+    ["Published", published, "Branch or pull request published"],
+    ["Integrated", integrated, "Change reached the target branch"],
+    ["Deployed", ["deployed", "healthy", "success"].includes(deployment), deployment ? `Deployment ${deployment}` : "Deployment not observed"],
+    ["Observed", Boolean(observation) && !["unknown", "pending", "not_observed"].includes(observation), observation ? `Observation ${observation}` : "Post-merge observation not recorded"],
+    [outcome === "regressed" ? "Regressed" : "Healthy", outcome === "healthy" || outcome === "regressed", outcome ? `Outcome ${outcome}` : "Final outcome unknown"],
+  ];
+  let next = {label: "Continue execution", actor: "Odysseus", detail: runActionLine(run)};
+  if (["failed", "attention"].includes(run.status)) next = {label: run.status === "failed" ? "Recover task" : "Answer decision", actor: "You", detail: runActionLine(run)};
+  else if (run.status === "review") next = {label: "Accept or request changes", actor: "You", detail: "Review hard gates and unknown evidence"};
+  else if (accepted && !integrated && !published) next = {label: "Apply locally or create a PR", actor: "You", detail: "Acceptance preserved the artifact; source is unchanged"};
+  else if (published && !integrated) next = {label: "Reach green, then integrate", actor: "You or policy", detail: ciActionLine(run)};
+  else if (integrated && !steps[5][1]) next = {label: "Record deployment", actor: "Deployment integration", detail: "No deployment receipt observed"};
+  else if (steps[5][1] && !steps[6][1]) next = {label: "Observe health", actor: "Odysseus", detail: "Waiting for post-deployment signals"};
+  else if (steps[7][1]) next = {label: "Outcome recorded", actor: "Complete", detail: steps[7][2]};
+  const firstIncomplete = steps.findIndex((item) => !item[1]);
+  return {steps, firstIncomplete, next};
+}
+
+function renderDeliveryLifecycle(run) {
+  const node = $("#deliveryLifecycle");
+  if (!node || run.kind === "tmux") { node?.classList.add("hidden"); return; }
+  node.classList.remove("hidden");
+  const model = lifecycleModel(run);
+  node.innerHTML = `<div class="lifecycle-track">${model.steps.map(([label, done, detail], index) => `<span class="lifecycle-step ${done ? "done" : index === model.firstIncomplete ? "next" : "pending"}" title="${escapeHtml(detail)}"><i>${done ? "✓" : index + 1}</i><strong>${escapeHtml(label)}</strong></span>`).join("")}</div><div class="lifecycle-next"><small>NEXT</small><strong>${escapeHtml(model.next.label)}</strong><span>${escapeHtml(model.next.detail)} · Owner: ${escapeHtml(model.next.actor)}</span></div>`;
 }
 
 function renderActions(run) {
@@ -1388,13 +1626,14 @@ function renderActions(run) {
     const conflict = run.delivery?.status === "failed" && /conflict|merge was aborted/i.test(run.delivery?.error || "");
     actions.push(conflict
       ? `<button class="action-button accept" data-review-action="resolve-conflict" type="button">Resolve integration</button>`
-      : `<button class="action-button accept" data-action="apply" type="button">Integrate into repository</button>`);
+      : `<button class="action-button accept" data-action="apply" type="button">Apply to repository</button>`);
   }
   if (["accepted", "pr_created"].includes(run.status)) actions.push(`<button class="action-button" data-action="resume" type="button">Follow up</button>`);
   if ((run.tmux_session || run.agent_sessions?.agent || run.agent_session_id) && !canInlineResume(run)) actions.push(`<button class="action-button" data-action="takeover" type="button" title="Copies a command that opens this agent in your terminal">${run.kind === "tmux" ? "Copy tmux command" : "Continue in terminal"}</button>`);
   if (activeStatuses.has(run.status) && run.status !== "cancelling") actions.push(`<button class="action-button warn" data-action="cancel" type="button">Cancel</button>`);
   if (run.pull_request_url) actions.push(`<a class="action-button accept" href="${escapeHtml(run.pull_request_url)}" target="_blank" rel="noreferrer">Open PR</a>`);
   if (run.pull_request_url) actions.push(`<button class="action-button" data-action="ci-poll" type="button">Poll CI</button>`);
+  if (run.kind !== "tmux") actions.push(`<button class="action-button" data-action="assistant" type="button">${state.assistantOpen ? "Close assistant" : "Ask assistant"}</button>`);
   $("#runActions").innerHTML = actions.join("");
   $$("#runActions [data-action]").forEach((button) => button.addEventListener("click", () => runAction(button.dataset.action)));
   $$("#runActions [data-review-action]").forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
@@ -1451,11 +1690,18 @@ function decisionEvidence(run) {
   const cost = run.metrics?.cost_observed
     ? `$${Number(run.metrics.cost_usd || 0).toFixed(4)}`
     : UI_COPY.unknown;
-  const evidenceScore = run.confidence === null || run.confidence === undefined ? UI_COPY.unknown : `${Math.round(Number(run.confidence) * 100)}/100`;
+  const strength = evidenceStrength(run.confidence);
+  const unknowns = [
+    !checks.length ? "checks" : "",
+    !verdict ? "independent review" : "",
+    !ciObserved ? "GitHub CI" : "",
+    !run.metrics?.cost_observed ? "cost" : "",
+    !stat.observed ? "diff statistics" : "",
+  ].filter(Boolean);
   const title = (run.status === "review" && (!ciObserved || !["passed", "success"].includes(String(ci.status).toLowerCase())))
     ? "Ready for your decision"
     : run.status === "review" ? "Ready for your decision" : "Delivery decision";
-  return {checks, passed, failed, ci, ciFailures, files, stat, riskPaths, unresolved, verdict, ciObserved, cost, evidenceScore, title};
+  return {checks, passed, failed, ci, ciFailures, files, stat, riskPaths, unresolved, verdict, ciObserved, cost, strength, unknowns, title};
 }
 
 function renderDecisionSummary(run) {
@@ -1468,13 +1714,14 @@ function renderDecisionSummary(run) {
   const ciValue = evidence.ciObserved ? statusLabel(evidence.ci.status) : UI_COPY.notObserved;
   return `
     <section class="decision-summary" aria-label="Evidence summary for acceptance">
-      <div><small>Checks</small><strong>${escapeHtml(evidence.passed)} / ${escapeHtml(evidence.checks.length)} passed</strong></div>
-      <div><small>Failures</small><strong>${escapeHtml(evidence.failed.length + evidence.ciFailures.length)}</strong></div>
+      <div><small>Hard gates</small><strong>${escapeHtml(evidence.passed)} / ${escapeHtml(evidence.checks.length)} checks</strong></div>
+      <div><small>Gate failures</small><strong>${escapeHtml(evidence.failed.length + evidence.ciFailures.length)}</strong></div>
       <div><small>Diff</small><strong>${escapeHtml(diffValue)}</strong></div>
       <div><small>Files</small><strong>${escapeHtml(fileValue)}</strong></div>
-      <div><small>Review</small><strong>${escapeHtml(evidence.verdict || UI_COPY.unknown)}</strong></div>
+      <div><small>Independent review</small><strong>${escapeHtml(evidence.verdict || UI_COPY.unknown)}</strong></div>
       <div><small>GitHub CI</small><strong>${escapeHtml(ciValue)}</strong></div>
-      <div><small>Evidence score</small><strong>${escapeHtml(evidence.evidenceScore)}</strong></div>
+      <div><small>Soft evidence</small><strong class="evidence-${escapeHtml(evidence.strength.tone)}">${escapeHtml(evidence.strength.label)}</strong></div>
+      <div><small>Unknowns</small><strong>${escapeHtml(evidence.unknowns.length ? evidence.unknowns.length : "None")}</strong></div>
       <div><small>Cost</small><strong>${escapeHtml(evidence.cost)}</strong></div>
     </section>
     <details class="decision-detail"><summary>More evidence</summary><pre>${escapeHtml([
@@ -1482,6 +1729,7 @@ function renderDecisionSummary(run) {
       `Failed checks: ${evidence.failed.map((item) => item.command || "check").join(", ") || "none observed"}`,
       `CI failures: ${evidence.ciFailures.map((item) => item.name || item.workflow || "check").join(", ") || "none observed"}`,
       `High-risk paths: ${riskValue}`,
+      `Unknown evidence: ${evidence.unknowns.join(", ") || "none"}`,
       `Token usage by phase: ${phaseUsage(run)}`,
       `Unresolved findings: ${evidence.unresolved || UI_COPY.notObserved}`,
       `Changed files: ${evidence.files.join(", ") || "Unknown"}`,
@@ -1518,17 +1766,17 @@ function renderReviewDecision(run) {
   const delivered = deliveredDeliveryStatuses.has(delivery.status);
   const failed = delivery.status === "failed";
   const previewUrl = run.environment?.preview_url || "";
-  let deliveryCopy = "Accepting preserves this artifact. It does not merge or deliver it.";
-  let deliveryActions = `<button class="primary" data-review-action="accept" type="button">Accept artifact</button>`;
+  let deliveryCopy = "Approving records this exact change and its evidence. It does not change your source repository yet.";
+  let deliveryActions = `<button class="primary" data-review-action="accept" type="button">Approve change</button>`;
   let alternateActions = `<button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
   let deliveryHelp = "";
   if (run.status === "accepted" && !delivered) {
-    deliveryCopy = failed ? `Integration is blocked: ${delivery.error || "inspect the repository state and resolve the conflict."}` : `Accepted, but not delivered to ${run.base_ref || "the source branch"}. You may also keep it as an artifact.`;
+    deliveryCopy = failed ? `Applying the change is blocked: ${delivery.error || "inspect the repository state and resolve the conflict."}` : `Approved and ready to apply to ${run.base_ref || "the source branch"}.`;
     const conflict = /conflict|merge was aborted/i.test(delivery.error || "");
     deliveryActions = conflict
       ? `<button class="primary" data-review-action="resolve-conflict" type="button">Resolve integration</button>`
-      : `<button class="primary" data-review-action="apply" type="button">${failed ? "Retry delivery" : "Integrate into repository"}</button>`;
-    alternateActions = `<button class="ghost" data-review-action="integration" type="button">Combine accepted artifacts</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
+      : `<button class="primary" data-review-action="apply" type="button">${failed ? "Retry apply" : "Apply to repository"}</button>`;
+    alternateActions = `<button class="ghost" data-review-action="integration" type="button">Combine approved changes</button><button class="ghost" data-review-action="draft-pr" type="button">Create draft PR</button>`;
     if (failed) {
       const tracked = /tracked local changes/i.test(delivery.error || "");
       const explanation = tracked
@@ -1568,7 +1816,7 @@ function renderReviewDecision(run) {
     ${renderDecisionSummary(run)}
     <section class="delivery-decision"><div><strong>${escapeHtml(deliveryCopy)}</strong>${deliveryHelp}</div><div class="delivery-actions">${deliveryActions}</div></section>
     <details class="review-secondary"><summary>Inspect or choose another action</summary><div class="secondary-action-grid"><button class="ghost" data-review-action="view-changes" type="button">View changes</button>${previewUrl ? previewLinks(previewUrl) : `<button class="ghost" data-review-action="view-evidence" type="button">View evidence</button>`}${alternateActions}</div></details>
-    ${run.status === "review" ? `<details class="review-request"><summary>Request changes</summary><textarea id="reviewFeedback" rows="4" placeholder="What should the agent change before you accept this artifact?"></textarea><div><button class="primary" data-review-action="send-back" type="button">Send changes</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
+    ${run.status === "review" ? `<details class="review-request"><summary>Request changes</summary><textarea id="reviewFeedback" rows="4" placeholder="Tell the agent exactly what must change before approval."></textarea><div><button class="primary" data-review-action="send-back" type="button">Send feedback</button>${canTakeover(run) ? `<button class="ghost" data-review-action="takeover" type="button">Continue in terminal</button>` : ""}</div></details>` : ""}
     <footer class="delivery-target">Repository: <strong>${escapeHtml(projectName(project))}</strong> · Local branch: <code>${escapeHtml(run.base_ref || "unknown")}</code></footer>`;
   $$('[data-review-action]').forEach((button) => button.addEventListener("click", () => reviewAction(button.dataset.reviewAction, button)));
 }
@@ -1586,12 +1834,13 @@ function renderVariantDecision(run, node) {
     const size = item.unnecessary_change_size || {};
     const attention = item.human_attention || {};
     const artifact = item.artifact || {};
+    const evidence = evidenceStrength(quality.confidence);
     const frontierMark = frontier.has(item.run_id) ? `<span class="variant-frontier">Frontier</span>` : "";
     return `<article class="variant-candidate">
       <header><div><strong>${escapeHtml(item.title || item.run_id)}</strong><small>${escapeHtml(item.run_id)} · ${escapeHtml(item.lane || "")}</small></div>${frontierMark}</header>
       <div class="variant-metrics">
         <span><small>Tests</small><strong>${escapeHtml(tests.passed || 0)}/${escapeHtml(tests.total || 0)}</strong></span>
-        <span><small>Evidence</small><strong>${escapeHtml(Math.round(Number(quality.confidence || 0) * 100))}/100</strong></span>
+        <span><small>Soft evidence</small><strong class="evidence-${escapeHtml(evidence.tone)}">${escapeHtml(evidence.label)}</strong></span>
         <span><small>Risk</small><strong>${escapeHtml((item.regression_merge_risk || {}).risk || "unknown")}</strong></span>
         <span><small>Cost</small><strong>$${escapeHtml(Number(cost.usd || 0).toFixed(2))}</strong></span>
         <span><small>Size</small><strong>${escapeHtml(size.files || 0)} files</strong></span>
@@ -1768,38 +2017,89 @@ function renderWorkflow(run) {
 function eventMessage(event) {
   const data = event.data || {};
   if (event.type === "agent.usage") return `in ${compactNumber(data.input_tokens)} · cached ${compactNumber(data.cached_input_tokens)} · out ${compactNumber(data.output_tokens)}`;
-  if (event.type.startsWith("agent.tool")) return `${data.tool || data.kind || "tool"}${data.command ? ` · ${data.command}` : ""}${data.exit_code !== undefined ? ` → ${data.exit_code}` : ""}`;
+  if (event.type.startsWith("agent.tool")) {
+    const heading = `${data.tool || data.kind || "tool"}${data.command ? ` · ${data.command}` : ""}${data.exit_code !== undefined ? ` → ${data.exit_code}` : ""}`;
+    const output = data.aggregated_output || data.output || data.result || "";
+    return output ? `${heading}\n${truncateText(output, 2400)}` : heading;
+  }
   if (data.message) return truncateText(data.message, 2400); if (data.text) return truncateText(data.text, 2400);
+  if (data.answer) return truncateText(data.answer, 2400); if (data.feedback) return truncateText(data.feedback, 2400);
+  if (data.task) return truncateText(data.task, 2400); if (data.reason) return truncateText(data.reason, 2400);
   if (data.command) return `${data.command}${data.returncode !== undefined ? ` → ${data.returncode}` : ""}`;
   if (data.step) return `${data.step}${data.attempt ? ` · attempt ${data.attempt}` : ""}`;
   if (data.status) return data.status; if (data.url) return data.url;
   return Object.keys(data).length ? truncateText(JSON.stringify(data), 2400) : "";
 }
 
+function eventPresentation(event) {
+  const type = String(event.type || "event");
+  const source = String(event.source || "odysseus");
+  if (["user", "operator", "human"].includes(source) || /^(?:attention\.answered|review\.accepted|run\.feedback|variants\.decision)/.test(type)) {
+    return {kind: "you", actor: "You", detail: type};
+  }
+  if (type === "agent.question") return {kind: "question", actor: "Agent asks", detail: `${source} · ${type}`};
+  if (type.startsWith("agent.tool") || /^(?:check|ci)\./.test(type)) return {kind: "tool", actor: "Tool", detail: `${source} · ${type}`};
+  if (/^(?:review|evaluation)\./.test(type) || ["reviewer", "evaluator"].includes(source)) return {kind: "reviewer", actor: "Reviewer", detail: `${source} · ${type}`};
+  if (type.startsWith("agent.") || !["odysseus", "system", "git", "github", "shell"].includes(source)) return {kind: "agent", actor: "Agent", detail: `${source} · ${type}`};
+  if (source === "git" || type.startsWith("worktree.") || type.startsWith("artifact.") || type.startsWith("integration.")) return {kind: "git", actor: "Git", detail: type};
+  return {kind: type.includes("failed") ? "failed" : "system", actor: "System", detail: type};
+}
+
+function eventPlaceholder(type, message) {
+  return `<div class="event event-system"><span class="event-avatar" aria-hidden="true">S</span><div class="event-content"><header><strong>System</strong><span>${escapeHtml(type)}</span><time>—</time></header><div class="event-message">${escapeHtml(message)}</div></div></div>`;
+}
+
 function renderEvents() {
   const log = $("#eventLog");
   if (state.eventsLoadingRunId === state.selectedId && state.eventsLoadedRunId !== state.selectedId) {
-    log.innerHTML = `<div class="event"><time>—</time><span class="event-type">loading</span><span class="event-message">Reading this task's activity history…</span></div>`;
+    log.innerHTML = eventPlaceholder("loading", "Reading this task's activity history…");
     return;
   }
   if (state.eventsLoadedRunId !== state.selectedId) {
-    log.innerHTML = `<div class="event"><time>—</time><span class="event-type">on demand</span><span class="event-message">Open Activity to load the event history.</span></div>`;
+    log.innerHTML = eventPlaceholder("on demand", "Open Activity to load the event history.");
     return;
   }
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   const hiddenCount = Math.max(0, state.events.length - state.eventVisibleLimit);
   const eventRows = state.events.slice(-state.eventVisibleLimit).map((event) => {
-    const kind = event.type.includes("failed") ? "failed" : event.type.includes("review") ? "review" : event.type.includes("usage") ? "usage" : "";
+    const presentation = eventPresentation(event);
     const time = new Date(event.ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
-    return `<div class="event ${kind}"><time>${escapeHtml(time)}</time><span class="event-type" title="${escapeHtml(event.type)}">${escapeHtml(event.type)}</span><span class="event-message">${escapeHtml(eventMessage(event))}</span></div>`;
+    const mark = {you: "Y", agent: "A", question: "?", tool: "›_", reviewer: "R", git: "G", failed: "!", system: "S"}[presentation.kind] || "S";
+    return `<div class="event event-${presentation.kind}"><span class="event-avatar" aria-hidden="true">${escapeHtml(mark)}</span><div class="event-content"><header><strong>${escapeHtml(presentation.actor)}</strong><span title="${escapeHtml(event.type)}">${escapeHtml(presentation.detail)}</span><time>${escapeHtml(time)}</time></header><div class="event-message">${escapeHtml(eventMessage(event))}</div></div></div>`;
   }).join("");
-  log.innerHTML = `${hiddenCount ? `<button class="ghost activity-load-older" id="loadOlderEvents" type="button">Load ${Math.min(150, hiddenCount)} earlier events · ${hiddenCount} hidden</button>` : ""}${eventRows || `<div class="event"><time>—</time><span class="event-type">waiting</span><span class="event-message">No events yet.</span></div>`}`;
+  log.innerHTML = `${hiddenCount ? `<button class="ghost activity-load-older" id="loadOlderEvents" type="button">Load ${Math.min(150, hiddenCount)} earlier events · ${hiddenCount} hidden</button>` : ""}${eventRows || eventPlaceholder("waiting", "No events yet.")}`;
   $("#loadOlderEvents")?.addEventListener("click", () => { state.eventVisibleLimit += 150; renderEvents(); });
   if (atBottom) log.scrollTop = log.scrollHeight;
 }
 
+function lineMarkup(value, classify) {
+  return String(value ?? "").split("\n").map((line) => `<span class="${classify(line)}">${escapeHtml(line) || " "}</span>`).join("");
+}
+
+function terminalMarkup(output) {
+  return lineMarkup(output, (line) => {
+    if (/^(?:\$|❯|>)\s/.test(line)) return "terminal-line terminal-command";
+    if (/\b(?:FAIL(?:ED)?|ERROR|Traceback|fatal)\b/i.test(line)) return "terminal-line terminal-fail";
+    if (/\b(?:PASS(?:ED)?|OK|SUCCESS)\b/i.test(line)) return "terminal-line terminal-pass";
+    if (/\b(?:WARN(?:ING)?|SKIP(?:PED)?|deprecated)\b/i.test(line)) return "terminal-line terminal-warn";
+    if (/(?:^|\s)[\w./-]+:\d+(?::\d+)?/.test(line)) return "terminal-line terminal-path";
+    return "terminal-line";
+  });
+}
+
+function diffMarkup(patch) {
+  return lineMarkup(patch, (line) => {
+    if (/^(?:diff --git|index |--- |\+\+\+ )/.test(line)) return "diff-line diff-file";
+    if (/^@@/.test(line)) return "diff-line diff-hunk";
+    if (/^\+/.test(line)) return "diff-line diff-add";
+    if (/^-/.test(line)) return "diff-line diff-delete";
+    if (/^\\ No newline/.test(line)) return "diff-line diff-note";
+    return "diff-line diff-context";
+  });
+}
+
 function renderChecks(checks) {
-  $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${escapeHtml(truncateText(check.output || "No output."))}</pre></div>`; }).join("") : `<div class="check-output">Checks have not run yet.</div>`;
+  $("#checkResults").innerHTML = checks.length ? checks.map((check) => { const pass = Number(check.returncode) === 0; return `<div class="check-card"><div class="check-head"><span>${escapeHtml(check.command || "No checks configured")}</span><strong class="${pass ? "check-pass" : "check-fail"}">${check.skipped ? "SKIPPED" : pass ? "PASS" : `FAIL ${check.returncode}`}</strong></div><pre class="check-output">${terminalMarkup(truncateText(check.output || "No output."))}</pre></div>`; }).join("") : `<div class="check-output"><span class="terminal-line">Checks have not run yet.</span></div>`;
 }
 
 function renderContextReceipt(run) {
@@ -1821,10 +2121,11 @@ function renderContextReceipt(run) {
 
 function renderEvaluation(evaluation) {
   const components = evaluation.components || [];
+  const strength = evidenceStrength(evaluation.confidence);
   $("#evaluationResults").innerHTML = evaluation.version ? `
-    <div class="evaluation-head"><strong>Evidence score ${Math.round(Number(evaluation.confidence || 0) * 100)}/100</strong><span>${escapeHtml(evaluation.decision || "human_review")}</span></div>
-    <p class="evaluation-note">Heuristic evidence synthesis; not a calibrated delivery probability.</p>
-    ${components.map((item) => `<div class="evaluation-row"><div><strong>${escapeHtml(item.id)}</strong><small>${escapeHtml(item.kind || "signal")}</small></div><span>${Math.round(Number(item.score || 0) * 100)}%</span><span class="${item.verdict === "fail" ? "check-fail" : "check-pass"}">${escapeHtml(item.verdict || "—")}</span></div>`).join("")}
+    <div class="evaluation-head"><strong>Evidence strength: ${escapeHtml(strength.label)}</strong><span>${escapeHtml(evaluation.decision || "human_review")}</span></div>
+    <p class="evaluation-note">Heuristic synthesis of observed signals. It is not a delivery probability; hard gates and unknowns remain separate.</p>
+    ${components.map((item) => { const signal = evidenceStrength(item.score); return `<div class="evaluation-row"><div><strong>${escapeHtml(item.id)}</strong><small>${escapeHtml(item.kind || "signal")}</small></div><span class="evidence-${escapeHtml(signal.tone)}">${escapeHtml(signal.label)}</span><span class="${item.verdict === "fail" ? "check-fail" : "check-pass"}">${escapeHtml(item.verdict || "—")}</span></div>`; }).join("")}
   ` : `<div class="empty-card">Evaluation has not run yet.</div>`;
 }
 
@@ -1864,7 +2165,7 @@ async function renderDiff() {
     }
   }
   $("#diffStat").textContent = truncateText(state.selectedDiff.stat || "No changed files yet.");
-  $("#diffPatch").textContent = truncateText(state.selectedDiff.patch || "No diff yet.", 120000);
+  $("#diffPatch").innerHTML = diffMarkup(truncateText(state.selectedDiff.patch || "No diff yet.", 120000));
 }
 
 function renderCI(run) {
@@ -1902,7 +2203,10 @@ function openStream(runId) {
   stream.onopen = () => setConnection(true); stream.onerror = () => setConnection(false);
 }
 function closeStream() { if (state.stream) state.stream.close(); state.stream = null; state.streamRunId = ""; }
-function setConnection(online) { $(".connection").classList.toggle("online", online); $("#connectionLabel").textContent = online ? "Live" : "Reconnecting"; }
+function setConnection(online) {
+  $(".connection")?.classList.toggle("online", online);
+  if ($("#connectionLabel")) $("#connectionLabel").textContent = online ? "Live" : "Reconnecting";
+}
 
 async function copyCommand(command) {
   try { await navigator.clipboard.writeText(command); toast(`Copied: ${command}`); }
@@ -1978,9 +2282,11 @@ function renderAssistantStatus(message = "") {
   const provider = assistantProviderValue();
   const info = state.bootstrap?.assistant?.[provider] || {};
   const status = $("#assistantStatus");
-  const defaultMessage = info.mode === "local_cli"
+  const destination = state.selected?.lane || "the task agent";
+  const actionHint = ` “Use as feedback” only drafts text. “Send & resume” sends it to ${destination} in the saved task session.`;
+  const defaultMessage = (info.mode === "local_cli"
     ? (info.configured ? `${assistantProviderLabel(provider)} ready. Scratch workspace; selected context only.` : `${assistantProviderLabel(provider)} is not on PATH.`)
-    : (info.configured ? `${assistantProviderLabel(provider)} ready via ${info.env}; model ${info.model}.` : `Direct API mode requires ${info.env || (provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the server environment.`);
+    : (info.configured ? `${assistantProviderLabel(provider)} ready via ${info.env}; model ${info.model}.` : `Direct API mode requires ${info.env || (provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY")} in the server environment.`)) + actionHint;
   if (status) {
     status.textContent = message || defaultMessage;
     status.classList.toggle("assistant-missing", !info.configured && !message);
@@ -2003,7 +2309,7 @@ function renderAssistantMessages() {
       ${message.shared_context?.length ? `<em>Shared: ${escapeHtml(message.shared_context.join(", "))}</em>` : ""}
       ${assistantMessageAllowed(message) ? "" : `<em>Omitted from the next request because current context sharing is narrower.</em>`}
     </article>
-  `).join("") : `<div class="assistant-empty">Ask a local Codex or Claude helper what feedback to send next. Only selected context chips are shared.</div>`;
+  `).join("") : `<div class="assistant-empty"><strong>This is not the worker or reviewer.</strong><br>The Decision Assistant helps prepare a precise next instruction. Nothing is sent to the task agent until you choose “Send &amp; resume”.</div>`;
   $("#assistantMessages").scrollTop = $("#assistantMessages").scrollHeight;
 }
 
@@ -2040,14 +2346,40 @@ function canTakeover(run = state.selected) {
   return Boolean(run && (run.tmux_session || run.agent_sessions?.agent || run.agent_session_id));
 }
 
+function controlledRecovery(run) {
+  const error = String(run?.last_error || run?.delivery?.error || "");
+  if (/(?:\.git\/worktrees|index\.lock|gitdir|outside the writable sandbox).*(?:operation not permitted|permission denied)|(?:operation not permitted|permission denied).*(?:\.git\/worktrees|index\.lock|gitdir)/i.test(error)) {
+    return {
+      label: "GIT WORKTREE ACCESS",
+      title: "Retry with scoped Git metadata access",
+      copy: "The artifact branch is preserved. Odysseus will let Codex write only the linked repository's Git metadata; this is not full filesystem elevation. If host policy still blocks it, continue in the terminal.",
+      prompt: "Continue the interrupted Git operation in this existing worktree. Verify the current rebase or merge state, resolve only the recorded conflict, stage the intended files, finish the Git operation, and rerun the relevant checks.",
+      action: "Retry with Git access",
+    };
+  }
+  if (/budget exceeded|token budget|tool-call budget|cost budget/i.test(error)) {
+    return {label: "BUDGET REACHED", title: "Choose a smaller recovery", copy: "The run stopped at its configured guardrail. Increase the limit in Settings or give the agent a narrower instruction; unknown cost is never treated as zero.", prompt: "Inspect the preserved work and finish only the smallest remaining change. Avoid re-reading or rewriting completed areas.", action: "Resume narrowly"};
+  }
+  if (/requires approval|permission request/i.test(error)) {
+    return {label: "PERMISSION REQUIRED", title: "Approve or replace the blocked command", copy: "No command was silently elevated. Explain the safe alternative below, or continue in the terminal if you intentionally want to run the exact command yourself.", prompt: "Continue without broad permission escalation. Use the narrowest safe command that completes the task, and ask again if a privileged action is still required.", action: "Retry safely"};
+  }
+  return null;
+}
+
 function renderRecoveryCard(run) {
   const visible = canInlineResume(run);
   $("#recoveryCard").classList.toggle("hidden", !visible);
   if (!visible) return;
   const attention = run.status === "attention";
-  $("#recoveryLabel").textContent = attention ? "YOUR ANSWER" : "RECOVERY";
-  $("#recoveryTitle").textContent = attention ? "Answer and continue this task" : "Resume this task with feedback";
-  $("#recoveryCopy").textContent = attention ? "Your answer returns to the same agent thread and worktree." : "The branch and saved agent thread are preserved. Explain what to investigate or fix next.";
+  const recovery = attention ? null : controlledRecovery(run);
+  $("#recoveryLabel").textContent = attention ? "YOUR ANSWER" : recovery?.label || "RECOVERY";
+  $("#recoveryTitle").textContent = attention ? "Answer and continue this task" : recovery?.title || "Resume this task with feedback";
+  $("#recoveryCopy").textContent = attention ? "Your answer returns to the same agent thread and worktree." : recovery?.copy || "The branch and saved agent thread are preserved. Explain what to investigate or fix next.";
+  $("#inlineResume").textContent = recovery?.action || (attention ? "Send answer & resume" : "Resume with feedback");
+  if (recovery && $("#inlineFeedback").dataset.recoveryRun !== run.id) {
+    $("#inlineFeedback").value = recovery.prompt;
+    $("#inlineFeedback").dataset.recoveryRun = run.id;
+  }
   $("#inlineTakeover").classList.toggle("hidden", !canTakeover(run));
 }
 
@@ -2193,10 +2525,18 @@ async function queueAssistantTask() {
 async function runAction(action) {
   if (action === "settings") { setView("settings"); return; }
   if (!state.selectedId) return;
+  if (action === "assistant") {
+    state.assistantOpen = !state.assistantOpen;
+    $("#assistantPanel").classList.toggle("hidden", !state.assistantOpen);
+    $(".detail-body").classList.toggle("assistant-closed", !state.assistantOpen);
+    renderActions(state.selected);
+    if (state.assistantOpen) window.requestAnimationFrame(() => $("#assistantComposer")?.focus());
+    return;
+  }
   if (action === "resume") { $("#feedbackDialog").showModal(); return; }
   if (action === "apply") {
     const run = state.selected;
-    const approved = await confirmChoice({eyebrow: "INTEGRATE LOCALLY", title: `Integrate into ${run.base_ref || "the source branch"}?`, lead: "This changes your source checkout.", message: "Odysseus proceeds only if the checkout is clean and compatible. A conflicting merge is aborted automatically and the artifact remains safe.", confirmLabel: "Integrate into repository"});
+    const approved = await confirmChoice({eyebrow: "APPLY LOCALLY", title: `Apply this change to ${run.base_ref || "the source branch"}?`, lead: "This updates your source checkout.", message: "Odysseus proceeds only if the checkout is clean and compatible. A conflicting merge is aborted automatically and the approved change remains safe.", confirmLabel: "Apply to repository"});
     if (!approved) return;
   }
   if (action === "draft-pr") {
@@ -2348,6 +2688,35 @@ function renderEpicGraph(epic) {
   </div>${edges.length ? `<p class="dag-edge-list">Edges: ${escapeHtml(edges.join("; "))}</p>` : `<p class="dag-edge-list">No dependencies.</p>`}<ol class="dag-linear-fallback">${nodes.map((node) => `<li><strong>${escapeHtml(node.title || node.key)}</strong><span>${escapeHtml(epicNodeState(node.run, node.task))}</span><small>${escapeHtml(node.depends_on?.length ? `Depends on ${node.depends_on.join(", ")}` : "No dependencies")}</small></li>`).join("")}</ol>`;
 }
 
+function planGraphIntelligence(epic, linkedRuns, plannedTasks) {
+  const items = linkedRuns.length ? linkedRuns : plannedTasks;
+  const keyOf = (item, index) => String(item.task_key || item.id || `task-${index + 1}`);
+  const keys = new Set(items.map(keyOf));
+  const depthMemo = new Map();
+  const depthOf = (item, index, visiting = new Set()) => {
+    const key = keyOf(item, index);
+    if (depthMemo.has(key)) return depthMemo.get(key);
+    if (visiting.has(key)) return 0;
+    const nextVisiting = new Set(visiting).add(key);
+    const dependencies = (item.dependency_keys || item.depends_on || []).filter((dependency) => keys.has(String(dependency)));
+    const depth = dependencies.length ? 1 + Math.max(...dependencies.map((dependency) => {
+      const parentIndex = items.findIndex((candidate, candidateIndex) => keyOf(candidate, candidateIndex) === String(dependency));
+      return parentIndex < 0 ? 0 : depthOf(items[parentIndex], parentIndex, nextVisiting);
+    })) : 0;
+    depthMemo.set(key, depth);
+    return depth;
+  };
+  const depths = items.map((item, index) => depthOf(item, index));
+  const criticalStages = depths.length ? Math.max(...depths) + 1 : 0;
+  const breadth = depths.reduce((counts, depth) => counts.set(depth, (counts.get(depth) || 0) + 1), new Map());
+  const peakParallel = breadth.size ? Math.max(...breadth.values()) : 0;
+  const humanGates = items.filter((item) => ["reviewer", "human_gate"].includes(String(item.role || item.kind || ""))).length;
+  const conflictRisks = linkedRuns.filter((run) => ["medium", "high"].includes(String(run.merge_analysis?.risk || "").toLowerCase())).length;
+  const budgetTokens = items.reduce((total, item) => total + Number(item.budgets?.max_tokens || item.budget?.tokens || 0), 0);
+  const budgetCost = items.reduce((total, item) => total + Number(item.budgets?.max_cost_usd || item.budget?.usd || 0), 0);
+  return {criticalStages, peakParallel, humanGates, conflictRisks, budgetTokens, budgetCost};
+}
+
 async function refreshEpics() {
   state.epics = (await api("/api/epics")).epics;
   $("#epicNavCount").textContent = state.epics.filter((epic) => ["planning", "proposed", "active"].includes(epic.status)).length || "";
@@ -2365,6 +2734,7 @@ async function refreshEpics() {
     const activeNodes = nodeStates.filter((value) => value === "Running" || value === "Ready").length;
     const attentionNodes = nodeStates.filter((value) => value === "Needs You" || value === "Blocked" || value === "Failed").length;
     const acceptedNodes = nodeStates.filter((value) => value === "Accepted").length;
+    const intelligence = planGraphIntelligence(epic, linkedRuns, plannedTasks);
     const dependencyCount = (linkedRuns.length ? linkedRuns : plannedTasks).reduce((total, item) => total + (item.dependency_keys || item.depends_on || []).length, 0);
     const sourceLine = sources.length ? `<div class="epic-source-line"><strong>Source decision${sources.length === 1 ? "" : "s"}</strong>${sources.map((source) => `<span title="${escapeHtml(source.sha256 || "")}">${escapeHtml(source.path)} <code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code></span>`).join("")}</div>` : "";
     const runButtons = (epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("");
@@ -2372,9 +2742,9 @@ async function refreshEpics() {
       <div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div>
       <h3>${escapeHtml(epic.title)}</h3>
       <p>${escapeHtml(epic.status === "proposed" ? "Review the dependency graph, then approve execution." : epic.status === "active" ? "Odysseus is scheduling dependency-ready tasks." : epic.plan?.summary || epic.description || "Planning...")}</p>
-      <div class="epic-progress" aria-label="Plan progress"><span><strong>${taskCount}</strong> tasks</span><span><strong>${activeNodes}</strong> active</span><span class="${attentionNodes ? "needs" : ""}"><strong>${attentionNodes}</strong> need you</span><span><strong>${acceptedNodes}</strong> accepted</span></div>
+      <div class="epic-progress" aria-label="Plan progress"><span><strong>${taskCount}</strong> tasks</span><span><strong>${intelligence.criticalStages || "—"}</strong> critical-path stages</span><span><strong>${intelligence.peakParallel || "—"}</strong> peak parallel</span><span><strong>${activeNodes}</strong> active</span><span class="${attentionNodes ? "needs" : ""}"><strong>${attentionNodes}</strong> need you</span><span><strong>${acceptedNodes}</strong> accepted</span>${intelligence.conflictRisks ? `<span class="needs"><strong>${intelligence.conflictRisks}</strong> merge risks</span>` : ""}${intelligence.humanGates ? `<span><strong>${intelligence.humanGates}</strong> human gates</span>` : ""}${intelligence.budgetTokens ? `<span><strong>${compactNumber(intelligence.budgetTokens)}</strong> token ceiling</span>` : ""}${intelligence.budgetCost ? `<span><strong>$${intelligence.budgetCost.toFixed(2)}</strong> cost ceiling</span>` : ""}</div>
       <details class="epic-graph-details" ${epic.status === "proposed" ? "open" : ""}>
-        <summary><span><strong>${epic.status === "proposed" ? "Review execution graph" : "Execution graph"}</strong><small>${dependencyCount} dependenc${dependencyCount === 1 ? "y" : "ies"} · ${taskCount} task${taskCount === 1 ? "" : "s"}</small></span><span>${epic.status === "proposed" ? "Approval required" : "Open"}</span></summary>
+        <summary><span><strong>${epic.status === "proposed" ? "Review execution graph" : "Execution graph"}</strong><small>${dependencyCount} dependenc${dependencyCount === 1 ? "y" : "ies"} · ${intelligence.criticalStages || "—"} critical-path stages · up to ${intelligence.peakParallel || "—"} parallel</small></span><span>${epic.status === "proposed" ? "Approval required" : "Open graph"}</span></summary>
         <div class="epic-graph-content">${sourceLine}${graph}</div>
       </details>
       <div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve and start</button>` : ""}${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
@@ -2474,7 +2844,7 @@ async function refreshSettings() {
   state.bootstrap.default_lane = state.config.default_lane;
   state.bootstrap.planner_lane = state.config.planner_lane || state.config.default_lane;
   state.bootstrap.review_lane = state.config.review_lane || state.config.default_lane;
-  $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`;
+  $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} running max`;
   const options = (selected) => agentLaneOptions(selected);
   $("#laneSelect").innerHTML = agentLaneOptions("auto", true);
   $("#plannerLaneSelect").innerHTML = options(state.bootstrap.planner_lane);
@@ -2581,7 +2951,7 @@ function portfolioMoney(value) {
 }
 
 function portfolioMetric(label, value, note, tone = "") {
-  return `<article class="portfolio-kpi ${escapeHtml(tone)}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><p>${escapeHtml(note)}</p></article>`;
+  return `<article class="portfolio-kpi ${escapeHtml(tone)}" title="${escapeHtml(`${label}: ${note}`)}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong><p>${escapeHtml(note)}</p></article>`;
 }
 
 function renderHome() {
@@ -2600,24 +2970,58 @@ function renderHome() {
   $$('[data-home-run]').forEach((button) => button.addEventListener("click", () => button.dataset.homeRun ? selectRun(button.dataset.homeRun) : setView("attention")));
 }
 
-function continueHomeTask(asPlan = false) {
-  if (!state.projects.length) { $("#projectDialog").showModal(); return; }
-  const prompt = $("#homeTaskPrompt").value.trim();
-  if (!prompt) { $("#homeTaskPrompt").focus(); toast("Describe the finished change first.", true); return; }
-  const projectId = $("#homeProjectSelect").value || preferredProjectId();
-  if (asPlan) {
-    openEpicDialog();
-    $("#epicProjectSelect").value = projectId;
-    $("#epicProjectSelect").dispatchEvent(new Event("change"));
-    $("#epicForm").elements.requirement.value = prompt;
-    return;
+function openTaskDialog({prompt = "", projectId = ""} = {}) {
+  prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject"));
+  if (projectId && projectById(projectId)) {
+    $("#taskProjectSelect").value = projectId;
+    $("#taskProjectSelect").dispatchEvent(new Event("change"));
   }
-  $("#newTaskButton").click();
-  $("#taskProjectSelect").value = projectId;
-  $("#taskProjectSelect").dispatchEvent(new Event("change"));
+  state.taskAgentRecommendation = null;
+  renderTaskAgentRecommendation();
   $("#taskPrompt").value = prompt;
   $("#taskPrompt").dispatchEvent(new Event("input"));
-  $("#taskPrompt").focus();
+  refreshTaskSkillChoices().catch((error) => toast(error.message, true));
+  scheduleTaskAgentRecommendation();
+  $("#taskDialog").showModal();
+  window.requestAnimationFrame(() => $("#taskPrompt").focus());
+}
+
+function focusTaskComposer(projectId = "") {
+  if (!state.projects.length) { $("#projectDialog").showModal(); return; }
+  setView("portfolio");
+  if (projectId && projectById(projectId)) $("#homeProjectSelect").value = projectId;
+  window.requestAnimationFrame(() => $("#homeTaskPrompt").focus());
+}
+
+async function continueHomeTask() {
+  if (!state.projects.length) { $("#projectDialog").showModal(); return; }
+  const prompt = $("#homeTaskPrompt").value.trim();
+  if (!prompt) { $("#homeTaskPrompt").focus(); toast("Tell the agent what to change first.", true); return; }
+  const projectId = $("#homeProjectSelect").value || preferredProjectId();
+  const project = projectById(projectId);
+  if (!project) { toast("Choose a repository first.", true); return; }
+  const button = $("#homeStartTask");
+  const status = $("#homeTaskStatus");
+  try {
+    $("#homeTaskPrompt").value = "";
+    status.textContent = `Starting the task in ${projectName(project)}...`;
+    status.classList.remove("hidden");
+    button.disabled = true;
+    button.textContent = "Starting...";
+    const run = await api("/api/runs", {method: "POST", body: JSON.stringify({task: prompt, project_path: project.path, lane: state.bootstrap.default_lane, auto_route: true, origin: "web", skill_mode: "auto"})});
+    status.textContent = "Task started. Opening it now...";
+    toast(`Task started: ${runTitle(run)}`);
+    await Promise.all([refreshRuns(), refreshProjects()]);
+    await selectRun(run.id);
+  } catch (error) {
+    $("#homeTaskPrompt").value = prompt;
+    status.classList.add("hidden");
+    toast(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Start task";
+    if (state.view === "tasks") status.classList.add("hidden");
+  }
 }
 
 function renderPortfolioPreview() {
@@ -2639,8 +3043,8 @@ function renderPortfolioPreview() {
   $("#portfolioKpis").innerHTML = [
     portfolioMetric("Tasks started", compactNumber(started.length), `${days}-day snapshot`),
     portfolioMetric("Delivered", compactNumber(delivered.length), "integrated or PR delivered", "positive"),
-    portfolioMetric("Autonomous delivery", "Calculating…", "reading durable decisions"),
-    portfolioMetric("First-pass success", "Calculating…", "reading retries and repairs"),
+    portfolioMetric("Autonomous deliveries", "Calculating…", "share of delivered changes"),
+    portfolioMetric("First-pass deliveries", "Calculating…", "share of delivered changes"),
     portfolioMetric("Human interventions", "Calculating…", "reading operator actions"),
     portfolioMetric("Median delivery time", "Calculating…", "reading completed runs"),
     portfolioMetric("Median cost / delivery", "Calculating…", "unknown cost stays unknown"),
@@ -2664,12 +3068,11 @@ function renderPortfolio(payload) {
   const failures = payload.failures || [];
   const blocked = payload.blocked || [];
   const delivered = Number(metrics.delivered || 0);
-  const terminalSample = Number(metrics.terminal_started || 0);
   $("#portfolioKpis").innerHTML = [
     portfolioMetric("Tasks started", compactNumber(metrics.tasks_started || 0), `${payload.window?.days || 7}-day cohort`),
     portfolioMetric("Delivered", compactNumber(delivered), "integrated or PR delivered", "positive"),
-    portfolioMetric("Autonomous delivery", portfolioPercent(metrics.autonomous_delivery_rate), `N=${delivered}; final approval allowed`),
-    portfolioMetric("First-pass success", portfolioPercent(metrics.first_pass_success_rate), `N=${terminalSample}; no retry or repair`),
+    portfolioMetric("Autonomous deliveries", portfolioPercent(metrics.autonomous_delivery_rate), `of ${delivered} delivered · no corrective intervention`),
+    portfolioMetric("First-pass deliveries", portfolioPercent(metrics.first_pass_success_rate), `of ${delivered} delivered · no retry or repair`),
     portfolioMetric("Human interventions", compactNumber(metrics.human_interventions || 0), "corrective operator actions"),
     portfolioMetric("Median delivery time", metrics.median_minutes_per_delivery === null ? "—" : `${metrics.median_minutes_per_delivery} min`, `N=${delivered}`),
     portfolioMetric("Median cost / delivery", portfolioMoney(metrics.median_cost_per_delivery_usd), `observed ${metrics.cost_coverage_deliveries || 0}/${delivered}`),
@@ -2787,7 +3190,13 @@ function bindDialogs() {
     finally { submit.disabled = false; }
   });
   const taskDialog = $("#taskDialog");
-  [$("#newTaskButton"), $("#emptyNewTask"), $("#workNewTaskButton"), ...$$('[data-new-task]')].forEach((button) => button?.addEventListener("click", () => { prepareProjectSelect($("#taskProjectSelect"), $("#taskCustomProject")); state.taskAgentRecommendation = null; renderTaskAgentRecommendation(); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); scheduleTaskAgentRecommendation(); taskDialog.showModal(); }));
+  [$("#newTaskButton"), $("#emptyNewTask"), ...$$('[data-new-task]')].forEach((button) => button?.addEventListener("click", () => focusTaskComposer(activeProject()?.id || "")));
+  $("#workNewTaskButton")?.addEventListener("click", () => {
+    const project = activeProject();
+    if (!project) { $("#projectDialog").showModal(); return; }
+    setView("work");
+    window.requestAnimationFrame(() => $("#quickTaskPrompt")?.focus());
+  });
   $("#taskProjectSelect").addEventListener("change", () => { syncCustomProject($("#taskProjectSelect"), $("#taskCustomProject")); refreshTaskSkillChoices().catch((error) => toast(error.message, true)); scheduleTaskAgentRecommendation(); });
   $("#taskPrompt").addEventListener("input", () => { scheduleTaskSkillRecommendations(); scheduleTaskAgentRecommendation(); });
   $("#laneSelect").addEventListener("change", scheduleTaskAgentRecommendation);
@@ -2901,8 +3310,23 @@ function bindDialogs() {
   $("#inlineTakeover").addEventListener("click", () => runAction("takeover"));
   $("#newInboxButton").addEventListener("click", () => $("#inboxDialog").showModal());
   $("#inboxForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const project = projectById(data.get("project_id")); await api("/api/inbox", {method: "POST", body: JSON.stringify({title: data.get("title"), task: data.get("task"), project_id: project?.id || "", project_path: project?.path || ""})}); $("#inboxDialog").close(); event.currentTarget.reset(); await refreshInbox(); });
-  [$("#addProjectButton"), $("#manageAddProjectButton")].forEach((button) => button?.addEventListener("click", () => $("#projectDialog").showModal()));
-  $("#projectForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); try { const registered = await api("/api/projects", {method: "POST", body: JSON.stringify({path: data.get("path"), name: data.get("name"), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean)})}); $("#projectDialog").close(); event.currentTarget.reset(); await refreshProjects(); selectProject(registered.id); toast(`${projectName(registered)} is ready.`); } catch (error) { toast(error.message, true); } });
+  [$("#addProjectButton"), $("#manageAddProjectButton")].forEach((button) => button?.addEventListener("click", () => {
+    $("#projectPathStatus").textContent = "Odysseus will verify that this is a readable Git repository.";
+    $("#projectDialog").showModal();
+  }));
+  $("#useCurrentFolder").addEventListener("click", () => {
+    const current = state.bootstrap?.working_directory || "";
+    $("#projectPathInput").value = current;
+    const detected = state.bootstrap?.current_repository;
+    $("#projectPathStatus").textContent = detected?.git_repository
+      ? `Detected Git repository: ${projectName(detected)}. No files will be moved.`
+      : "The current server folder is not a Git repository. Choose another absolute path.";
+    $("#projectPathInput").focus();
+  });
+  $("#projectPathInput").addEventListener("input", () => {
+    $("#projectPathStatus").textContent = "Path will be checked before it is saved. The folder is never uploaded or moved.";
+  });
+  $("#projectForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const status = $("#projectPathStatus"); try { status.textContent = "Checking folder and Git access…"; const registered = await api("/api/projects", {method: "POST", body: JSON.stringify({path: data.get("path"), name: data.get("name"), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean)})}); $("#projectDialog").close(); event.currentTarget.reset(); await refreshProjects(); selectProject(registered.id); toast(`${projectName(registered)} is ready.`); } catch (error) { status.textContent = error.message; toast(error.message, true); } });
   $("#refreshSettings").addEventListener("click", () => refreshSettings().catch((error) => toast(error.message, true)));
   $("#settingsForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2982,7 +3406,7 @@ function bindDialogs() {
 
 async function init() {
   try {
-    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} slots`; const laneOptions = agentLaneOptions(); $("#laneSelect").innerHTML = agentLaneOptions("auto", true); $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions; $("#settingsDefaultLane").innerHTML = laneOptions; $("#settingsPlannerLane").innerHTML = laneOptions; $("#settingsReviewLane").innerHTML = laneOptions;
+    state.bootstrap = await api("/api/bootstrap"); $("#parallelLabel").textContent = `${state.bootstrap.max_parallel} running max`; const laneOptions = agentLaneOptions(); $("#laneSelect").innerHTML = agentLaneOptions("auto", true); $("#plannerLaneSelect").innerHTML = laneOptions; $("#epicLaneSelect").innerHTML = laneOptions; $("#epicReviewLaneSelect").innerHTML = laneOptions; $("#resumeLaneSelect").innerHTML = laneOptions; $("#settingsDefaultLane").innerHTML = laneOptions; $("#settingsPlannerLane").innerHTML = laneOptions; $("#settingsReviewLane").innerHTML = laneOptions;
     [["docker", "Docker is not installed"], ["devcontainer", "Dev Container CLI is not installed"]].forEach(([profile, message]) => { const option = $("#environmentProfile").querySelector(`option[value="${profile}"]`); if (option && !state.bootstrap.capabilities?.[profile]) { option.disabled = true; option.textContent += ` — unavailable`; option.title = message; } });
     bindDialogs();
     syncThemeButton();
@@ -2994,15 +3418,27 @@ async function init() {
     $$(".task-section-tab").forEach((button) => button.addEventListener("click", () => activateTaskSection(button.dataset.section)));
     $("#allWorkButton").addEventListener("click", () => selectProject("all")); $("#backToProject").addEventListener("click", () => selectProject(state.selected?.project_id || state.projectFilter));
     $("#parallelLabel").addEventListener("click", () => setView("settings"));
-    $("#homeStartTask").addEventListener("click", () => continueHomeTask(false));
-    $("#homePlanTask").addEventListener("click", () => continueHomeTask(true));
+    $("#helpToggle").addEventListener("click", () => toggleHelp());
+    $("#helpClose").addEventListener("click", () => toggleHelp(false));
+    $("#homeStartTask").addEventListener("click", () => continueHomeTask());
+    $("#homeAdvancedTask").addEventListener("click", () => openTaskDialog({prompt: $("#homeTaskPrompt").value.trim(), projectId: $("#homeProjectSelect").value || preferredProjectId()}));
     $("#homeOpenRepositories").addEventListener("click", () => selectProject("all"));
-    $("#homeTaskPrompt").addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); continueHomeTask(false); } });
+    $("#homeTaskPrompt").addEventListener("keydown", (event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); continueHomeTask(); } });
     $("#workListToggle").addEventListener("click", () => setWorkListExpanded(!state.workListExpanded));
-    $(".brand").addEventListener("click", (event) => { event.preventDefault(); setView("portfolio"); });
-    $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#refreshPortfolio").addEventListener("click", refreshPortfolio); $("#portfolioWindow").addEventListener("change", refreshPortfolio); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(event.currentTarget.value); });
+    $(".sidebar-brand").addEventListener("click", (event) => { event.preventDefault(); setView("portfolio"); });
+    $("#sidebarSearchButton").addEventListener("click", () => {
+      $("#globalSearch").focus();
+      $("#globalSearch").select();
+    });
+    $("#taskList").addEventListener("scroll", hideTaskHover, {passive: true});
+    window.addEventListener("resize", hideTaskHover, {passive: true});
+    $("#projectFilter").addEventListener("change", (event) => selectProject(event.target.value)); $("#sessionScope").addEventListener("change", (event) => { state.sessionScope = event.target.value; renderSessions(); }); $("#refreshSessions").addEventListener("click", refreshSessions); $("#refreshAttention").addEventListener("click", refreshAttention); $("#refreshInsights").addEventListener("click", refreshInsights); $("#refreshPortfolio").addEventListener("click", refreshPortfolio); $("#portfolioWindow").addEventListener("change", refreshPortfolio); $("#loadIssues").addEventListener("click", loadIssues); $("#runSearch").addEventListener("click", () => runSearch()); $("#insightSearch").addEventListener("keydown", (event) => { if (event.key === "Enter") runSearch(); }); $("#globalSearch").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); runSearch(event.currentTarget.value); }
+      if (event.key === "Escape") { event.currentTarget.value = ""; event.currentTarget.blur(); }
+    });
     document.addEventListener("keydown", (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); $("#globalSearch").focus(); return; }
+      if (event.key === "Escape" && state.helpOpen) { event.preventDefault(); toggleHelp(false); return; }
       if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "n" && !/input|textarea|select/i.test(event.target.tagName) && !$("dialog[open]")) { event.preventDefault(); $("[data-new-task]").click(); }
     });
     await Promise.all([refreshProjects(), refreshSessions(), refreshInbox(), refreshAttention(), refreshEpics()]); await refreshRuns(); await refreshAttention();
@@ -3011,7 +3447,8 @@ async function init() {
     else { const projectMatch = decodeURIComponent(location.hash.slice(1)).match(/^project\/(.+)$/); if (projectMatch && projectById(projectMatch[1])) selectProject(projectMatch[1]); else { const requestedView = params.get("view"); if (["portfolio", "work", "attention", "epics", "tasks", "sessions", "inbox", "projects", "insights", "github", "settings"].includes(requestedView)) { if (requestedView === "tasks" && state.runs.length) await selectRun(state.runs[0].id); else setView(requestedView); } else setView(state.runs.length ? "portfolio" : "work"); } }
     const requestedSection = params.get("section"); if (["summary", "changes", "activity", "evidence"].includes(requestedSection)) activateTaskSection(requestedSection);
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
-    const requestedDialog = params.get("dialog"); if (requestedDialog === "task") { $("#taskPrompt").value = params.get("prompt") || ""; $("#newTaskButton").click(); scheduleTaskSkillRecommendations(); } else if (requestedDialog === "epic") $("#newEpicButton").click();
+    const requestedDialog = params.get("dialog"); if (requestedDialog === "task") openTaskDialog({prompt: params.get("prompt") || "", projectId: preferredProjectId()}); else if (requestedDialog === "epic") $("#newEpicButton").click();
+    if (params.get("help") === "1") toggleHelp(true);
     setConnection(true);
     if (params.get("browser-regression") === "1" && state.bootstrap?.test_capabilities?.browser_regression === true) runBrowserRegression().catch((error) => {
       const node = document.createElement("pre");
@@ -3029,11 +3466,34 @@ async function runBrowserRegression() {
   const assert = (condition, message) => { if (!condition) throw new Error(message); };
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
   setView("portfolio");
-  assert($("#portfolioView").textContent.includes("What should we deliver?"), "Home leads with outcome intake");
+  assert($("#portfolioView").textContent.includes("What should the agent change?"), "Home asks for a direct instruction");
+  assert($("#homeStartTask").textContent === "Start task", "Home has one direct primary task action");
+  assert(!$("#homePlanTask"), "Home does not ask the user to choose the execution mechanism");
   assert(!$("#portfolioView").querySelector("#portfolioKpis"), "Home does not duplicate the Outcomes portfolio");
-  assert($("#workDescription").textContent.includes("Choose where") || $("#workDescription").textContent.includes("task"), "repository default summary is concise");
+  assert($("#workDescription").textContent.includes("local Git folder"), "repository view focuses on local folders");
+  assert($("#journeyStepper").classList.contains("hidden") && $("#workSummary").classList.contains("hidden"), "repository picker does not duplicate task onboarding or delivery metrics");
   assert($('[data-journey-step="3"] strong')?.textContent === "Review", "first-run journey uses short review label");
   assert($("#sidebarResizer")?.getAttribute("aria-label") === "Resize repository sidebar", "sidebar resize handle accessible name");
+  assert($(".sidebar-brand") && !$(".titlebar .brand"), "product identity lives in the sidebar, not duplicate navigation");
+  assert(!$('.sidebar-primary-link[data-view="portfolio"]'), "New task replaces the redundant Home navigation item");
+  assert(!$("#sidebarMore").open, "secondary sidebar tools start collapsed");
+  assert($$('.explorer-tools > button[data-open-view]').length === 2, "only Skills and Terminals stay visible above More");
+  assert(!$(".titlebar .connection"), "top bar does not repeat a live connection label");
+  $("#sidebarSearchButton").click();
+  assert(document.activeElement === $("#globalSearch"), "sidebar search focuses the global search field");
+  $("#globalSearch").value = "temporary query";
+  $("#globalSearch").dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+  assert($("#globalSearch").value === "", "Escape clears global search");
+  $("#helpToggle").click();
+  assert(state.helpOpen && document.body.classList.contains("help-open"), "context help opens as a right column");
+  assert($("#helpContent").textContent.includes("Write what should change"), "Home help gives the next action");
+  setView("attention");
+  assert($("#helpTitle").textContent === "Needs You", "help follows navigation context");
+  $("#helpClose").click();
+  assert(!state.helpOpen && $("#helpPanel").getAttribute("aria-hidden") === "true", "context help closes without changing work");
+  setView("portfolio");
+  assert(getComputedStyle($(".activity-bar")).display === "none", "sidebar is the only global navigation surface");
+  assert($("#taskHoverCard").getAttribute("role") === "tooltip", "task hover preview is exposed as a tooltip");
   setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
   assert(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-width").trim() === `${DEFAULT_SIDEBAR_WIDTH}px`, "default sidebar width");
   setSidebarWidth(460);
@@ -3054,6 +3514,28 @@ async function runBrowserRegression() {
     assert($("#workListToggle").getAttribute("aria-expanded") === "false", "recent work exposes collapsed state");
     $("#workListToggle").click();
     assert(!$("#workListPanel").classList.contains("hidden"), "recent work can be expanded");
+    const sidebarTask = $(".task-card[data-run-id]");
+    if (sidebarTask) {
+      assert(sidebarTask.querySelector(":scope > .task-state-dot") && sidebarTask.querySelector(":scope > h3") && sidebarTask.querySelector(":scope > .task-row-meta"), "sidebar task is one scannable row");
+      assert(getComputedStyle(sidebarTask.querySelector(".task-card-top")).display === "none", "sidebar task hides the old multi-line metadata");
+      assert(narrow || sidebarTask.getBoundingClientRect().height <= 36, "sidebar task stays on one line");
+      if (!window.matchMedia("(max-width: 900px)").matches) {
+        showTaskHover(sidebarTask);
+        await sleep(30);
+        assert(!$("#taskHoverCard").hidden && $("#taskHoverCard").textContent.includes("checks"), "sidebar task exposes an outcome preview on hover");
+        hideTaskHover();
+      }
+    }
+    for (const [filter, tone] of [["working", "status-in-progress"], ["question", "status-question"], ["needs", "status-needs-action"], ["done", "status-done"]]) {
+      const button = $(`.filter[data-filter="${filter}"]`);
+      assert(button && button.getAttribute("aria-label"), `${filter} dot filter has an accessible label`);
+      button.click();
+      const visible = $$(".task-card[data-run-id]");
+      assert(visible.length > 0 && visible.every((item) => item.querySelector(`.task-state-dot.${tone}`)), `${filter} dot filters tasks by status color`);
+      assert(getComputedStyle(button.querySelector(".task-state-dot")).boxShadow === "none", `${filter} status dot has no halo`);
+    }
+    assert($$(".task-card .task-row-cost").some((item) => item.textContent === "$0.25"), "sidebar shows observed task cost");
+    $('.filter[data-filter="active"]').click();
     const recentRow = $(".work-task-row");
     if (recentRow) {
       assert(recentRow.querySelector(":scope > .mini-status") && recentRow.querySelector(":scope > time") && recentRow.querySelector(":scope > h3"), "recent work is a status-time-title row");
@@ -3069,7 +3551,11 @@ async function runBrowserRegression() {
 
   $("#newTaskButton").click();
   await sleep(50);
-  assert($("#taskDialog").open, "new task dialog opens");
+  assert($("#portfolioView").classList.contains("active"), "new task opens the shared home composer");
+  assert(document.activeElement === $("#homeTaskPrompt"), "new task focuses the direct instruction field");
+  openTaskDialog({projectId: preferredProjectId()});
+  await sleep(50);
+  assert($("#taskDialog").open, "advanced task dialog opens on demand");
   assert($("#laneSelect").value === "auto", "new task defaults to Agent Auto");
   assert($("#taskDialog").textContent.includes("Advanced execution settings"), "execution settings are collapsed behind one disclosure");
   const advanced = $("#taskDialog > form > details.advanced");
@@ -3086,12 +3572,17 @@ async function runBrowserRegression() {
   const running = state.runs.find((run) => run.status === "running");
   assert(running, "running task available");
   await selectRun(running.id);
+  assert(!$(".detail-breadcrumb") && $(".task-context-bar"), "task context is one compact metadata row");
   assert($("#narrativeTitle").textContent === "Agent is working", "running task uses one-line progress");
   assert($("#narrativeCopy").textContent === "Progress appears in Activity.", "running task avoids essay");
-  assert($(".journey-context strong").textContent === "Follow", "running task gives a follow instruction");
   assert(!$("#executionDetails").open, "execution telemetry starts folded");
   assert($("#executionDetailsSummary").textContent.includes("Tokens") && $("#executionDetailsSummary").textContent.includes("CI"), "folded execution summary remains informative");
   assert($("#summaryAssistant").classList.contains("hidden"), "assistant hidden when no decision is needed");
+  activateTaskSection("activity");
+  await sleep(160);
+  assert($("#eventLog").textContent.includes("Tool") && $("#eventLog").textContent.includes("python -m unittest"), "Activity separates tool execution from agent messages");
+  assert($("#eventLog .event-tool .event-avatar"), "tool execution has a distinct visual actor");
+  activateTaskSection("summary");
   const blocked = state.runs.find((run) => run.status === "blocked");
   assert(blocked, "blocked task available");
   await selectRun(blocked.id);
@@ -3099,22 +3590,39 @@ async function runBrowserRegression() {
   const review = state.runs.find((run) => run.status === "review");
   assert(review, "review task available");
   await selectRun(review.id);
-  assert($(".journey-context strong").textContent === "Decide", "review task gives a decision instruction");
   assert($("#reviewDecisionCard").textContent.includes("Review result"), "review decision leads task detail");
-  assert($("#reviewDecisionCard").textContent.includes("Evidence score"), "heuristic signal is labeled as evidence score");
+  assert($("#reviewDecisionCard").textContent.includes("Soft evidence"), "heuristic signal is separated from hard gates");
+  assert(!$("#reviewDecisionCard").textContent.match(/Evidence score\s+\d+/i), "uncalibrated evidence is not rendered as a precise score");
   assert(!$("#reviewDecisionCard").textContent.includes("Confidence"), "uncalibrated confidence label is hidden");
-  assert($("#reviewDecisionCard .delivery-decision .primary").textContent === "Accept artifact", "accept CTA names the durable artifact");
-  assert($("#reviewDecisionCard").textContent.includes("It does not merge or deliver it."), "acceptance and delivery are distinct");
+  assert($("#deliveryLifecycle").textContent.includes("Executed") && $("#deliveryLifecycle").textContent.includes("Healthy"), "canonical delivery lifecycle is visible");
+  assert($("#reviewDecisionCard .delivery-decision .primary").textContent === "Approve change", "review CTA uses direct user language");
+  assert($("#reviewDecisionCard").textContent.includes("does not change your source repository yet"), "approval and repository application remain distinct");
+  $("#helpToggle").click();
+  assert($("#helpTitle").textContent.includes(review.title), "task help identifies the selected task");
+  assert($("#helpContent").textContent.includes("Review the decision"), "task help explains the current decision");
+  $("#helpClose").click();
+  activateTaskSection("changes");
+  await sleep(160);
+  assert($("#diffPatch .diff-line"), "Changes renders escaped syntax-colored diff lines");
+  activateTaskSection("evidence");
+  await renderVisibleHeavyPanels();
+  assert($("#checkResults .terminal-line"), "Evidence renders escaped syntax-colored terminal lines");
+  activateTaskSection("summary");
   assert($("#runNarrative").classList.contains("hidden"), "review avoids duplicate narrative status");
   assert($("#reviewDecisionCard").textContent.includes("Cost") && $("#reviewDecisionCard").textContent.includes("Unknown"), "unknown cost remains explicit");
   assert($$("#reviewDecisionCard .delivery-decision .primary").length === 1, "review exposes one visible primary action");
   assert($("#summaryAssistant").classList.contains("hidden"), "duplicate summary assistant remains hidden");
-  assert(!$("#assistantPanel").classList.contains("hidden"), "one assistant rail remains available on decision states");
+  assert($("#assistantPanel").classList.contains("hidden"), "assistant does not compete with the primary review decision");
+  const assistantButton = $('#runActions [data-action="assistant"]');
+  assert(assistantButton?.textContent === "Ask assistant", "assistant remains available on demand");
+  assistantButton.click();
+  assert(!$("#assistantPanel").classList.contains("hidden"), "assistant opens on demand");
+  assert(narrow || $("#assistantPanel").getBoundingClientRect().width >= 340, "assistant has enough width for a useful conversation");
+  $('#runActions [data-action="assistant"]').click();
   assert(acceptedNotApplied, "accepted not-applied artifact available");
   await selectRun(acceptedNotApplied.id);
-  assert($(".journey-context strong").textContent === "Deliver", "accepted task gives a delivery instruction");
   assert($("#reviewDecisionCard").textContent.includes("Checks"), "decision evidence visible");
-  assert($("#reviewDecisionCard").textContent.includes("Accepted artifact · not delivered"), "accepted-not-delivered is plain");
+  assert($("#reviewDecisionCard").textContent.includes("Approved change · not applied"), "approved-not-applied is plain");
   assert($("#runNarrative").classList.contains("hidden"), "accepted avoids duplicate narrative status");
   assert($$("#reviewDecisionCard .delivery-decision .primary").length <= 1, "accepted delivery has at most one primary CTA");
   for (const [title, action] of [
@@ -3186,6 +3694,7 @@ async function runBrowserRegression() {
   assert(document.querySelector('a[href="/api/economics?format=csv&view=lead"]'), "lead CSV export link");
   assert(document.querySelector('a[href="/api/economics?format=ndjson&view=operator"]'), "operator NDJSON export link");
   setView("settings");
+  assert($("#sidebarMore").open, "secondary navigation opens when its current screen is active");
   assert($("#settingsView").textContent.includes("Capacity, agents, CI, resources, assistants."), "Settings concise header");
   assert($("#settingsView").textContent.includes("API keys are never saved."), "settings security detail preserved");
   assert($$("#settingsView .primary").length === 1, "Settings exposes one primary action");
@@ -3211,7 +3720,7 @@ async function runBrowserRegression() {
   assert($("#reviewDecisionCard .review-decision-head span").textContent === "Delivered in integration PR.", "integrated PR delivery action is explicit");
   assert($("#reviewDecisionCard").textContent.includes("integration-pr-existing"), "integrated PR delivery provenance visible");
   assert($("#reviewDecisionCard").textContent.includes("Open integration PR"), "integrated PR link visible");
-  assert(!$("#reviewDecisionCard").textContent.includes("Integrate into repository"), "integrated PR delivery hides integration action");
+  assert(!$("#reviewDecisionCard").textContent.includes("Apply to repository"), "integrated PR delivery hides apply action");
   assert(!$("#reviewDecisionCard").textContent.includes("Create draft PR"), "integrated PR delivery hides duplicate PR action");
   selectProject(state.projectFilter);
   assert($("#workView").classList.contains("active"), "navigation back to repository overview");

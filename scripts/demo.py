@@ -374,6 +374,29 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "priority": "high",
         },
     )
+    store.append_event(
+        ci_id,
+        "attention.answered",
+        "user",
+        {"answer": "Resume the saved Codex thread with the Chromium failure and preserve the retry contract."},
+    )
+    store.append_event(
+        ci_id,
+        "agent.message",
+        "codex",
+        {"text": "I reproduced the failed retry banner assertion and will patch only the bounded browser recovery path."},
+    )
+    store.append_event(
+        ci_id,
+        "agent.tool.completed",
+        "codex",
+        {
+            "tool": "shell",
+            "command": "npm test -- tests/checkout.spec.ts",
+            "exit_code": 0,
+            "aggregated_output": "PASS checkout retry banner after 429 response\n1 test passed",
+        },
+    )
     for run_id in (backend_id, ci_id):
         store.append_event(
             run_id,

@@ -112,6 +112,7 @@ expected = {
     "web-plans.png",
     "web-attention.png",
     "web-task-review.png",
+    "web-task-activity.png",
     "web-task-delivery.png",
     "web-integration.png",
     "web-ci-repair.png",

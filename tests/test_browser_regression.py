@@ -153,7 +153,7 @@ class BrowserRegressionTests(unittest.TestCase):
                         artifact_created_at="2026-08-16T00:00:00Z",
                         check_results=[{"command": "python -m unittest", "returncode": 0, "output": "ok"}],
                         confidence=0.92,
-                        metrics={"input_tokens": 1000, "output_tokens": 200, "session_usage": {"agent": {"input_tokens": 1000, "output_tokens": 200}}},
+                        metrics={"input_tokens": 1000, "output_tokens": 200, "cost_usd": 0.25, "cost_observed": True, "session_usage": {"agent": {"input_tokens": 1000, "output_tokens": 200}}},
                         delivery={**run["delivery"], "status": "not_applied", "target_branch": "main"},
                     )
                 )

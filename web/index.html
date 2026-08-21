@@ -10,15 +10,11 @@
   </head>
   <body data-view="portfolio">
     <header class="titlebar">
-      <a class="brand" href="#" aria-label="Open Odysseus portfolio">
-        <img class="brand-mark" src="/odysseus-icon.svg" alt="" aria-hidden="true">
-        <span class="brand-copy"><strong>ODYSSEUS</strong><small>Delivery system for coding agents</small></span>
-      </a>
-      <div class="title-context" aria-label="Current location"><span id="titleProject">Odysseus</span><i>/</i><strong id="titleSurface">Portfolio</strong></div>
+      <div class="title-context" aria-label="Current location"><span class="title-context-icon" aria-hidden="true">□</span><span id="titleProject">Odysseus</span><i>/</i><strong id="titleSurface">Portfolio</strong></div>
       <label class="global-search" title="Press Enter to search all local Odysseus history"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m14.2 13.3 3.4 3.4-.9.9-3.4-3.4a6.5 6.5 0 1 1 .9-.9ZM9.1 14.2a5.1 5.1 0 1 0 0-10.2 5.1 5.1 0 0 0 0 10.2Z"/></svg><input id="globalSearch" type="search" placeholder="Search tasks and events" aria-label="Search all Odysseus history"><kbd>⌘K</kbd></label>
       <div class="topbar-status">
-        <span class="connection" title="Live connection to the Odysseus server"><i></i><span id="connectionLabel">Connecting</span></span>
-        <button class="parallel" id="parallelLabel" type="button" title="Open queue settings">— slots</button>
+        <button class="parallel" id="parallelLabel" type="button" title="Agent capacity: how many Odysseus tasks may run at once. Open Settings to change it.">— running slots</button>
+        <button class="help-toggle" id="helpToggle" type="button" aria-controls="helpPanel" aria-expanded="false"><span aria-hidden="true">?</span> Help</button>
         <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to dark theme" aria-pressed="false" title="Switch to dark theme"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 8.7 6.8 7 7 0 0 1-8.5-6.5L12 3Zm-6.5 9a6.5 6.5 0 0 1 4.9-6.3 9.1 9.1 0 0 0 7.9 7.9A6.5 6.5 0 1 1 5.5 12Z"/></svg></button>
         <button class="primary compact" id="newTaskButton" type="button"><span>＋</span> New task</button>
       </div>
@@ -36,10 +32,12 @@
       </nav>
 
       <aside class="project-explorer" id="projectExplorer">
-        <div class="explorer-title"><span>WORKSPACE</span><button class="icon-button small" id="addProjectButton" type="button" aria-label="Add repository" title="Add repository">＋</button></div>
+        <div class="explorer-title">
+          <a class="sidebar-brand" href="#" aria-label="Open Odysseus home"><img src="/odysseus-icon.svg" alt="" aria-hidden="true"><strong>Odysseus</strong></a>
+          <div class="explorer-title-actions"><button class="icon-button small" id="sidebarSearchButton" type="button" aria-label="Search tasks and events" title="Search tasks and events">⌕</button><button class="icon-button small" id="addProjectButton" type="button" aria-label="Add repository" title="Add repository">＋</button></div>
+        </div>
         <button class="sidebar-new-task" data-new-task type="button"><span>＋</span><strong>New task</strong><kbd>N</kbd></button>
         <nav class="sidebar-primary" aria-label="Odysseus views">
-          <button class="sidebar-primary-link active" data-view="portfolio" type="button"><span>⌂</span><strong>Home</strong></button>
           <button class="sidebar-primary-link" data-view="attention" type="button"><span>!</span><strong>Needs You</strong><small id="sidebarPrimaryAttentionCount"></small></button>
           <button class="sidebar-primary-link" data-view="epics" type="button"><span>◇</span><strong>Plans</strong><small id="epicNavCount"></small></button>
           <button class="sidebar-primary-link" data-view="insights" type="button"><span>↗</span><strong>Outcomes</strong></button>
@@ -52,17 +50,30 @@
         <section class="explorer-section task-section hidden">
           <header><span id="taskSectionTitle">TASKS</span><small id="runCount">0</small></header>
           <select id="projectFilter" class="visually-hidden" aria-label="Repository filter"><option value="all">All repositories</option></select>
-          <div class="filters" role="group" aria-label="Filter tasks"><button class="filter active" data-filter="active" type="button">Active</button><button class="filter" data-filter="all" type="button">All</button><button class="filter" data-filter="review" type="button">Review</button></div>
+          <div class="filters" role="group" aria-label="Filter tasks">
+            <button class="filter active" data-filter="active" type="button">Active</button>
+            <button class="filter" data-filter="all" type="button">All</button>
+            <button class="filter" data-filter="review" type="button">Review</button>
+            <span class="filter-divider" aria-hidden="true"></span>
+            <button class="filter filter-dot" data-filter="working" type="button" aria-label="Show working tasks" title="Working"><span class="task-state-dot status-in-progress" aria-hidden="true"></span></button>
+            <button class="filter filter-dot" data-filter="question" type="button" aria-label="Show tasks with a question" title="Question"><span class="task-state-dot status-question" aria-hidden="true"></span></button>
+            <button class="filter filter-dot" data-filter="needs" type="button" aria-label="Show tasks that need action" title="Needs you"><span class="task-state-dot status-needs-action" aria-hidden="true"></span></button>
+            <button class="filter filter-dot" data-filter="done" type="button" aria-label="Show completed tasks" title="Done"><span class="task-state-dot status-done" aria-hidden="true"></span></button>
+          </div>
           <div class="task-list" id="taskList" aria-live="polite"></div>
         </section>
         <section class="explorer-section explorer-tools">
-          <header><span>MORE</span></header>
-          <button data-open-view="inbox" type="button"><span>□</span> Follow-ups <small class="nav-count" id="inboxNavCount"></small></button>
-          <button data-open-view="github" type="button"><span>#</span> GitHub issues</button>
           <button data-open-view="skills" type="button"><span>◆</span> Skills</button>
           <button data-open-view="sessions" type="button"><span>›_</span> Terminals <small class="nav-count" id="sidebarSessionCount"></small></button>
-          <button data-open-view="projects" type="button"><span>⚙</span> Manage repositories</button>
-          <button data-open-view="settings" type="button"><span>⚙</span> Settings</button>
+          <details class="sidebar-more" id="sidebarMore">
+            <summary><span>•••</span><strong>More</strong></summary>
+            <div>
+              <button data-open-view="inbox" type="button"><span>□</span> Follow-ups <small class="nav-count" id="inboxNavCount"></small></button>
+              <button data-open-view="github" type="button"><span>#</span> GitHub issues</button>
+              <button data-open-view="projects" type="button"><span>⌘</span> Manage repositories</button>
+              <button data-open-view="settings" type="button"><span>⚙</span> Settings</button>
+            </div>
+          </details>
         </section>
       </aside>
       <button class="sidebar-resizer" id="sidebarResizer" type="button" aria-label="Resize repository sidebar" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="520" aria-valuenow="288" title="Drag or use arrow keys to resize sidebar"></button>
@@ -70,18 +81,18 @@
       <section class="workspace">
         <section class="view-panel portfolio-view active" id="portfolioView">
           <header class="home-hero">
-            <p class="eyebrow">ODYSSEUS</p>
-            <h1>What should we deliver?</h1>
-            <p>Describe the finished change. Odysseus chooses a worker, isolates the repository, verifies the result, and asks you only when a decision is needed.</p>
+            <h1>What should the agent change?</h1>
+            <p>Write one clear instruction. Choose the repository and start. Odysseus handles the worker, isolation, checks, and review.</p>
           </header>
           <section class="home-compose" aria-label="Start engineering work">
-            <textarea id="homeTaskPrompt" rows="3" placeholder="Example: Fix CSV import errors, preserve the public API, add a regression test, and run the existing suite."></textarea>
+            <textarea id="homeTaskPrompt" rows="3" placeholder="Example: Fix the CSV import error. Keep the public API unchanged, add a regression test, and run the existing test suite."></textarea>
+            <p class="task-submit-status hidden" id="homeTaskStatus" aria-live="polite"></p>
             <div class="home-compose-bar">
               <label><span>Repository</span><select id="homeProjectSelect"><option value="">Add a repository first</option></select></label>
               <span class="home-agent-note">Agent <strong>Auto</strong> · recommended</span>
               <span class="home-compose-spacer"></span>
-              <button class="ghost" id="homePlanTask" type="button">Plan first</button>
-              <button class="primary" id="homeStartTask" type="button">Continue</button>
+              <button class="text-button" id="homeAdvancedTask" type="button">Advanced options</button>
+              <button class="primary" id="homeStartTask" type="button">Start task</button>
             </div>
           </section>
           <div class="home-queues">
@@ -98,12 +109,12 @@
 
         <section class="view-panel work-view" id="workView">
           <header class="work-header">
-            <div><p class="breadcrumb" id="workBreadcrumb">ODYSSEUS</p><h1 id="workTitle">Repositories</h1><p id="workDescription">Choose where the agent should work.</p><div class="repository-status-strip hidden" id="workStatusStrip"></div></div>
-            <div class="work-actions"><button class="ghost" id="workPlanButton" type="button">Plan feature</button><button class="primary" id="workNewTaskButton" type="button">＋ New task</button></div>
+            <div><p class="breadcrumb hidden" id="workBreadcrumb"></p><h1 id="workTitle">Repositories</h1><p id="workDescription">Choose where the agent should work.</p><div class="repository-status-strip hidden" id="workStatusStrip"></div></div>
+            <div class="work-actions"><button class="ghost" id="workPlanButton" type="button">Plan feature</button><button class="primary" id="workNewTaskButton" type="button">＋ Add repository</button></div>
           </header>
           <nav class="journey-stepper" id="journeyStepper" aria-label="How to use Odysseus">
             <button data-journey-step="1" type="button"><span class="journey-number">1</span><span><strong>Choose repository</strong><small>Pick code</small></span></button>
-            <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>New task</strong><small>Describe outcome</small></span></button>
+            <button data-journey-step="2" type="button"><span class="journey-number">2</span><span><strong>New task</strong><small>Tell the agent what to change</small></span></button>
             <button data-journey-step="3" type="button"><span class="journey-number">3</span><span><strong>Review</strong><small>Act when asked</small></span></button>
           </nav>
           <section class="current-repository-hint hidden" id="currentRepositoryHint" aria-live="polite"></section>
@@ -179,13 +190,13 @@
         </section>
 
         <section class="view-panel collection-view" id="attentionView">
-          <div class="page-head"><div><p class="eyebrow">DECISIONS</p><h1>Needs You</h1><p>Answer these to continue work.</p></div><button class="ghost" id="refreshAttention" type="button">Refresh</button></div>
+          <div class="page-head"><div><h1>Needs You</h1><p>Answer these to continue work.</p></div><button class="ghost" id="refreshAttention" type="button">Refresh</button></div>
           <div class="attention-summary" id="attentionSummary"></div>
           <div class="stack-list" id="attentionList"></div>
         </section>
 
         <section class="view-panel collection-view" id="skillsView">
-          <div class="page-head"><div><p class="eyebrow">ENGINEERING GUIDANCE</p><h1>Skills</h1><p>Versioned procedures attached to matching tasks and measured by outcomes.</p></div><button class="primary" id="addSkillButton" type="button">＋ Add skill</button></div>
+          <div class="page-head"><div><h1>Skills</h1><p>Versioned procedures attached to matching tasks and measured by outcomes.</p></div><button class="primary" id="addSkillButton" type="button">＋ Add skill</button></div>
           <div class="skills-toolbar">
             <label>Repository <select id="skillsProjectSelect"><option value="">Add a repository first</option></select></label>
             <span class="quiet-badge" id="skillsPageCount">0 enabled</span>
@@ -194,7 +205,7 @@
         </section>
 
         <section class="view-panel collection-view" id="epicsView">
-          <div class="page-head"><div><p class="eyebrow">TASK GRAPHS</p><h1>Plans</h1><p>Approve a graph before agents start.</p></div><button class="primary" id="newEpicButton" type="button">Plan feature</button></div>
+          <div class="page-head"><div><h1>Plans</h1><p>Approve a graph before agents start.</p></div><button class="primary" id="newEpicButton" type="button">Plan feature</button></div>
           <div class="stack-list" id="epicList"></div>
         </section>
 
@@ -208,15 +219,21 @@
           </div>
 
           <article class="run-detail hidden" id="runDetail">
-            <div class="detail-breadcrumb"><button class="back-button" id="backToProject" type="button">‹</button><span id="detailProjectName">Repository</span><i>/</i><strong>Task</strong></div>
             <header class="detail-head">
               <div class="detail-heading">
-                <div class="status-row"><span class="status-pill" id="detailStatus">—</span><span class="run-id" id="detailId">—</span></div>
-                <div class="journey-context"><span>3</span><strong>Review</strong><small>Act when asked.</small></div>
+                <div class="task-context-bar">
+                  <button class="back-button" id="backToProject" type="button" aria-label="Back to repository">‹</button>
+                  <span class="task-context-repository" id="detailProjectName">Repository</span>
+                  <span class="status-pill" id="detailStatus">—</span>
+                  <span class="task-context-fact" id="detailAgent">Agent —</span>
+                  <span class="task-context-fact" id="detailStage">Stage —</span>
+                  <span class="run-id" id="detailId">—</span>
+                </div>
                 <h2 id="detailTitle">—</h2><p id="detailTask">—</p>
               </div>
               <div class="actions" id="runActions"></div>
             </header>
+            <section class="delivery-lifecycle" id="deliveryLifecycle" aria-label="Canonical delivery lifecycle"></section>
             <section class="observed-session hidden" id="observedSession">
               <div>
                 <p class="eyebrow">TRACKED TERMINAL · NOT AN ODYSSEUS RUN</p>
@@ -256,11 +273,11 @@
                       <button class="ghost" id="inlineTakeover" type="button">Continue in terminal</button>
                     </div>
                   </section>
-                  <section class="summary-assistant" id="summaryAssistant" aria-label="Ask context assistant">
+                  <section class="summary-assistant" id="summaryAssistant" aria-label="Ask decision assistant">
                     <div class="summary-assistant-head">
                       <div>
-                        <small>CONTEXT ASSISTANT</small>
-                        <strong>Ask what to send next</strong>
+                        <small>DECISION ASSISTANT</small>
+                        <strong>Prepare the next agent instruction</strong>
                         <p id="summaryAssistantShareNotice">Shared: Task, Failure, Review, Checks. Diff/code off.</p>
                       </div>
                       <label>Assistant
@@ -278,8 +295,8 @@
                       <button class="primary" id="summaryAssistantSend" type="button">Ask</button>
                     </div>
                     <div class="summary-assistant-actions">
-                      <button class="ghost" id="summaryAssistantInsertFeedback" type="button">Insert answer</button>
-                      <button class="ghost" id="summaryAssistantSubmitFeedback" type="button">Submit answer</button>
+                      <button class="ghost" id="summaryAssistantInsertFeedback" type="button">Use as feedback</button>
+                      <button class="ghost" id="summaryAssistantSubmitFeedback" type="button">Send &amp; resume</button>
                     </div>
                   </section>
                   <details class="execution-details" id="executionDetails">
@@ -322,9 +339,9 @@
                   </section>
                 </section>
               </div>
-              <aside class="assistant-panel" id="assistantPanel" aria-label="Assistant conversation">
+              <aside class="assistant-panel" id="assistantPanel" aria-label="Decision assistant conversation">
                 <div class="assistant-head">
-                  <div><p class="eyebrow">CONTEXT ASSISTANT</p><h3>Ask what to send next</h3></div>
+                  <div><p class="eyebrow">DECISION ASSISTANT</p><h3>Prepare the next agent instruction</h3></div>
                   <label>Assistant
                     <select id="assistantProvider">
                       <option value="codex">Codex CLI</option>
@@ -353,10 +370,9 @@
                   <button class="primary" id="assistantSend" type="button">Send</button>
                 </div>
                 <div class="assistant-actions">
-                  <button class="ghost" id="assistantInsertFeedback" type="button">Insert answer</button>
-                  <button class="ghost" id="assistantSubmitFeedback" type="button">Submit answer</button>
-                  <button class="ghost" id="assistantCopy" type="button">Copy answer</button>
-                  <button class="ghost" id="assistantQueueTask" type="button">Queue as new task</button>
+                  <button class="primary" id="assistantInsertFeedback" type="button" title="Copy the answer into the current task's feedback field without sending it">Use as feedback</button>
+                  <button class="ghost" id="assistantSubmitFeedback" type="button" title="Send this answer to the saved agent thread and resume the current task">Send &amp; resume</button>
+                  <details class="assistant-more-actions"><summary>More actions</summary><div><button class="ghost" id="assistantCopy" type="button">Copy answer</button><button class="ghost" id="assistantQueueTask" type="button">Create separate task</button></div></details>
                 </div>
                 <p class="assistant-status" id="assistantStatus">Selected context is attached explicitly. CLI helpers use a scratch workspace; direct API modes require server keys.</p>
                 <details class="assistant-code-scope"><summary>Security details</summary><p>Local CLI assistants run in a blank scratch workspace, not the task repository, but keep the Odysseus user's filesystem permissions. Direct API modes require server environment keys.</p></details>
@@ -370,7 +386,7 @@
         </div>
 
         <section class="view-panel collection-view" id="sessionsView">
-          <div class="page-head"><div><p class="eyebrow">AUTO-DISCOVERED · NO IMPORT NEEDED</p><h1>Agent terminals</h1><p>Codex and Claude panes already running in tmux appear here automatically. Viewing this page does not change or control them.</p></div><div class="session-controls"><label><span>Show</span><select id="sessionScope"><option value="repositories">Your repositories</option><option value="attached">Current tmux sessions</option><option value="all">All discovered sessions</option></select></label><button class="ghost" id="refreshSessions" type="button">Refresh now</button></div></div>
+          <div class="page-head"><div><h1>Agent terminals</h1><p>Codex and Claude panes already running in tmux appear here automatically. Viewing this page does not change or control them.</p></div><div class="session-controls"><label><span>Show</span><select id="sessionScope"><option value="repositories">Your repositories</option><option value="attached">Current tmux sessions</option><option value="all">All discovered sessions</option></select></label><button class="ghost" id="refreshSessions" type="button">Refresh now</button></div></div>
           <div class="session-summary" id="sessionSummary"></div>
           <div class="how-it-works session-guide" aria-label="How tmux discovery works">
             <div><span>01</span><strong>See</strong><p>Odysseus detects agent panes and refreshes this page automatically.</p></div>
@@ -381,17 +397,17 @@
         </section>
 
         <section class="view-panel collection-view" id="inboxView">
-          <div class="page-head"><div><p class="eyebrow">FOLLOW-UPS</p><h1>Inbox</h1><p>Park work; queue explicitly.</p></div><button class="primary" id="newInboxButton" type="button">Add follow-up</button></div>
+          <div class="page-head"><div><h1>Inbox</h1><p>Park work; queue explicitly.</p></div><button class="primary" id="newInboxButton" type="button">Add follow-up</button></div>
           <div class="stack-list" id="inboxList"></div>
         </section>
 
         <section class="view-panel collection-view" id="projectsView">
-          <div class="page-head"><div><p class="eyebrow">LOCAL</p><h1>Manage repositories</h1><p>Saved Git checkouts.</p></div><button class="primary" id="manageAddProjectButton" type="button">Add repository</button></div>
+          <div class="page-head"><div><h1>Manage repositories</h1><p>Saved Git checkouts.</p></div><button class="primary" id="manageAddProjectButton" type="button">Add repository</button></div>
           <div class="card-grid" id="projectList"></div>
         </section>
 
         <section class="view-panel collection-view" id="settingsView">
-          <div class="page-head"><div><p class="eyebrow">CONTROL</p><h1>Settings</h1><p>Capacity, agents, CI, resources, assistants.</p></div><button class="ghost" id="refreshSettings" type="button">Refresh</button></div>
+          <div class="page-head"><div><h1>Settings</h1><p>Capacity, agents, CI, resources, assistants.</p></div><button class="ghost" id="refreshSettings" type="button">Refresh</button></div>
           <div class="settings-grid">
             <form class="settings-panel" id="settingsForm">
               <details class="settings-disclosure" open>
@@ -440,7 +456,7 @@
         </section>
 
         <section class="view-panel collection-view" id="insightsView">
-          <div class="page-head"><div><p class="eyebrow">ENGINEERING OUTCOMES</p><h1>Outcomes</h1><p>Measure delivered changes, cost, evidence, and failures — not agent activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
+          <div class="page-head"><div><h1>Outcomes</h1><p>Measure delivered changes, cost, evidence, and failures — not agent activity.</p></div><button class="ghost" id="refreshInsights" type="button">Refresh</button></div>
           <section class="outcomes-portfolio" aria-label="Engineering portfolio">
             <header class="outcomes-summary-head">
               <div><p class="eyebrow">DELIVERY PORTFOLIO</p><h2>Delivery, not activity.</h2><p>Audited outcomes across every coding agent. Missing cost stays unknown and every percentage includes its observed sample.</p></div>
@@ -474,11 +490,21 @@
         </section>
 
         <section class="view-panel collection-view" id="githubView">
-          <div class="page-head"><div><p class="eyebrow">TASK INTAKE</p><h1>GitHub issues</h1><p>Turn an open issue into a proposed plan. Agents wait for approval.</p></div><div class="inline-controls"><select id="githubProject"></select><button class="ghost" id="loadIssues" type="button">Load issues</button></div></div>
+          <div class="page-head"><div><h1>GitHub issues</h1><p>Turn an open issue into a proposed plan. Agents wait for approval.</p></div><div class="inline-controls"><select id="githubProject"></select><button class="ghost" id="loadIssues" type="button">Load issues</button></div></div>
           <div class="stack-list" id="issueList"><div class="empty-card">Choose a GitHub repository and load its open issues.</div></div>
         </section>
       </section>
     </main>
+
+    <aside class="task-hover-card" id="taskHoverCard" role="tooltip" hidden></aside>
+
+    <aside class="help-panel" id="helpPanel" aria-label="Help for this screen" aria-hidden="true">
+      <header class="help-panel-head">
+        <div><p>HELP</p><h2 id="helpTitle">What is this screen?</h2></div>
+        <button class="icon-button" id="helpClose" type="button" aria-label="Close help">×</button>
+      </header>
+      <div class="help-panel-body" id="helpContent"></div>
+    </aside>
 
     <dialog id="projectProfileDialog"><form method="dialog" id="projectProfileForm">
       <div class="dialog-head"><div><p class="eyebrow">REPOSITORY KNOWLEDGE</p><h2>Edit repository overview</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
@@ -501,9 +527,9 @@
     </form></dialog>
 
     <dialog id="taskDialog"><form method="dialog" id="taskForm">
-      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> NEW TASK</p><h2>Describe the finished change</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
-      <label>Task
-        <span class="field-help">Outcome, constraints, done.</span>
+      <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>2</span> NEW TASK</p><h2>What should the agent change?</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <label>Instructions
+        <span class="field-help">Say what to change, what must stay unchanged, and how to verify it.</span>
         <textarea name="task" id="taskPrompt" rows="4" required placeholder="Fix the failing CSV import. Preserve the public API, add a regression test, and run the existing test suite."></textarea>
       </label>
       <label>Repository
@@ -550,7 +576,7 @@
         </details>
       </details>
       <p class="task-submit-status hidden" id="taskSubmitStatus" aria-live="polite"></p>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="ghost" value="another" type="submit">Start &amp; add another</button><button class="primary" value="default" type="submit">Start task</button></div>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Start task</button></div>
     </form></dialog>
 
     <dialog id="skillDialog"><form method="dialog" id="skillForm">
@@ -602,7 +628,8 @@
     <dialog id="projectDialog"><form method="dialog" id="projectForm">
       <div class="dialog-head"><div><p class="eyebrow step-eyebrow"><span>1</span> CHOOSE A REPOSITORY</p><h2>Add a Git repository</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="dialog-intro"><strong>Choose a local Git folder.</strong><p>Registration does not move code.</p></div>
-      <label>Repository folder <span class="field-help">An absolute path on the computer running Odysseus.</span><input name="path" required placeholder="/Users/me/code/my-project"></label>
+      <label>Repository folder <span class="field-help">An absolute path on the computer running Odysseus.</span><input name="path" id="projectPathInput" required placeholder="/Users/me/code/my-project"></label>
+      <div class="repository-path-tools"><button class="ghost" id="useCurrentFolder" type="button">Use current folder</button><span id="projectPathStatus">Odysseus will verify that this is a readable Git repository.</span></div>
       <details class="advanced"><summary>More options…</summary><label>Custom display name <span class="field-help">Usually unnecessary; the Git repository name is used automatically.</span><input name="name" placeholder="Optional"></label><label>Tags <input name="tags" placeholder="client, backend, priority"></label></details>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Add repository</button></div>
     </form></dialog>

@@ -17,8 +17,15 @@ Git; this file records observable operator and product changes.
 - Reworked the web shell around four primary operator surfaces: Home, Needs
   You, Plans, and Outcomes, while keeping repositories and task history in the
   persistent sidebar.
-- Added a real outcome-first Home composer that hands work to the existing Task
-  or approval-gated Plan flow instead of introducing a second execution path.
+- Added one direct Home composer that asks what the agent should change and
+  starts the existing Task flow immediately with Agent Auto; repository,
+  advanced overrides, and approval-gated Plans remain explicit when needed.
+- Made every New task entry point return to the same composer, removed the
+  intermediate Continue and Plan-first choice, and reduced the default task
+  form to one primary Start task action.
+- Reworded the review handoff as Approve change followed by Apply to repository,
+  preserving the durable approval/application boundary without exposing
+  artifact terminology in the primary flow.
 - Made task pages decision-first: Follow, Decide, and Deliver change with the
   lifecycle, while workflow stages, usage, CI, and environment remain available
   in one compact execution disclosure.
@@ -31,6 +38,54 @@ Git; this file records observable operator and product changes.
 - Unified the visual system around a warm neutral canvas, black primary
   actions, cherry identity, a resizable repository sidebar, and responsive
   layouts verified in the real-browser regression suite.
+- Made the sidebar the only global navigation surface, increased its type size,
+  tightened vertical density, and reduced task entries to one-line rows with
+  compact outcome metadata and an on-hover detail preview.
+- Added screen-aware Help as a shared right column. It explains the current
+  surface, its colors, and the next operator action without changing work.
+- Made sidebar search focus the global field, added clear-on-Escape behavior,
+  removed the redundant top-bar Live label, and added safe syntax coloring to
+  task diffs and verification output.
+- Restored the light-red concentric Odysseus target mark and normalized task
+  status colors: green done, orange working, blue question, red needs action.
+- Shifted the shell to cool neutral grays and navy text, enlarged sidebar
+  identity and icons, removed the redundant Home link and repeated Odysseus
+  page eyebrow, and focused Repositories on adding or choosing local folders.
+- Removed redundant eyebrows from every primary page header and moved secondary
+  navigation behind a bottom-anchored More disclosure while keeping Skills and
+  Terminals immediately available.
+- Removed the repeated Follow/Decide/Deliver badge from task headings and
+  matched the contextual Help column to the sidebar surface.
+- Replaced the fragmented task header with one compact repository/status/agent
+  bar and added a canonical Executed → Verified → Accepted → Published →
+  Integrated → Deployed → Observed → Healthy/Regressed lifecycle with the next
+  action and responsible actor stated explicitly.
+- Replaced precise-looking uncalibrated confidence scores with qualitative
+  evidence strength, while showing hard gates, independent review, unknowns,
+  CI, observed cost, and sample size separately.
+- Renamed Context Assistant to Decision Assistant, made its destination and
+  consequences explicit, and moved copy/queue actions behind a secondary
+  disclosure.
+- Added status-color filters beside Active, All, and Review; task dots are now
+  flat green/orange/blue/logo-red markers without decorative halos.
+- Added observed cost to every sidebar task row and hover preview, preserving
+  unknown provider cost as an explicit dash rather than a misleading zero.
+- Reworked Activity into a readable causal conversation that distinguishes
+  operator input, agent messages and questions, tool commands/results,
+  independent review, Git, failures, and system events while retaining the
+  canonical event type and timestamp.
+- Cleaned conversational prompts into concise display titles while retaining
+  the full original task instruction as the durable body.
+- Added current-folder repository registration with visible Git/path preflight,
+  clearer Plan critical-path/parallelism/gate/budget signals, and token-budget
+  warnings before exhaustion.
+- Allowed Codex workspace-write runs to access only the linked worktree Git
+  metadata directory they require, eliminating `.git/worktrees` index-lock
+  failures without granting full-disk access; recovery now explains and retries
+  that exact condition.
+- Aligned first-pass and autonomous-delivery metrics to the delivered-task
+  cohort, preserved unknown cost as unknown, and marked small Skill samples as
+  low-confidence observations.
 
 ## Released history
 

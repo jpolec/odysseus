@@ -312,6 +312,24 @@ def _slug(value: str, fallback: str = "task", limit: int = 36) -> str:
     return (slug or fallback)[:limit].rstrip("-")
 
 
+def _display_title(task: str, limit: int = 82) -> str:
+    """Create a quiet navigation label while preserving the full task body."""
+
+    first_line = next((line.strip() for line in task.splitlines() if line.strip()), task)
+    value = re.sub(r"\s+", " ", first_line).strip().lstrip("-*# ")
+    value = re.sub(
+        r"^(?:please|could you|can you|prosz[eę]|czy mo[zż]esz|jeszcze|zobacz)\s*[:,—-]?\s*",
+        "",
+        value,
+        flags=re.IGNORECASE,
+    ).strip()
+    sentence = re.split(r"[.!?](?:\s|$)", value, maxsplit=1)[0].strip() or value
+    if len(sentence) <= limit:
+        return sentence
+    clipped = sentence[:limit].rsplit(" ", 1)[0].rstrip(" ,:;-–—")
+    return f"{clipped or sentence[: limit - 1]}…"
+
+
 def _pid_alive(pid: Any) -> bool:
     try:
         number = int(pid)
@@ -717,7 +735,8 @@ class RunStore:
         stamp = now_iso()
         compact_stamp = stamp.replace("-", "").replace(":", "").replace("T", "-")[:15]
         raw_title = request.get("title")
-        title = (str(raw_title).strip() if raw_title is not None else "") or task.splitlines()[0][:100]
+        explicit_title = str(raw_title).strip() if raw_title is not None else ""
+        title = explicit_title or _display_title(task)
         title = str(self.redaction.redact(title, boundary="run_request")[0])
         run_id = f"{compact_stamp}-{_slug(title)}-{secrets.token_hex(2)}"
         checks = request.get("checks", [])
@@ -831,6 +850,7 @@ class RunStore:
             "id": run_id,
             "kind": kind,
             "title": title,
+            "title_generated": not bool(explicit_title),
             "task": task,
             "project_path": str(project),
             "project_id": project_record["id"],

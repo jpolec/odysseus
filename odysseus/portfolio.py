@@ -241,7 +241,7 @@ def _engineering_portfolio_uncached(store: RunStore, *, days: int = 7) -> dict[s
             "terminal_started": len(terminal),
             "delivered": len(delivered),
             "autonomous_delivery_rate": _rate(len(autonomous), len(delivered)),
-            "first_pass_success_rate": _rate(len(first_pass), len(terminal)),
+            "first_pass_success_rate": _rate(len(first_pass), len(delivered)),
             "human_interventions": interventions,
             "median_minutes_per_delivery": round(median(durations), 1) if durations else None,
             "median_cost_per_delivery_usd": round(median(delivered_costs), 4) if delivered_costs else None,
@@ -257,7 +257,7 @@ def _engineering_portfolio_uncached(store: RunStore, *, days: int = 7) -> dict[s
         },
         "definitions": {
             "autonomous_delivery_rate": "delivered changes with no corrective operator answer, resolution, cancellation, or send-back; final approval is allowed",
-            "first_pass_success_rate": "terminal started tasks delivered without retry, CI repair, or send-back",
+            "first_pass_success_rate": "delivered changes completed without retry, CI repair, or send-back",
             "cost": "observed model cost only; missing cost remains unknown",
         },
         "agents": agent_rows,

@@ -99,6 +99,8 @@ Click any image for the full-size interface.
 | [![New Task with Agent Auto](docs/screenshots/web-new-task.png)](docs/screenshots/web-new-task.png) | [![Repository task graph](docs/screenshots/web-project.png)](docs/screenshots/web-project.png) |
 | **Only decisions need you** | **Review evidence before delivery** |
 | [![Needs You queue](docs/screenshots/web-attention.png)](docs/screenshots/web-attention.png) | [![Evidence-backed review](docs/screenshots/web-task-review.png)](docs/screenshots/web-task-review.png) |
+| **Readable agent and tool history** | **Accepted still is not delivered** |
+| [![Task Activity](docs/screenshots/web-task-activity.png)](docs/screenshots/web-task-activity.png) | [![Explicit delivery](docs/screenshots/web-task-delivery.png)](docs/screenshots/web-task-delivery.png) |
 
 ## What it solves
 
@@ -249,9 +251,9 @@ Reproduce the web screenshots from that exact state with local Chrome/Chromium:
 scripts/capture-web-screenshots.sh
 ```
 
-The script writes fourteen real browser captures—First run, Home, Engineering
-Portfolio, Repositories, Repository, Plans, Attention, Review, Delivery,
-Integration, CI repair, Context Receipt, New task, and Settings—to
+The script writes fifteen real browser captures—First run, Home, Engineering
+Portfolio, Repositories, Repository, Plans, Attention, Review, Activity,
+Delivery, Integration, CI repair, Context Receipt, New task, and Settings—to
 `docs/screenshots/` and
 removes its temporary state when finished. Each URL selects the intended
 repository, task surface, or dialog, so filenames match the visible UI.
@@ -300,6 +302,12 @@ question, review gate, or recovery action under the task it belongs to.
 ### Review, then deliver
 
 ![Odysseus review checklist](docs/screenshots/web-task-review.png)
+
+Activity separates operator instructions, agent messages, questions, tool
+commands and results, reviewer output, Git, and system events without hiding
+their canonical event types:
+
+![Odysseus task activity](docs/screenshots/web-task-activity.png)
 
 The result cannot silently become source code. After acceptance, the next
 screen still says **not delivered** and offers explicit local or pull-request

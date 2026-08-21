@@ -45,6 +45,7 @@ class PortfolioTests(unittest.TestCase):
             self.assertEqual(result["metrics"]["tasks_started"], 2)
             self.assertEqual(result["metrics"]["terminal_started"], 2)
             self.assertEqual(result["metrics"]["delivered"], 1)
+            self.assertEqual(result["metrics"]["first_pass_success_rate"], 1.0)
             self.assertIsNone(result["metrics"]["median_cost_per_delivery_usd"])
             self.assertEqual(result["metrics"]["cost_coverage_deliveries"], 0)
             self.assertIsNone(result["metrics"]["engineer_hours_saved"])

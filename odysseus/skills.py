@@ -198,7 +198,8 @@ class SkillRegistry:
             "successful_runs": 0,
             "success_rate": None,
             "avg_tokens": 0,
-            "avg_cost_usd": 0.0,
+            "avg_cost_usd": None,
+            "cost_coverage": 0,
             "interventions": 0,
         }
 
@@ -218,10 +219,12 @@ class SkillRegistry:
             status = str(run.get("status") or "")
             metrics = run.get("metrics") if isinstance(run.get("metrics"), dict) else {}
             tokens = int(metrics.get("input_tokens") or 0) + int(metrics.get("output_tokens") or 0)
-            try:
-                cost = float(metrics.get("cost_usd") or 0.0)
-            except (TypeError, ValueError):
-                cost = 0.0
+            cost: float | None = None
+            if metrics.get("cost_observed") is True:
+                try:
+                    cost = max(0.0, float(metrics.get("cost_usd") or 0.0))
+                except (TypeError, ValueError):
+                    cost = None
             interventions = sum(
                 1 for event in self.store.events(str(run["id"]), limit=5_000) if event.get("type") in INTERVENTION_EVENTS
             )
@@ -229,7 +232,9 @@ class SkillRegistry:
                 item = values.setdefault(name, {**self._empty_effectiveness(), "total_tokens": 0, "total_cost_usd": 0.0})
                 item["runs"] += 1
                 item["total_tokens"] += tokens
-                item["total_cost_usd"] += cost
+                if cost is not None:
+                    item["total_cost_usd"] += cost
+                    item["cost_coverage"] += 1
                 item["interventions"] += interventions
                 if status in TERMINAL_STATUSES:
                     item["terminal_runs"] += 1
@@ -239,7 +244,9 @@ class SkillRegistry:
             runs = max(1, int(item["runs"]))
             terminal = int(item["terminal_runs"])
             item["avg_tokens"] = round(int(item.pop("total_tokens")) / runs)
-            item["avg_cost_usd"] = round(float(item.pop("total_cost_usd")) / runs, 4)
+            observed_costs = int(item["cost_coverage"])
+            total_cost = float(item.pop("total_cost_usd"))
+            item["avg_cost_usd"] = round(total_cost / observed_costs, 4) if observed_costs else None
             item["success_rate"] = round(int(item["successful_runs"]) / terminal, 3) if terminal else None
         return values
 
@@ -309,7 +316,13 @@ class SkillRegistry:
             reasons = ["required by project policy"] if mode == "required" else [f"matched task signals: {', '.join(signals)}"]
             if success_rate is not None and runs >= 2:
                 history_adjustment = (float(success_rate) - 0.5) * 4.0 * history_weight
-                reasons.append(f"{round(float(success_rate) * 100)}% success across {runs} observed runs")
+                terminal_runs = int(observed.get("terminal_runs") or 0)
+                successful_runs = int(observed.get("successful_runs") or 0)
+                reasons.append(
+                    f"{successful_runs}/{terminal_runs} observed successes across N={runs}; low sample"
+                    if runs < 20
+                    else f"{round(float(success_rate) * 100)}% observed success across N={runs}"
+                )
             interventions = int(observed.get("interventions") or 0)
             intervention_penalty = min(interventions / max(runs, 1), 2.0) * history_weight
             if interventions and runs >= 2:

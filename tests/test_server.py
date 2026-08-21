@@ -291,6 +291,9 @@ class ServerTests(unittest.TestCase):
                 check_results=[{"command": "test", "returncode": 0, "output": "x" * 100_000}],
                 context_bundle=[{"path": "README.md", "content": "y" * 100_000}],
                 review_summary="z" * 100_000,
+                artifact_files=["src/navigation.py", "tests/test_navigation.py"],
+                confidence=0.91,
+                metrics={"input_tokens": 1200, "output_tokens": 300, "tool_calls": 7, "cost_usd": 1.25, "cost_observed": True},
             )
             app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
             host, port = app.start()
@@ -302,6 +305,21 @@ class ServerTests(unittest.TestCase):
                     summary = json.load(response)["runs"][0]
                 self.assertEqual(summary["id"], run["id"])
                 self.assertEqual(summary["task"], "Keep navigation light")
+                self.assertEqual(
+                    summary["navigation"],
+                    {
+                        "files_changed": 2,
+                        "tool_calls": 7,
+                        "total_tokens": 1500,
+                        "cost_observed": True,
+                        "cost_usd": 1.25,
+                        "checks_passed": 1,
+                        "checks_total": 1,
+                        "evidence_score": 0.91,
+                        "environment": "project-default",
+                        "isolated": False,
+                    },
+                )
                 self.assertNotIn("check_results", summary)
                 self.assertNotIn("context_bundle", summary)
                 self.assertNotIn("review_summary", summary)
@@ -482,8 +500,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('data-journey-step="3"', html)
                 self.assertIn("Choose a repository", html)
                 self.assertIn("New task", html)
-                self.assertIn("Describe the finished change", html)
-                self.assertIn("Start &amp; add another", html)
+                self.assertIn("What should the agent change?", html)
+                self.assertIn("Start task", html)
                 self.assertIn("Saved local checkouts", html)
                 self.assertIn("<strong>Review</strong>", html)
                 self.assertIn("Manage repositories", html)
@@ -543,10 +561,10 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('["failed", "attention"]', app_js)
                 self.assertIn('["review", "failed", "attention", "accepted", "pr_created"]', app_js)
                 self.assertIn("feedbackDialog", app_js)
-                self.assertIn("Integrate into repository", app_js)
-                self.assertIn("Combine accepted artifacts", app_js)
+                self.assertIn("Apply to repository", app_js)
+                self.assertIn("Combine approved changes", app_js)
                 self.assertIn("integration-candidates", app_js)
-                self.assertIn("accepted · not delivered", app_js)
+                self.assertIn("approved · not applied", app_js)
                 self.assertIn("Open Changes to load the diff.", app_js)
                 self.assertIn("eventsLoadedRunId", app_js)
                 self.assertIn("Resolve integration", app_js)
@@ -561,7 +579,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("runTitle(run)", app_js)
                 self.assertIn('dataset.theme = savedTheme === "dark" ? "dark" : "light"', app_js)
                 self.assertIn('state.workListExpanded = !project', app_js)
-                self.assertIn('$("#workSummary").classList.toggle("hidden", !!project)', app_js)
+                self.assertIn('$("#workSummary").classList.add("hidden")', app_js)
+                self.assertIn('$("#journeyStepper").classList.add("hidden")', app_js)
                 self.assertIn("state.bootstrap?.test_capabilities?.browser_regression === true", app_js)
                 self.assertIn('const section = ["diff", "integration"].includes(name) ? "changes" : "evidence";', app_js)
                 self.assertNotIn("const [run, diff] = await Promise.all", app_js)

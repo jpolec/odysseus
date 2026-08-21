@@ -113,7 +113,7 @@ class SkillRegistryTests(unittest.TestCase):
             store.update(
                 run["id"],
                 status="accepted",
-                metrics={"input_tokens": 800, "output_tokens": 200, "cost_usd": 0.25},
+                metrics={"input_tokens": 800, "output_tokens": 200, "cost_usd": 0.25, "cost_observed": True},
             )
 
             catalog = store.skills.catalog(run["project_id"])
@@ -122,6 +122,8 @@ class SkillRegistryTests(unittest.TestCase):
             self.assertEqual(security["effectiveness"]["runs"], 1)
             self.assertEqual(security["effectiveness"]["success_rate"], 1.0)
             self.assertEqual(security["effectiveness"]["avg_tokens"], 1000)
+            self.assertEqual(security["effectiveness"]["avg_cost_usd"], 0.25)
+            self.assertEqual(security["effectiveness"]["cost_coverage"], 1)
             self.assertEqual(security["effectiveness"]["interventions"], 1)
 
     def test_router_explains_task_signals_and_project_history(self) -> None:
@@ -140,7 +142,7 @@ class SkillRegistryTests(unittest.TestCase):
             self.assertEqual(recommendation["algorithm"], "project-skill-router-v1")
             self.assertTrue(security["selected"])
             self.assertIn("authentication", security["signals"])
-            self.assertTrue(any("100% success" in reason for reason in security["reasons"]))
+            self.assertTrue(any("2/2 observed successes" in reason and "low sample" in reason for reason in security["reasons"]))
 
 
 if __name__ == "__main__":

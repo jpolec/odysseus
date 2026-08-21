@@ -23,8 +23,10 @@ candidate artifact
    └─ operator acceptance
 ```
 
-The UI reports an **Evidence score N/100**, not a calibrated delivery
-probability. Missing or inconclusive evidence is not relabeled as success.
+The UI reports qualitative **Evidence strength**, not a calibrated delivery
+probability or a precise-looking heuristic percentage. Hard gates, soft
+evidence, and unknowns remain separate, and missing or inconclusive evidence is
+not relabeled as success.
 
 ## Use it
 
@@ -65,4 +67,3 @@ Evidence is currently task-scoped. Immutable milestone candidates,
 content-addressed artifact storage, structured Evidence Bundles, evaluator
 calibration, and production health observation are planned capabilities, not
 claims of the current release.
-

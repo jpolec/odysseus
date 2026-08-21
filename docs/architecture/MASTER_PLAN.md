@@ -498,10 +498,17 @@ and the process-death crash matrix are release-gated.
 1. Orthogonal status projection with backward-compatible run states.
 2. Immutable OutcomeRecord and lineage receipts.
 3. Publication/integration/deployment receipts.
-4. ObservationWindow, HealthSignal, revert/rollback tracking.
-5. AttentionReceipt and active-human-time economics.
-6. Reachability retention, Artifact/Evidence lifecycle, GC, and orphan scan.
-7. Outcome portfolio and healthy-change economics.
+4. ObservationWindow and typed HealthSignals from existing CI/CD, APM, log,
+   incident, test, and human sources; Odysseus integrates these systems instead
+   of becoming another deployment engine.
+5. Versioned deployment-policy results with the exact failed rule, evaluated
+   artifact/version, last known valid version, and explicit revalidation.
+6. Revert/rollback and CompensationReceipt tracking against the exact previous
+   successful deployment; compensation is an auditable action, never a silent
+   status rewrite.
+7. AttentionReceipt and active-human-time economics.
+8. Reachability retention, Artifact/Evidence lifecycle, GC, and orphan scan.
+9. Outcome portfolio and healthy-change economics.
 
 ### 0.10.1 — routing instrumentation
 
