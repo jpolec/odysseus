@@ -27,6 +27,10 @@ Git; this file records observable operator and product changes.
 - Replaced the vague graph/Gantt link with a visible Open delivery plan action,
   plain-language Dependencies and Timeline & cost sections, per-task observed
   or explicit estimated/cap costs, and repository cost coverage.
+- Expanded every primary surface—task Overview, Changes, Activity, Evidence,
+  Needs You, Plans, Skills, Outcomes, terminals, repositories, GitHub issues,
+  follow-ups, and Settings—to use the full workspace beside the repository
+  sidebar by default.
 - Reworked the web shell around four primary operator surfaces: Home, Needs
   You, Plans, and Outcomes, while keeping repositories and task history in the
   persistent sidebar.

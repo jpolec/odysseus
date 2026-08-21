@@ -1867,6 +1867,43 @@ body.activity-focus .activity-panel .event { margin-bottom: 9px; padding: 11px 1
 :root[data-theme="dark"] .help-step.tone-amber > span { color: #f2c96e; background: #44320f; }
 :root[data-theme="dark"] .help-step.tone-red > span { color: #ffaaa2; background: #48231f; }
 
+/* Every primary surface owns the workspace to the right of the repository sidebar. */
+@media (min-width: 901px) {
+  .work-view,
+  .collection-view,
+  .run-detail,
+  .portfolio-view,
+  #insightsView {
+    width: 100%;
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+    padding-right: clamp(24px, 2.5vw, 42px);
+    padding-left: clamp(24px, 2.5vw, 42px);
+  }
+
+  .home-hero,
+  .home-compose,
+  .home-queues,
+  .home-portfolio,
+  .technical-details {
+    width: 100%;
+    max-width: none;
+  }
+
+  #task-section-activity.active .activity-panel {
+    max-width: 1180px;
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  body.activity-focus #task-section-activity.active .activity-panel {
+    max-width: none;
+    margin-right: 0;
+    margin-left: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .help-panel { transition: none; }
 }

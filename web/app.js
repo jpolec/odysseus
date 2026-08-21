@@ -3605,6 +3605,7 @@ async function runBrowserRegression() {
   assert($("#helpContent").textContent.includes("Write what should change"), "Home help gives the next action");
   setView("attention");
   assert($("#helpTitle").textContent === "Needs You", "help follows navigation context");
+  if (window.innerWidth > 900) assert(getComputedStyle($("#attentionView")).maxWidth === "none", "Needs You fills the workspace");
   $("#helpClose").click();
   assert(!state.helpOpen && $("#helpPanel").getAttribute("aria-hidden") === "true", "context help closes without changing work");
   setView("portfolio");
@@ -3711,6 +3712,7 @@ async function runBrowserRegression() {
   assert($("#activitySummary").textContent.includes("Total") && $("#activitySummary").textContent.includes("Agent") && $("#activitySummary").textContent.includes("Total cost"), "Activity summarizes total and phase economics");
   assert($("#eventLog time").textContent.includes("T+"), "each Activity entry shows relative task timing");
   assert(state.activityFocus && document.body.classList.contains("activity-focus"), "Activity uses the full workspace width by default");
+  if (window.innerWidth > 900) assert(getComputedStyle($("#runDetail")).maxWidth === "none", "every task tab owns the full workspace");
   assert($("#activityFocusToggle").textContent.includes("Narrow"), "wide Activity exposes a diagonal narrow action");
   $("#activityFocusToggle").click();
   assert(!state.activityFocus && !document.body.classList.contains("activity-focus"), "diagonal control narrows Activity");
