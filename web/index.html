@@ -597,6 +597,8 @@
 
     <dialog id="epicDialog"><form method="dialog" id="epicForm">
       <div class="dialog-head"><div><h2>Plan a feature</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="epic-plan-layout">
+        <section class="epic-plan-fields">
       <label>Repository
         <span class="field-help">Where should the work happen?</span>
         <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
@@ -617,8 +619,7 @@
           <div class="plan-source-categories" role="group" aria-label="Source category">
             <button class="active" data-plan-source-tab="adr" type="button">ADRs</button><button data-plan-source-tab="specification" type="button">Specifications</button><button data-plan-source-tab="incident" type="button">Incidents</button><button data-plan-source-tab="github" type="button">GitHub</button><button data-plan-source-tab="repository" type="button">More files</button>
           </div>
-          <div class="epic-source-browser">
-            <div class="epic-source-list-column">
+          <div class="epic-source-list-column">
               <div class="epic-repository-sources" id="epicRepositorySources"><p>Choose a repository to see its ADRs.</p></div>
               <div class="epic-repository-sources hidden" id="epicGithubSources"></div>
               <div class="epic-source-upload-row">
@@ -629,8 +630,6 @@
               </div>
               <details class="epic-source-url-details"><summary>Add a public URL</summary><div class="epic-source-url-row"><input id="epicSourceUrl" type="url" placeholder="https://…" aria-label="Public HTTPS planning source"><button class="ghost compact" id="epicAddSourceUrl" type="button">Preview &amp; add</button></div></details>
               <div class="epic-uploaded-sources hidden" id="epicUploadedSources" aria-label="Uploaded planning documents"></div>
-            </div>
-            <aside class="epic-source-preview" id="epicSourcePreview" aria-live="polite"><p>Select a source to read it here.</p></aside>
           </div>
         </div>
       </details>
@@ -641,6 +640,9 @@
       </details>
       <p class="submit-note">Creates a draft. Agents start only after approval.</p>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create draft</button></div>
+        </section>
+        <aside class="epic-source-preview" id="epicSourcePreview" aria-live="polite"><p>Select an ADR, issue, or specification to read it here.</p></aside>
+      </div>
     </form></dialog>
 
     <dialog id="planStudioDialog" class="plan-studio-dialog">

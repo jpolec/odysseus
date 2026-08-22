@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from odysseus.planner import EpicPlanner
+from odysseus.planner import EpicPlanner, PlanningFailed
 from odysseus.runners import ProcessResult
 from odysseus.store import RunStore
 
@@ -24,6 +24,11 @@ class FakePlannerRunner:
             0.1,
             session_id="planner-thread",
         )
+
+
+class FailingPlannerRunner:
+    def run(self, lane, worktree, prompt, **kwargs):  # noqa: ANN001
+        return ProcessResult(1, "planner failed before returning a task graph", 0.1, session_id="failed-planner-thread")
 
 
 class PlannerTests(unittest.TestCase):
@@ -86,6 +91,43 @@ class PlannerTests(unittest.TestCase):
                 default_review_lane="claude",
                 default_checks=[],
             )
+
+    def test_failed_planning_attempt_preserves_sources_and_can_be_repaired_manually(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            planner = EpicPlanner(store, agent_runner=FailingPlannerRunner())
+
+            with self.assertRaises(PlanningFailed) as caught:
+                planner.plan(
+                    "Implement the decision",
+                    project,
+                    source_documents=[{"kind": "adr", "path": "ADR/0001.md", "title": "Decision", "content": "# Decision\n\nKeep the API stable."}],
+                )
+
+            failed = store.epics.get(caught.exception.epic_id)
+            self.assertEqual(failed["status"], "planning_failed")
+            self.assertEqual(failed["planner_session_id"], "failed-planner-thread")
+            self.assertIn("Keep the API stable", failed["source_documents"][0]["content"])
+            repaired = store.epics.save_plan(
+                failed["id"],
+                {
+                    "summary": "Manual recovery draft",
+                    "tasks": [
+                        {
+                            "task_key": "implement",
+                            "title": "Implement decision",
+                            "task": "Implement the frozen ADR without changing the public API.",
+                            "outcome": "The ADR is implemented and the public API remains compatible.",
+                            "depends_on": [],
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(repaired["status"], "proposed")
+            self.assertEqual(len(repaired["plan"]["tasks"]), 1)
 
 
 if __name__ == "__main__":

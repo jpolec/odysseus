@@ -1427,6 +1427,14 @@ summary:focus-visible {
 .epic-graph-content { padding: 12px; background: var(--base); }
 .epic-graph-content .epic-source-line { margin-bottom: 10px; }
 .epic-graph-content .dag-graph { margin-top: 0; }
+.epic-attempt-card { border-color: #cddbeb; background: #f8fbff; }
+.epic-attempt-card.epic-attempt-failed { border-color: #eccaca; background: #fffafa; }
+.epic-attempt-card .epic-source-line { margin: 1px 0 0; }
+.epic-attempt-card .card-actions { align-items: center; }
+.epic-attempt-card .card-actions > span { color: var(--muted); font-size: 10px; }
+.epic-failure-detail { overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
+.epic-failure-detail > summary { padding: 8px 10px; cursor: pointer; color: var(--muted); font-size: 10px; }
+.epic-failure-detail pre { max-height: 220px; margin: 0; padding: 10px; overflow: auto; border-top: 1px solid var(--line); color: var(--ink); background: var(--surface-2); font: 10px/1.55 var(--mono); white-space: pre-wrap; }
 
 /* Versioned source-to-execution contract studio. */
 .plan-studio-dialog { width: calc(100vw - 36px); height: calc(100vh - 36px); max-width: none; max-height: none; overflow: hidden; border-radius: 10px; }
@@ -1435,6 +1443,12 @@ summary:focus-visible {
 .plan-studio-head h2 { margin: 1px 0 2px; font-size: 20px; letter-spacing: -.025em; }.plan-studio-head p { margin: 0; color: var(--muted); font-size: 11px; }
 .plan-studio-head-actions { display: flex; align-items: center; gap: 7px; }.plan-studio-head-actions > span { margin-right: 5px; color: var(--faint); font: 600 9px var(--mono); }
 .plan-studio-impact { grid-area: impact; display: flex; gap: 9px; padding: 8px 18px; border-bottom: 1px solid #f2c8c8; color: #9b2424; background: #fff5f4; font-size: 11px; }.plan-studio-impact strong { white-space: nowrap; }
+.plan-studio-impact.planning-failure { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: start; gap: 14px; padding-top: 10px; padding-bottom: 10px; }
+.plan-studio-impact.planning-failure > div strong,.plan-studio-impact.planning-failure > div span { display: block; }
+.plan-studio-impact.planning-failure > div span { margin-top: 3px; color: var(--ink); line-height: 1.45; }
+.plan-studio-impact.planning-failure details { max-width: 520px; }
+.plan-studio-impact.planning-failure summary { cursor: pointer; font-size: 10px; font-weight: 650; }
+.plan-studio-impact.planning-failure pre { max-height: 160px; margin: 7px 0 0; padding: 9px; overflow: auto; border: 1px solid #eccaca; border-radius: 6px; color: var(--ink); background: var(--surface); font: 9px/1.5 var(--mono); white-space: pre-wrap; }
 .plan-studio-grid { grid-area: workspace; display: grid; grid-template-columns: minmax(340px,.85fr) minmax(480px,1.15fr); min-height: 0; }
 .plan-studio-source,.plan-studio-tasks { display: grid; min-width: 0; min-height: 0; grid-template-rows: auto auto minmax(0,1fr); background: var(--surface); }
 .plan-studio-source { border-right: 1px solid var(--line); }.plan-studio-tasks { grid-template-rows: auto minmax(100px,.35fr) minmax(0,1fr); }
@@ -1452,8 +1466,10 @@ summary:focus-visible {
 
 /* Versioned Plan sources: one catalog, explicit repeat authorization, and source-scoped tasks. */
 details.epic-source-picker { padding: 0; background: var(--surface); }
-#epicDialog { transition: width .16s ease; }
-#epicDialog:has(.epic-source-picker[open]) { width: min(1120px,calc(100vw - 28px)); }
+#epicDialog { width: min(1160px,calc(100vw - 28px)); height: min(840px,calc(100vh - 28px)); overflow: hidden; }
+#epicDialog > form { display: flex; flex-direction: column; height: 100%; }
+#epicDialog .dialog-head { flex: 0 0 auto; }
+.epic-plan-layout { display: grid; grid-template-columns: minmax(420px,.9fr) minmax(460px,1.1fr); flex: 1; gap: 18px; min-height: 0; }.epic-plan-fields { min-width: 0; min-height: 0; padding-right: 7px; overflow: auto; }
 .epic-source-picker > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 12px; cursor: pointer; list-style: none; }
 .epic-source-picker > summary::-webkit-details-marker { display: none; }
 .epic-source-picker > summary::before { content: "+"; flex: 0 0 auto; color: var(--brand); font-size: 16px; line-height: 1; }
@@ -1464,7 +1480,7 @@ details.epic-source-picker { padding: 0; background: var(--surface); }
 .epic-source-picker > summary small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 .epic-source-picker > summary em { color: var(--faint); font: 8.5px var(--mono); font-style: normal; white-space: nowrap; }
 .epic-source-picker-body { padding: 0 11px 11px; border-top: 1px solid var(--line); }
-.epic-source-browser { display: grid; grid-template-columns: minmax(320px,.9fr) minmax(380px,1.1fr); gap: 10px; min-height: 360px; }.epic-source-list-column { min-width: 0; }.epic-source-browser .epic-source-options { max-height: 300px; }.epic-source-preview { display: grid; grid-template-rows: auto minmax(0,1fr); min-width: 0; min-height: 360px; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }.epic-source-preview > header { padding: 13px 14px 10px; border-bottom: 1px solid var(--line); background: var(--surface); }.epic-source-preview h3 { margin: 3px 0 4px; font-size: 15px; }.epic-source-preview header small { display: block; overflow: hidden; color: var(--faint); font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }.epic-source-preview pre { min-height: 0; margin: 0; padding: 15px 16px; overflow: auto; color: var(--ink); background: transparent; font: 12px/1.7 var(--mono); white-space: pre-wrap; }.epic-source-preview > p { margin: auto; padding: 20px; color: var(--muted); font-size: 11px; }
+.epic-source-list-column { min-width: 0; }.epic-source-list-column .epic-source-options { max-height: 260px; }.epic-source-preview { display: grid; grid-template-rows: auto minmax(0,1fr); min-width: 0; min-height: 0; height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }.epic-source-preview > header { padding: 15px 16px 12px; border-bottom: 1px solid var(--line); background: var(--surface); }.epic-source-preview h3 { margin: 4px 0 5px; font-size: 16px; }.epic-source-preview header small { display: block; overflow: hidden; color: var(--faint); font: 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }.epic-source-preview pre { min-height: 0; margin: 0; padding: 18px; overflow: auto; color: var(--ink); background: transparent; font: 12.5px/1.72 var(--mono); white-space: pre-wrap; }.epic-source-preview > p { margin: auto; padding: 24px; color: var(--muted); font-size: 12px; text-align: center; }
 .epic-source-picker-body .selected-decision-sources { margin: 9px 0; padding: 8px 9px; }
 .epic-source-picker-body .selected-decision-sources > strong { margin: 0; font-size: 9px; }
 .plan-source-categories,.plan-filter-bar { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
@@ -1490,7 +1506,10 @@ details.epic-source-picker { padding: 0; background: var(--surface); }
 .plan-success-contract { margin: 0 0 12px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 6px; }.plan-success-contract > summary { cursor: pointer; font-size: 10px; font-weight: 650; }.plan-success-contract > summary span { margin-left: 4px; color: var(--faint); font: 8px var(--mono); text-transform: uppercase; }.plan-success-contract label { margin-top: 9px; }.plan-success-contract textarea { font-size: 10px; }
 .plan-studio-tasks { grid-template-rows: auto auto minmax(100px,.35fr) minmax(0,1fr); }.plan-task-controls { display: flex; justify-content: flex-end; gap: 7px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); }.plan-task-controls label { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--faint); font-size: 8px; }.plan-task-controls select { width: auto; max-width: 190px; min-height: 27px; padding: 0 22px 0 6px; font-size: 8.5px; }
 :root[data-theme="dark"] .plan-source-categories button.active,:root[data-theme="dark"] .plan-filter-bar > button.active,:root[data-theme="dark"] .source-kind-badge,:root[data-theme="dark"] .epic-source-options .source-kind-badge { border-color: #4d6580; color: #b6d9ff; background: #1c2936; }
-@media (max-width: 820px) { .epic-source-browser { grid-template-columns: 1fr; }.epic-source-preview { min-height: 300px; }.epic-source-upload-row { flex-wrap: wrap; }.source-default-kind { width: 100%; margin-left: 0; }.plan-exact-filter { width: 100%; margin-left: 0; }.plan-task-controls { justify-content: stretch; }.plan-task-controls label { flex: 1; }.plan-task-controls select { width: 100%; }.sidebar-plan-sources { display: none !important; } }
+@media (max-width: 900px) { #epicDialog { width: calc(100vw - 20px); height: calc(100vh - 20px); overflow: auto; }#epicDialog > form { display: block; height: auto; }.epic-plan-layout { grid-template-columns: 1fr; overflow: visible; }.epic-plan-fields { overflow: visible; }.epic-source-preview { min-height: 360px; height: 52vh; }.epic-source-upload-row { flex-wrap: wrap; }.source-default-kind { width: 100%; margin-left: 0; }.plan-exact-filter { width: 100%; margin-left: 0; }.plan-task-controls { justify-content: stretch; }.plan-task-controls label { flex: 1; }.plan-task-controls select { width: 100%; }.sidebar-plan-sources { display: none !important; } }
+
+:root[data-theme="dark"] .epic-attempt-card { border-color: #30465e; background: #17212b; }
+:root[data-theme="dark"] .epic-attempt-card.epic-attempt-failed { border-color: #633838; background: #2a1b1b; }
 
 /* Settings use progressive disclosure instead of presenting every control at once. */
 .settings-grid { align-items: start; }

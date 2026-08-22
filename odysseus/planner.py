@@ -14,6 +14,14 @@ from .runners import AgentRunner, ProcessResult
 PLAN_MARKER = "ODYSSEUS_PLAN:"
 
 
+class PlanningFailed(RuntimeError):
+    """A planning attempt was preserved, but did not produce an editable draft."""
+
+    def __init__(self, epic_id: str, message: str) -> None:
+        super().__init__(message)
+        self.epic_id = epic_id
+
+
 class EpicPlanner:
     """Keep planning separate from implementation and require explicit approval."""
 
@@ -99,15 +107,27 @@ class EpicPlanner:
                 status="planning_failed",
                 planner_error=result.output[-20_000:],
                 planner_events=planner_events,
+                planner_session_id=result.session_id,
             )
-            raise RuntimeError(f"planner process exited with code {result.returncode}")
-        proposal = self.parse_proposal(
-            result,
-            project_path=str(project),
-            default_lane=implementation_lane,
-            default_review_lane=reviewer_lane,
-            default_checks=checks or [],
-        )
+            raise PlanningFailed(epic["id"], f"planner process exited with code {result.returncode}")
+        try:
+            proposal = self.parse_proposal(
+                result,
+                project_path=str(project),
+                default_lane=implementation_lane,
+                default_review_lane=reviewer_lane,
+                default_checks=checks or [],
+            )
+        except ValueError as exc:
+            detail = f"{exc}\n\n{result.output[-18_000:]}".strip()
+            self.epics.update(
+                epic["id"],
+                status="planning_failed",
+                planner_error=detail[-20_000:],
+                planner_events=planner_events,
+                planner_session_id=result.session_id,
+            )
+            raise PlanningFailed(epic["id"], str(exc)) from exc
         self.epics.update(
             epic["id"], planner_session_id=result.session_id, planner_events=planner_events, planner_error=""
         )

@@ -57,7 +57,12 @@ async function api(path, options = {}) {
   }
   const response = await fetch(path, {...options, headers});
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(data.error || `Request failed (${response.status})`);
+    error.payload = data;
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -3080,6 +3085,21 @@ function planEstimateLabel(task) {
   return `${range} · ${escapeHtml(estimate.confidence || "unknown")} confidence`;
 }
 
+function plannerFailureSummary(epic) {
+  const raw = String(epic?.planner_error || "");
+  if (/missing field [`']?base_instructions|models cache/i.test(raw)) return "The planning agent could not start because its local Codex model cache is incompatible. Update or restart Codex, then create the draft again.";
+  if (/AuthRequired|oauth-protected-resource|authentication required/i.test(raw)) return "The planning agent was stopped by an unauthenticated external tool. Reconnect that tool, or disable it for planning, then try again.";
+  if (/permission denied|operation not permitted/i.test(raw)) return "The planning agent could not read a required local resource. Review the technical detail before trying again.";
+  if (/ODYSSEUS_PLAN|invalid plan JSON|tasks array/i.test(raw)) return "The planning agent responded, but did not produce a valid task draft. The source is preserved and you can add the tasks manually.";
+  return "The planning agent stopped before it produced task proposals. The selected sources are preserved.";
+}
+
+function plannerFailureDetail(epic) {
+  const raw = String(epic?.planner_error || "").trim();
+  if (!raw) return "No additional planner output was recorded.";
+  return raw.length > 4000 ? `…${raw.slice(-4000)}` : raw;
+}
+
 function planStudioTask() {
   return state.planStudio?.plan?.tasks?.find((task) => task.task_key === state.planStudioTaskKey) || null;
 }
@@ -3122,7 +3142,8 @@ function addPlanStudioTask() {
   const epic = state.planStudio;
   if (!epic || epic.approved) return;
   updatePlanStudioTaskFromEditor();
-  const tasks = epic.plan?.tasks || [];
+  if (!epic.plan || !Array.isArray(epic.plan.tasks)) epic.plan = {summary: "", constraints: [], tasks: []};
+  const tasks = epic.plan.tasks;
   const key = nextPlanStudioTaskKey(tasks);
   const source = (epic.source_documents || [])[Number(epic._sourceIndex || 0)];
   tasks.push({
@@ -3211,35 +3232,45 @@ function renderPlanStudio() {
   const source = (epic.source_documents || [])[sourceIndex];
   const version = epic.plan_version || {};
   const locked = Boolean(epic.approved);
+  const planning = epic.status === "planning";
+  const planningFailed = epic.status === "planning_failed";
+  const editable = !locked && !planning;
   const planSummary = String(epic.plan?.summary || "review tasks, sources, evidence and execution profiles").trim().replace(/[.\s]+$/, "");
-  $("#planStudioTitle").textContent = epic.title || (locked ? "Approved plan" : "Review plan draft");
-  $("#planStudioSummary").textContent = locked
+  $("#planStudioTitle").textContent = planningFailed ? "Draft was not created" : planning ? "Creating plan draft" : epic.title || (locked ? "Approved plan" : "Review plan draft");
+  $("#planStudioSummary").textContent = planningFailed
+    ? "The source is safe. Review the failure below, then add tasks manually or create a new planning attempt."
+    : planning ? "The Planner is reading the selected sources. No implementation agents are running."
+    : locked
     ? (epic.plan?.summary || "This exact plan version is approved.")
     : `Editable task template · ${planSummary}. Nothing runs until you approve this exact version.`;
-  $("#planStudioVersion").textContent = version.id ? `v${version.number} · ${String(version.sha256 || "").slice(0, 8)}` : locked ? "Legacy approved plan" : "Unsaved draft";
-  $("#planStudioSave").classList.toggle("hidden", locked);
-  $("#planStudioApprove").classList.toggle("hidden", locked);
-  $("#planStudioAddTask").classList.toggle("hidden", locked);
+  $("#planStudioVersion").textContent = version.id ? `v${version.number} · ${String(version.sha256 || "").slice(0, 8)}` : planningFailed ? "Planning failed" : planning ? "Planner running" : locked ? "Legacy approved plan" : "Unsaved draft";
+  $("#planStudioSave").classList.toggle("hidden", locked || planning);
+  $("#planStudioApprove").classList.toggle("hidden", locked || epic.status !== "proposed");
+  $("#planStudioAddTask").classList.toggle("hidden", locked || planning);
   $("#planStudioSourceCount").textContent = `${(epic.source_documents || []).length} source${(epic.source_documents || []).length === 1 ? "" : "s"}`;
   const estimated = tasks.filter((task) => task.estimate?.cost_usd_min !== null && task.estimate?.cost_usd_min !== undefined && task.estimate?.cost_usd_max !== null && task.estimate?.cost_usd_max !== undefined);
   const totalMin = estimated.reduce((sum, task) => sum + Number(task.estimate.cost_usd_min), 0);
   const totalMax = estimated.reduce((sum, task) => sum + Number(task.estimate.cost_usd_max), 0);
   $("#planStudioEstimate").textContent = estimated.length ? `$${totalMin.toFixed(2)}–$${totalMax.toFixed(2)} · ${estimated.length}/${tasks.length} tasks estimated` : "Cost unknown · no calibrated history";
   const impact = epic.source_impact || {status: "current", affected_task_keys: []};
-  $("#planStudioImpact").classList.toggle("hidden", impact.status !== "changed");
-  $("#planStudioImpact").innerHTML = impact.status === "changed" ? `<strong>Source changed</strong><span>${impact.affected_task_keys?.length ? `${escapeHtml(impact.affected_task_keys.join(", "))} require review.` : "No linked task contract is affected."}</span>${locked ? "" : `<button class="ghost" id="planStudioRefreshSources" type="button">Freeze current source</button>`}` : "";
+  const showImpact = planningFailed || impact.status === "changed";
+  $("#planStudioImpact").classList.toggle("hidden", !showImpact);
+  $("#planStudioImpact").classList.toggle("planning-failure", planningFailed);
+  $("#planStudioImpact").innerHTML = planningFailed
+    ? `<div><strong>Planner stopped</strong><span>${escapeHtml(plannerFailureSummary(epic))}</span></div><details><summary>Technical details</summary><pre>${escapeHtml(plannerFailureDetail(epic))}</pre></details>`
+    : impact.status === "changed" ? `<strong>Source changed</strong><span>${impact.affected_task_keys?.length ? `${escapeHtml(impact.affected_task_keys.join(", "))} require review.` : "No linked task contract is affected."}</span>${locked ? "" : `<button class="ghost" id="planStudioRefreshSources" type="button">Freeze current source</button>`}` : "";
   $("#planStudioSourceTabs").innerHTML = (epic.source_documents || []).map((item, index) => `<button class="${index === sourceIndex ? "active" : ""}" data-plan-source="${index}" type="button"><span>${escapeHtml(item.kind || "source")}</span><strong>${escapeHtml(item.title || item.path)}</strong></button>`).join("");
   const linkedRefs = new Set(selected?.source_refs || []);
   $("#planStudioSourceSections").innerHTML = source ? (source.sections || []).map((section) => `<button class="plan-source-section ${linkedRefs.has(section.ref) ? "linked" : ""}" data-source-ref="${escapeHtml(section.ref)}" type="button" ${locked ? "disabled" : ""}><span>${escapeHtml(section.ref)}</span><p>${escapeHtml(section.text)}</p>${linkedRefs.has(section.ref) ? `<em>Used by ${escapeHtml(selected.task_key)}</em>` : ""}</button>`).join("") : `<div class="empty-list">No frozen source content.</div>`;
   $("#planStudioSourceFilter").innerHTML = `<option value="all">All sources</option>${sources.map((item) => `<option value="${escapeHtml(item.path)}" ${state.planStudioSourceFilter === item.path ? "selected" : ""}>${escapeHtml(planSourceKindLabel(item.kind))}: ${escapeHtml(item.title || item.path)}</option>`).join("")}`;
   $("#planStudioTaskSort").value = state.planStudioTaskSort;
   const originalOrder = new Map(tasks.map((task, index) => [task.task_key, index + 1]));
-  $("#planStudioTaskList").innerHTML = visibleTasks.length ? visibleTasks.map((task) => { const linkedSources = planStudioTaskSources(task, sources); return `<button class="plan-task-card ${task.task_key === state.planStudioTaskKey ? "active" : ""}" data-plan-task="${escapeHtml(task.task_key)}" type="button"><span>T${originalOrder.get(task.task_key)}</span><div><strong>${escapeHtml(task.title || task.task_key)}</strong><small>${escapeHtml(task.outcome || "Finished outcome not specified")}</small><em>${escapeHtml(task.execution_profile?.mode === "override" ? `${task.execution_profile.harness || "manual"} override` : `Auto · ${task.execution_profile?.reason || "routing at execution"}`)} · ${linkedSources.length ? linkedSources.map((item) => item.title || item.path).join(", ") : "no source linked"}</em></div><b>${planEstimateLabel(task)}</b></button>`; }).join("") : `<div class="empty-list">No tasks are linked to this source yet. Select a task under All sources, then link source paragraphs.</div>`;
+  $("#planStudioTaskList").innerHTML = visibleTasks.length ? visibleTasks.map((task) => { const linkedSources = planStudioTaskSources(task, sources); return `<button class="plan-task-card ${task.task_key === state.planStudioTaskKey ? "active" : ""}" data-plan-task="${escapeHtml(task.task_key)}" type="button"><span>T${originalOrder.get(task.task_key)}</span><div><strong>${escapeHtml(task.title || task.task_key)}</strong><small>${escapeHtml(task.outcome || "Finished outcome not specified")}</small><em>${escapeHtml(task.execution_profile?.mode === "override" ? `${task.execution_profile.harness || "manual"} override` : `Auto · ${task.execution_profile?.reason || "routing at execution"}`)} · ${linkedSources.length ? linkedSources.map((item) => item.title || item.path).join(", ") : "no source linked"}</em></div><b>${planEstimateLabel(task)}</b></button>`; }).join("") : `<div class="empty-list">${planningFailed ? "No task proposals were produced. Click Add task to build the preserved source into an editable draft." : planning ? "The Planner has not produced task proposals yet." : "No tasks are linked to this source yet. Select a task under All sources, then link source paragraphs."}</div>`;
 
   const form = $("#planStudioEditor");
   form.classList.toggle("hidden", !selected);
-  $("#planStudioRemoveTask").classList.toggle("hidden", locked);
-  $("#planStudioRemoveTask").disabled = locked || tasks.length <= 1;
+  $("#planStudioRemoveTask").classList.toggle("hidden", !editable);
+  $("#planStudioRemoveTask").disabled = !editable || tasks.length <= 1;
   if (selected) {
     form.elements.title.value = selected.title || "";
     form.elements.task_key.value = selected.task_key || "";
@@ -3260,7 +3291,7 @@ function renderPlanStudio() {
     form.elements.cost_min.value = selected.estimate?.cost_usd_min ?? ""; form.elements.cost_max.value = selected.estimate?.cost_usd_max ?? "";
     form.elements.duration_min.value = selected.estimate?.duration_minutes_min ?? ""; form.elements.duration_max.value = selected.estimate?.duration_minutes_max ?? "";
     form.elements.estimate_confidence.value = selected.estimate?.confidence || "unknown"; form.elements.estimate_basis.value = selected.estimate?.basis || "No calibrated repository estimate yet";
-    [...form.elements].forEach((control) => { control.disabled = locked; });
+    [...form.elements].forEach((control) => { control.disabled = !editable; });
   }
   $("#planStudioGraph").innerHTML = renderEpicGraph(epic);
   const dependencies = tasks.reduce((sum, task) => sum + (task.depends_on || []).length, 0);
@@ -3268,7 +3299,7 @@ function renderPlanStudio() {
   $$('[data-plan-source]').forEach((button) => button.addEventListener("click", () => { epic._sourceIndex = Number(button.dataset.planSource); state.planStudioSourceFilter = sources[epic._sourceIndex]?.path || "all"; renderPlanStudio(); }));
   $$('[data-plan-task]').forEach((button) => button.addEventListener("click", () => { state.planStudioTaskKey = button.dataset.planTask; renderPlanStudio(); }));
   $$('[data-source-ref]').forEach((button) => button.addEventListener("click", () => {
-    if (!selected || locked) return;
+    if (!selected || !editable) return;
     const refs = new Set(selected.source_refs || []); const ref = button.dataset.sourceRef;
     if (refs.has(ref)) refs.delete(ref); else refs.add(ref);
     selected.source_refs = [...refs]; state.planStudioDirty = true; renderPlanStudio();
@@ -3363,6 +3394,21 @@ async function refreshEpics() {
     const dependencyCount = (linkedRuns.length ? linkedRuns : plannedTasks).reduce((total, item) => total + (item.dependency_keys || item.depends_on || []).length, 0);
     const sourceLine = sources.length ? `<div class="epic-source-line"><strong>Sources</strong>${sources.map((source) => `<button data-plan-filter="source:${escapeHtml(source.path)}" type="button" title="Filter plans and tasks by this source"><b>${escapeHtml(planSourceKindLabel(source.kind))}</b>${escapeHtml(source.title || source.path)} <code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code>${source.repeat_authorized ? `<em>forced repeat</em>` : ""}</button>`).join("")}</div>` : "";
     const runButtons = (epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("");
+    if (epic.status === "planning_failed") return `${groupHeading}<article class="stack-card epic-card epic-attempt-card epic-attempt-failed">
+      <div class="card-row"><span class="mini-status status-failed">draft failed</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")} · ${escapeHtml(relativeTime(epic.updated_at))} ago</span></div>
+      <h3>Draft was not created</h3>
+      <p>${escapeHtml(plannerFailureSummary(epic))}</p>
+      ${sourceLine}
+      <details class="epic-failure-detail"><summary>Technical details</summary><pre>${escapeHtml(plannerFailureDetail(epic))}</pre></details>
+      <div class="card-actions"><button class="primary" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Review failed draft</button><span>The source is preserved. You can add tasks manually.</span></div>
+    </article>`;
+    if (epic.status === "planning") return `${groupHeading}<article class="stack-card epic-card epic-attempt-card">
+      <div class="card-row"><span class="mini-status status-running">creating draft</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")} · ${escapeHtml(relativeTime(epic.updated_at))} ago</span></div>
+      <h3>Planner is creating the task draft</h3>
+      <p>The selected source is preserved. No implementation agents run before you approve the proposed tasks.</p>
+      ${sourceLine}
+      <div class="card-actions"><button class="ghost" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Open planning attempt</button></div>
+    </article>`;
     return `${groupHeading}<article class="stack-card epic-card">
       <div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status === "proposed" ? "draft" : epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div>
       <h3>${escapeHtml(epic.title)}</h3>
@@ -3962,7 +4008,20 @@ function bindDialogs() {
         toast("Draft ready. Review, add, remove, or edit tasks before approval.");
       } catch (openError) { toast(`Draft was created, but could not be opened: ${openError.message}`, true); }
       Promise.all([refreshEpics(), refreshProjectOverview()]).catch((refreshError) => toast(`Draft is open, but the list could not refresh: ${refreshError.message}`, true));
-    } catch (error) { toast(error.message, true); }
+    } catch (error) {
+      const failedEpic = error.payload?.epic;
+      if (failedEpic?.id) {
+        $("#epicDialog").close();
+        event.currentTarget.reset();
+        state.planSelectedSourcePaths = []; state.planRepositorySources = []; state.planUploadedSources = []; state.planGithubCatalog = []; state.planSelectedGithub = []; state.planUrlSources = []; state.planForcedSourcePaths = [];
+        setView("epics");
+        await refreshEpics().catch(() => {});
+        try {
+          await openPlanStudio(failedEpic.id);
+          toast("The Planner stopped. The source is preserved; review the failure or add the tasks manually.", true);
+        } catch (openError) { toast(`The planning attempt was preserved, but could not be opened: ${openError.message}`, true); }
+      } else toast(error.message, true);
+    }
     finally { submit.disabled = false; submit.textContent = "Create draft"; }
   });
   $("#planStudioClose").addEventListener("click", () => $("#planStudioDialog").close());
@@ -4273,6 +4332,18 @@ async function runBrowserRegression() {
     assert($$("#repositoryGantt .gantt-cost").some((item) => item.textContent.includes("$")), "repository timeline shows observed task cost where available");
     assert(!$("#repositoryDependencyGraph [style]"), "repository graph does not depend on CSP-blocked inline styles");
     assert($("#repositoryGantt .gantt-track"), "repository timeline uses CSP-safe SVG geometry");
+
+    openEpicDialog();
+    await sleep(120);
+    const adrChoice = $('[data-epic-source-path="_ADR/0001-browser-plan.md"]');
+    assert(adrChoice, "Plan composer discovers repository ADRs");
+    adrChoice.click();
+    await sleep(20);
+    const fieldsRect = $("#epicDialog .epic-plan-fields").getBoundingClientRect();
+    const previewRect = $("#epicSourcePreview").getBoundingClientRect();
+    assert(window.matchMedia("(max-width: 900px)").matches ? previewRect.top >= fieldsRect.bottom : previewRect.left >= fieldsRect.right, "selected ADR stays in a dedicated preview pane beside the composer");
+    assert($("#epicSourcePreview").textContent.includes("Browser planning decision") && $("#epicSourcePreview").textContent.includes("existing API compatible"), "right pane shows the selected ADR content at readable size");
+    $("#epicDialog").close();
   }
 
   setView("epics");
@@ -4438,7 +4509,19 @@ async function runBrowserRegression() {
   assert($("#attentionView").textContent.includes("Answer these to continue work."), "Needs You concise header");
   setView("epics");
   assert($("#epicsView").textContent.includes("Approve a graph before agents start."), "Plans concise header");
-  assert($$("#epicList .epic-card").every((card) => card.querySelector(".epic-progress") && card.querySelector(".epic-graph-details")), "Plans expose compact progress and a drill-down graph");
+  assert($$("#epicList .epic-card:not(.epic-attempt-card)").every((card) => card.querySelector(".epic-progress") && card.querySelector(".epic-graph-details")), "materialized Plans expose compact progress and a drill-down graph");
+  const failedPlan = state.epics.find((epic) => epic.status === "planning_failed");
+  if (failedPlan) {
+    const failedCard = $("#epicList .epic-attempt-failed");
+    assert(failedCard?.textContent.includes("Draft was not created") && failedCard.querySelector('[data-open-plan-studio]')?.textContent.includes("Review failed draft"), "failed planning attempt is visible and directly openable");
+    await openPlanStudio(failedPlan.id);
+    assert($("#planStudioTitle").textContent === "Draft was not created", "failed attempt opens its own result screen");
+    assert($("#planStudioSourceSections").textContent.includes("existing API compatible"), "failed attempt preserves and displays the selected ADR");
+    assert($("#planStudioImpact").textContent.includes("Planner stopped"), "failed attempt explains the planning failure");
+    $("#planStudioAddTask").click();
+    assert(state.planStudio.plan.tasks.length === 1, "failed attempt can be recovered into a manual draft");
+    $("#planStudioDialog").close();
+  }
   assert(!$("#epicList [style]"), "Plan graphs do not depend on CSP-blocked inline styles");
   const proposedPlan = $$("#epicList .epic-card").find((card) => card.querySelector(".mini-status")?.textContent.trim() === "proposed");
   if (proposedPlan) assert(proposedPlan.querySelector(".epic-graph-details").open, "proposed plan opens the graph required for approval");

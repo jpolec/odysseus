@@ -103,6 +103,11 @@ class BrowserRegressionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             repo = self._git_repo(root)
+            (repo / "_ADR").mkdir()
+            (repo / "_ADR" / "0001-browser-plan.md").write_text(
+                "# Browser planning decision\n\nKeep the existing API compatible and prove the browser flow.\n",
+                encoding="utf-8",
+            )
             base_sha = subprocess.run(
                 ["git", "-C", str(repo), "rev-parse", "HEAD"],
                 check=True,
@@ -110,6 +115,22 @@ class BrowserRegressionTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
             ).stdout.strip()
             store = RunStore(root / "state")
+            store.epics.create(
+                {
+                    "title": "Browser planning decision",
+                    "project_path": str(repo),
+                    "status": "planning_failed",
+                    "planner_error": "planner did not return the required ODYSSEUS_PLAN marker",
+                    "source_documents": [
+                        {
+                            "kind": "adr",
+                            "path": "_ADR/0001-browser-plan.md",
+                            "title": "Browser planning decision",
+                            "content": "# Browser planning decision\n\nKeep the existing API compatible and prove the browser flow.\n",
+                        }
+                    ],
+                }
+            )
             running = store.create({"title": "Running task", "task": "Keep progress concise", "project_path": str(repo), "status": "running"})
             store.append_event(running["id"], "agent.tool.started", "codex", {"tool": "shell", "command": "python -m unittest"})
             blocked = store.create(

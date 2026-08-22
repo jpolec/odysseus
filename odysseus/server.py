@@ -29,7 +29,7 @@ from . import __version__
 from .ci import CIWatcher
 from .commands import CommandOutcomeUnknown, IdempotencyConflict
 from .economics import economics_csv, economics_ndjson, outcome_economics
-from .planner import EpicPlanner
+from .planner import EpicPlanner, PlanningFailed
 from .portfolio import engineering_portfolio
 from .redaction import DEFAULT_REDACTION_ENGINE
 from .runners import AgentRunner, _extract_text, _sanitize
@@ -159,6 +159,15 @@ def _epic_summary(epic: Mapping[str, Any]) -> dict[str, Any]:
     """Keep exact source snapshots private to the explicit Epic detail route."""
 
     value = dict(epic)
+    planner_events = epic.get("planner_events") if isinstance(epic.get("planner_events"), list) else []
+    planner_error = str(epic.get("planner_error") or "")
+    value["planner_event_count"] = len(planner_events)
+    value["planner_events"] = []
+    value["planner_error"] = (
+        planner_error
+        if len(planner_error) <= 4_000
+        else f"{planner_error[:1_000]}\n\n… planner output truncated in list view …\n\n{planner_error[-2_800:]}"
+    )
     value["source_documents"] = [
         {
             key: source.get(key)
@@ -895,17 +904,29 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 checks = body.get("checks") or []
                 if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
                     raise ValueError("checks must be a list of commands")
-                epic = self.server.app.planner.plan(
-                    requirement,
-                    project_path,
-                    lane=str(body.get("planner_lane") or ""),
-                    title=str(body.get("title") or ""),
-                    default_task_lane=str(body.get("lane") or ""),
-                    default_review_lane=str(body.get("review_lane") or ""),
-                    checks=checks,
-                    source_documents=source_documents,
-                    source_kind=source_kind,
-                )
+                try:
+                    epic = self.server.app.planner.plan(
+                        requirement,
+                        project_path,
+                        lane=str(body.get("planner_lane") or ""),
+                        title=str(body.get("title") or ""),
+                        default_task_lane=str(body.get("lane") or ""),
+                        default_review_lane=str(body.get("review_lane") or ""),
+                        checks=checks,
+                        source_documents=source_documents,
+                        source_kind=source_kind,
+                    )
+                except PlanningFailed as exc:
+                    failed = self.server.app.store.epics.get(exc.epic_id)
+                    self._json(
+                        {
+                            "error": "The Planner stopped before it created task proposals.",
+                            "detail": str(exc),
+                            "epic": failed,
+                        },
+                        HTTPStatus.UNPROCESSABLE_ENTITY,
+                    )
+                    return
                 self._json(epic, HTTPStatus.CREATED)
                 return
             if parsed.path == "/api/github/import":

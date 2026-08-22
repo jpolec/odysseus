@@ -318,7 +318,7 @@ class EpicStore:
         """Persist an editable draft as a new immutable plan version."""
 
         epic = self.get(epic_id)
-        if epic.get("approved") or epic.get("status") not in {"planning", "proposed"}:
+        if epic.get("approved") or epic.get("status") not in {"planning", "planning_failed", "proposed"}:
             raise ValueError("only an unapproved plan can be edited")
         raw_tasks = plan.get("tasks")
         if not isinstance(raw_tasks, list) or not raw_tasks:

@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 from unittest import mock
 
+from odysseus.planner import PlanningFailed
 from odysseus.server import OdysseusApp, OdysseusHandler
 from odysseus.store import RunStore
 
@@ -332,6 +333,47 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
+    def test_failed_plan_endpoint_returns_the_preserved_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            failed = store.epics.create(
+                {
+                    "title": "Preserved ADR attempt",
+                    "project_path": str(project),
+                    "status": "planning_failed",
+                    "planner_error": "planner failed",
+                    "source_documents": [{"kind": "adr", "path": "ADR/0001.md", "title": "Decision", "content": "Keep compatibility."}],
+                }
+            )
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://{host}:{port}"
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                request = urllib.request.Request(
+                    f"{base}/api/epics/plan",
+                    data=json.dumps({"project_id": registered["id"], "requirement": "Implement decision"}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan", side_effect=PlanningFailed(failed["id"], "planner exited")):
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(request)
+                self.assertEqual(caught.exception.code, 422)
+                payload = json.loads(caught.exception.read())
+                caught.exception.close()
+                self.assertEqual(payload["epic"]["id"], failed["id"])
+                self.assertEqual(payload["epic"]["status"], "planning_failed")
+                self.assertIn("stopped", payload["error"])
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_completed_adr_requires_explicit_force_again_and_records_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -513,6 +555,37 @@ class ServerTests(unittest.TestCase):
                     complete = json.load(response)["runs"][0]
                 self.assertIn("check_results", complete)
                 self.assertIn("context_bundle", complete)
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
+    def test_epic_list_omits_heavy_planner_events_but_detail_keeps_them(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            store = RunStore(root / "state")
+            epic = store.epics.create({"title": "Failed draft", "project_path": str(project), "status": "planning_failed"})
+            store.epics.update(
+                epic["id"],
+                planner_error="start\n" + ("x" * 8_000) + "\nimportant end",
+                planner_events=[{"type": "agent.output", "data": {"text": "large output"}}],
+            )
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://{host}:{port}"
+                with urllib.request.urlopen(f"{base}/api/epics") as response:
+                    summary = json.load(response)["epics"][0]
+                self.assertEqual(summary["planner_events"], [])
+                self.assertEqual(summary["planner_event_count"], 1)
+                self.assertLessEqual(len(summary["planner_error"]), 4_100)
+                self.assertIn("important end", summary["planner_error"])
+                with urllib.request.urlopen(f"{base}/api/epics/{epic['id']}") as response:
+                    detail = json.load(response)
+                self.assertEqual(len(detail["planner_events"]), 1)
+                self.assertGreater(len(detail["planner_error"]), 8_000)
             finally:
                 app.stop()
                 thread.join(timeout=2)
