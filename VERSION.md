@@ -69,6 +69,9 @@ Completed, accepted, integrated, and delivered are separate states.
 - Select discovered repository ADRs directly in the Plan composer or upload
   bounded Markdown/text/JSON/YAML requirement documents, with an explicit list
   of the sources that will be frozen before planning.
+- Use a selected ADR, Issue, or specification as the complete requirement;
+  add instructions only when the source needs clarification, and read the
+  selected document in the large right-hand preview pane.
 - Discover and preview bounded ADRs, specifications, incidents, findings,
   milestones, and other repository documents; ingest authoritative GitHub
   Issues/PRs, drag-and-drop uploads with per-file types, or public HTTPS text.
@@ -81,8 +84,8 @@ Completed, accepted, integrated, and delivered are separate states.
 - Review frozen sources and task contracts side by side, link requirement
   clauses bidirectionally to tasks, edit outcomes/prompts/evidence/profiles,
   and save each draft as a new immutable PlanVersion. **Create draft** opens
-  this editable template immediately; only **Approve & start** creates worker
-  runs for the exact reviewed version.
+  this editable template immediately; draft tasks can be added or removed, and
+  only **Approve & start** creates worker runs for the exact reviewed version.
 - Detect local source changes, identify only linked tasks affected by changed
   clauses, and require an explicit source refresh instead of silently changing
   an approved contract.

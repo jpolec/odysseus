@@ -46,11 +46,12 @@ the Planner runs. **Create draft** produces an editable task template and opens
 Plan Studio immediately; it does not approve the graph or start an
 implementation agent.
 
-The one required question is **What should the agents deliver?** A
-document says where the requirements came from; the answer tells the Planner
-what this Plan must deliver. An optional success contract separates **Must
-work**, **Must not break**, and **Proof required** without making simple plans
-complete a long configuration form.
+A selected ADR, issue, or specification can be the complete requirement.
+**Additional instructions** is optional when that source already describes the
+outcome, and required only when no source is selected. An optional success
+contract separates **Must work**, **Must not break**, and **Proof required**.
+The source list stays on the left while the selected document opens in a
+larger, readable preview pane on the right.
 
 ## Implemented sources and explicit repeats
 
@@ -71,6 +72,7 @@ studio keeps the frozen source on the left and task contracts on the right.
 - Each task has an editable outcome, agent instruction, dependencies,
   acceptance criteria, required evidence, execution profile, and cost/time
   range.
+- Draft tasks can be added or removed before approval.
 - The DAG remains visible below the editor.
 - Tasks can be filtered by one source/ADR and sorted by Plan order, source, or
   dependency depth. Selecting a source tab applies the corresponding task

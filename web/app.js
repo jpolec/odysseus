@@ -22,7 +22,7 @@ const state = {
   assistantOpen: false, helpOpen: false, activityFocus: false, activityWide: true,
   selectedDecisionPaths: [],
   planSelectedSourcePaths: [], planRepositorySources: [], planUploadedSources: [], planGithubCatalog: [], planSelectedGithub: [], planUrlSources: [], planForcedSourcePaths: [],
-  planSourceLoading: false, planGithubLoading: false, planSourceGeneration: 0, planSourceTab: "adr", planFilter: "all", taskSourceFilter: "",
+  planSourceLoading: false, planGithubLoading: false, planSourceGeneration: 0, planSourceTab: "adr", planSourcePreviewKey: "", planFilter: "all", taskSourceFilter: "",
   planStudio: null, planStudioTaskKey: "", planStudioDirty: false, planStudioSourceFilter: "all", planStudioTaskSort: "plan",
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
@@ -901,7 +901,8 @@ function renderEpicSourcePicker() {
       const completed = item.implementation?.state === "completed";
       const forced = state.planForcedSourcePaths.includes(item.path);
       const checked = state.planSelectedSourcePaths.includes(item.path);
-      return `<article class="epic-source-option ${completed ? "implemented" : ""}"><label><input type="checkbox" data-epic-source-path="${escapeHtml(item.path)}" ${checked ? "checked" : ""} ${completed && !forced ? "disabled" : ""}><span><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(item.kind))}</span><strong>${escapeHtml(item.title || item.path)}</strong><small>${escapeHtml(item.path)}</small></span></label><div class="epic-source-option-actions">${completed ? `<b>Implemented</b><button class="text-button" data-force-source="${escapeHtml(item.path)}" type="button">${forced ? "Cancel repeat" : "Force again"}</button>` : ""}<details><summary>Preview</summary><pre>${escapeHtml(item.preview || item.summary || "")}</pre></details></div></article>`;
+      const previewKey = `repository:${item.path}`;
+      return `<article class="epic-source-option ${completed ? "implemented" : ""} ${state.planSourcePreviewKey === previewKey ? "previewing" : ""}"><label><input type="checkbox" data-epic-source-path="${escapeHtml(item.path)}" ${checked ? "checked" : ""} ${completed && !forced ? "disabled" : ""}><span><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(item.kind))}</span><strong>${escapeHtml(item.title || item.path)}</strong><small>${escapeHtml(item.path)}</small></span></label><div class="epic-source-option-actions">${completed ? `<b>Implemented</b><button class="text-button" data-force-source="${escapeHtml(item.path)}" type="button">${forced ? "Cancel repeat" : "Force again"}</button>` : ""}<button class="text-button" data-preview-source="${escapeHtml(previewKey)}" type="button">Read</button></div></article>`;
     }).join("")}</div>`;
   } else {
     repositoryPanel.innerHTML = state.planSourceTab === "github" ? "" : `<p>No matching source material. You can upload a file instead.</p>`;
@@ -913,14 +914,14 @@ function renderEpicSourcePicker() {
   githubPanel.classList.toggle("hidden", !showGithub);
   githubPanel.innerHTML = showGithub ? (state.planGithubLoading
     ? `<p>Loading GitHub issues and pull requests…</p>`
-    : state.planGithubCatalog.length ? `<div class="epic-source-picker-heading"><strong>GitHub</strong><small>${state.planGithubCatalog.length} open sources</small></div><div class="epic-source-options">${state.planGithubCatalog.map((item) => { const key = `${item.kind}:${item.number}`; return `<label><input type="checkbox" data-epic-github-key="${escapeHtml(key)}" ${state.planSelectedGithub.includes(key) ? "checked" : ""}><span><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(item.kind))}</span><strong>#${escapeHtml(item.number)} ${escapeHtml(item.title)}</strong><small>${escapeHtml(item.url || "GitHub")}</small></span></label>`; }).join("")}</div>`
+    : state.planGithubCatalog.length ? `<div class="epic-source-picker-heading"><strong>GitHub</strong><small>${state.planGithubCatalog.length} open sources</small></div><div class="epic-source-options">${state.planGithubCatalog.map((item) => { const key = `${item.kind}:${item.number}`; const previewKey = `github:${key}`; return `<article class="epic-source-option ${state.planSourcePreviewKey === previewKey ? "previewing" : ""}"><label><input type="checkbox" data-epic-github-key="${escapeHtml(key)}" ${state.planSelectedGithub.includes(key) ? "checked" : ""}><span><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(item.kind))}</span><strong>#${escapeHtml(item.number)} ${escapeHtml(item.title)}</strong><small>${escapeHtml(item.url || "GitHub")}</small></span></label><div class="epic-source-option-actions"><button class="text-button" data-preview-source="${escapeHtml(previewKey)}" type="button">Read</button></div></article>`; }).join("")}</div>`
     : `<p>No open GitHub Issues or pull requests were found.</p>`) : "";
   $("#epicLoadGithub").classList.toggle("hidden", !showGithub);
 
   const localPanel = $("#epicUploadedSources");
   const localSources = [...state.planUploadedSources.map((item, index) => ({...item, type: "upload", index})), ...state.planUrlSources.map((item, index) => ({...item, type: "url", index}))];
   localPanel.classList.toggle("hidden", !localSources.length);
-  localPanel.innerHTML = localSources.map((item) => `<div><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(formatBytes(item.bytes))} · ${escapeHtml(item.type === "url" ? "public URL" : "uploaded")}</small><details><summary>Preview</summary><pre>${escapeHtml(item.preview || item.content?.slice(0, 2000) || "")}</pre></details></span>${item.type === "upload" ? `<select data-upload-source-kind="${item.index}" aria-label="Source type for ${escapeHtml(item.title)}">${sourceKindOptions(item.kind)}</select>` : `<span class="source-kind-badge">Web</span>`}<button class="icon-button" data-remove-epic-${item.type}="${item.index}" type="button" aria-label="Remove ${escapeHtml(item.title)}">×</button></div>`).join("");
+  localPanel.innerHTML = localSources.map((item) => { const previewKey = `${item.type}:${item.index}`; return `<div class="${state.planSourcePreviewKey === previewKey ? "previewing" : ""}"><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(formatBytes(item.bytes))} · ${escapeHtml(item.type === "url" ? "public URL" : "uploaded")}</small></span><button class="text-button" data-preview-source="${escapeHtml(previewKey)}" type="button">Read</button>${item.type === "upload" ? `<select data-upload-source-kind="${item.index}" aria-label="Source type for ${escapeHtml(item.title)}">${sourceKindOptions(item.kind)}</select>` : `<span class="source-kind-badge">Web</span>`}<button class="icon-button" data-remove-epic-${item.type}="${item.index}" type="button" aria-label="Remove ${escapeHtml(item.title)}">×</button></div>`; }).join("");
 
   const selectedSources = [
     ...selectedRepository.map((item) => ({title: item.title || item.path, detail: `${planSourceKindLabel(item.kind)} · ${item.path}${state.planForcedSourcePaths.includes(item.path) ? " · forced repeat" : ""}`})),
@@ -933,12 +934,30 @@ function renderEpicSourcePicker() {
   sourcePanel.innerHTML = selectedSources.length ? `<strong>Selected source${selectedSources.length === 1 ? "" : "s"}</strong><div>${selectedSources.map((item) => `<span>${escapeHtml(item.title)} <code>${escapeHtml(item.detail)}</code></span>`).join("")}</div>` : "";
   $("#epicSourceSelectionSummary").textContent = selectedSources.length ? `${selectedSources.length} selected` : "None selected";
 
+  const previewCandidates = [
+    ...visibleRepository.map((item) => ({key: `repository:${item.path}`, kind: item.kind, title: item.title || item.path, path: item.path, content: item.preview || item.summary || "No preview is available."})),
+    ...(showGithub ? state.planGithubCatalog.map((item) => ({key: `github:${item.kind}:${item.number}`, kind: item.kind, title: `#${item.number} ${item.title}`, path: item.url || "GitHub", content: item.body || "No description is available."})) : []),
+    ...localSources.map((item) => ({key: `${item.type}:${item.index}`, kind: item.kind || (item.type === "url" ? "url" : "repository_document"), title: item.title, path: item.source_url || item.path || (item.type === "url" ? "public URL" : "uploaded file"), content: item.content || item.preview || "No preview is available."})),
+  ];
+  let preview = previewCandidates.find((item) => item.key === state.planSourcePreviewKey);
+  if (!preview) {
+    const selectedKeys = new Set([
+      ...state.planSelectedSourcePaths.map((path) => `repository:${path}`),
+      ...state.planSelectedGithub.map((key) => `github:${key}`),
+    ]);
+    preview = previewCandidates.find((item) => selectedKeys.has(item.key)) || previewCandidates[0];
+    state.planSourcePreviewKey = preview?.key || "";
+  }
+  $("#epicSourcePreview").innerHTML = preview
+    ? `<header><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(preview.kind))}</span><h3>${escapeHtml(preview.title)}</h3><small>${escapeHtml(preview.path)}</small></header><pre>${escapeHtml(preview.content)}</pre>`
+    : `<p>Select a source to read it here.</p>`;
+
   $$("[data-plan-source-tab]").forEach((button) => button.classList.toggle("active", button.dataset.planSourceTab === state.planSourceTab));
   $$('[data-epic-source-path]').forEach((input) => input.addEventListener("change", () => {
     const paths = new Set(state.planSelectedSourcePaths);
     if (input.checked) {
       if (epicSourceCount() >= 20) { input.checked = false; toast("Choose at most 20 planning documents.", true); return; }
-      paths.add(input.dataset.epicSourcePath);
+      paths.add(input.dataset.epicSourcePath); state.planSourcePreviewKey = `repository:${input.dataset.epicSourcePath}`;
     } else paths.delete(input.dataset.epicSourcePath);
     state.planSelectedSourcePaths = [...paths]; renderEpicSourcePicker();
   }));
@@ -950,11 +969,12 @@ function renderEpicSourcePicker() {
   }));
   $$('[data-epic-github-key]').forEach((input) => input.addEventListener("change", () => {
     const selected = new Set(state.planSelectedGithub);
-    if (input.checked) { if (epicSourceCount() >= 20) { input.checked = false; toast("Choose at most 20 planning documents.", true); return; } selected.add(input.dataset.epicGithubKey); }
+    if (input.checked) { if (epicSourceCount() >= 20) { input.checked = false; toast("Choose at most 20 planning documents.", true); return; } selected.add(input.dataset.epicGithubKey); state.planSourcePreviewKey = `github:${input.dataset.epicGithubKey}`; }
     else selected.delete(input.dataset.epicGithubKey);
     state.planSelectedGithub = [...selected]; renderEpicSourcePicker();
   }));
   $$('[data-upload-source-kind]').forEach((select) => select.addEventListener("change", () => { state.planUploadedSources[Number(select.dataset.uploadSourceKind)].kind = select.value; renderEpicSourcePicker(); }));
+  $$('[data-preview-source]').forEach((button) => button.addEventListener("click", () => { state.planSourcePreviewKey = button.dataset.previewSource; renderEpicSourcePicker(); }));
   $$('[data-remove-epic-upload]').forEach((button) => button.addEventListener("click", () => { state.planUploadedSources.splice(Number(button.dataset.removeEpicUpload), 1); renderEpicSourcePicker(); }));
   $$('[data-remove-epic-url]').forEach((button) => button.addEventListener("click", () => { state.planUrlSources.splice(Number(button.dataset.removeEpicUrl), 1); renderEpicSourcePicker(); }));
 }
@@ -1002,7 +1022,7 @@ async function addEpicUrlSource() {
     const source = await api("/api/planning-sources/preview-url", {method: "POST", body: JSON.stringify({url})});
     if ([...selectedEpicRepositorySources(), ...state.planUploadedSources, ...state.planUrlSources].some((item) => item.sha256 && item.sha256 === source.sha256)) { toast("That document is already selected.", true); return; }
     if (epicSourceBytes([source]) > 320000) { toast("Selected documents exceed the 320 KB planning limit.", true); return; }
-    state.planUrlSources.push(source); input.value = ""; renderEpicSourcePicker();
+    state.planUrlSources.push(source); state.planSourcePreviewKey = `url:${state.planUrlSources.length - 1}`; input.value = ""; renderEpicSourcePicker();
   } catch (error) { toast(error.message, true); }
 }
 
@@ -1024,15 +1044,16 @@ async function addEpicUploadedSources(files) {
     additions.push({title: file.name, path: `upload://${file.name}`, kind: inferredUploadedKind(file.name), bytes, content, sha256, preview: content.slice(0, 2000)});
   }
   if (epicSourceBytes(additions) > 320000) { toast("Selected documents exceed the 320 KB planning limit.", true); return; }
-  state.planUploadedSources.push(...additions); renderEpicSourcePicker();
+  const firstNewIndex = state.planUploadedSources.length;
+  state.planUploadedSources.push(...additions); state.planSourcePreviewKey = `upload:${firstNewIndex}`; renderEpicSourcePicker();
 }
 
 function openEpicDialog(sourcePaths = []) {
   const form = $("#epicForm"); form.reset(); prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject"));
-  state.planSelectedSourcePaths = [...sourcePaths]; state.planUploadedSources = []; state.planUrlSources = []; state.planSelectedGithub = []; state.planForcedSourcePaths = []; state.planSourceTab = "adr";
+  state.planSelectedSourcePaths = [...sourcePaths]; state.planUploadedSources = []; state.planUrlSources = []; state.planSelectedGithub = []; state.planForcedSourcePaths = []; state.planSourceTab = "adr"; state.planSourcePreviewKey = sourcePaths[0] ? `repository:${sourcePaths[0]}` : "";
   const decisions = state.projectOverview?.decisions || []; const selected = decisions.filter((item) => state.planSelectedSourcePaths.includes(item.path));
   $("#epicProjectSelect").disabled = false; state.planRepositorySources = selected.length ? decisions : [];
-  if (selected.length) { form.elements.source_kind.value = "adr"; form.elements.requirement.value = `Implement the selected architecture decision${selected.length === 1 ? "" : "s"} as one coherent, verified change. Preserve the recorded constraints and show any ambiguity before implementation.`; }
+  if (selected.length) form.elements.source_kind.value = "adr";
   $("#epicSourceDropzone").open = Boolean(selected.length);
   renderEpicSourcePicker(); $("#epicDialog").showModal();
   refreshEpicSourceChoices($("#epicProjectSelect").value, {preserveSelection: Boolean(selected.length)}).catch((error) => toast(error.message, true));
@@ -3090,6 +3111,61 @@ function planStudioNumber(value) {
   return value === "" || value === null || value === undefined ? null : Number(value);
 }
 
+function nextPlanStudioTaskKey(tasks) {
+  const existing = new Set(tasks.map((task) => String(task.task_key || "")));
+  let index = tasks.length + 1;
+  while (existing.has(`task-${index}`)) index += 1;
+  return `task-${index}`;
+}
+
+function addPlanStudioTask() {
+  const epic = state.planStudio;
+  if (!epic || epic.approved) return;
+  updatePlanStudioTaskFromEditor();
+  const tasks = epic.plan?.tasks || [];
+  const key = nextPlanStudioTaskKey(tasks);
+  const source = (epic.source_documents || [])[Number(epic._sourceIndex || 0)];
+  tasks.push({
+    task_key: key, title: "", outcome: "", task: "", role: "implementer",
+    source_refs: source?.sections?.[0]?.ref ? [source.sections[0].ref] : [],
+    acceptance_criteria: [], required_evidence: [], depends_on: [], checks: [], parallelizable: true,
+    execution_profile: {version: "execution-profile-v1", mode: "auto", harness: "auto", environment: "isolated_worktree", policy: "standard", skills: [], review_lane: "auto", reason: "Auto will select from repository evidence"},
+    estimate: {version: "task-estimate-v1", confidence: "unknown", basis: "No calibrated repository estimate yet"},
+  });
+  state.planStudioTaskKey = key;
+  state.planStudioDirty = true;
+  $("#planStudioSave").textContent = "Save draft · unsaved";
+  renderPlanStudio();
+  window.requestAnimationFrame(() => $("#planStudioEditor")?.elements.title?.focus());
+}
+
+function removePlanStudioTask() {
+  const epic = state.planStudio;
+  const tasks = epic?.plan?.tasks || [];
+  if (!epic || epic.approved || tasks.length <= 1) return;
+  const removedKey = state.planStudioTaskKey;
+  const index = tasks.findIndex((task) => task.task_key === removedKey);
+  if (index < 0) return;
+  tasks.splice(index, 1);
+  tasks.forEach((task) => { task.depends_on = (task.depends_on || []).filter((key) => key !== removedKey); });
+  state.planStudioTaskKey = tasks[Math.min(index, tasks.length - 1)]?.task_key || "";
+  state.planStudioDirty = true;
+  $("#planStudioSave").textContent = "Save draft · unsaved";
+  renderPlanStudio();
+}
+
+function validatePlanStudioDraft() {
+  updatePlanStudioTaskFromEditor();
+  const tasks = state.planStudio?.plan?.tasks || [];
+  if (!tasks.length) throw new Error("A plan needs at least one task.");
+  const incomplete = tasks.find((task) => !String(task.title || "").trim() || !String(task.outcome || "").trim() || !String(task.task || "").trim());
+  if (incomplete) {
+    state.planStudioTaskKey = incomplete.task_key;
+    renderPlanStudio();
+    throw new Error("Complete the task title, finished outcome, and agent instruction before saving.");
+  }
+}
+
 function updatePlanStudioTaskFromEditor() {
   const task = planStudioTask();
   const form = $("#planStudioEditor");
@@ -3143,6 +3219,7 @@ function renderPlanStudio() {
   $("#planStudioVersion").textContent = version.id ? `v${version.number} · ${String(version.sha256 || "").slice(0, 8)}` : locked ? "Legacy approved plan" : "Unsaved draft";
   $("#planStudioSave").classList.toggle("hidden", locked);
   $("#planStudioApprove").classList.toggle("hidden", locked);
+  $("#planStudioAddTask").classList.toggle("hidden", locked);
   $("#planStudioSourceCount").textContent = `${(epic.source_documents || []).length} source${(epic.source_documents || []).length === 1 ? "" : "s"}`;
   const estimated = tasks.filter((task) => task.estimate?.cost_usd_min !== null && task.estimate?.cost_usd_min !== undefined && task.estimate?.cost_usd_max !== null && task.estimate?.cost_usd_max !== undefined);
   const totalMin = estimated.reduce((sum, task) => sum + Number(task.estimate.cost_usd_min), 0);
@@ -3161,6 +3238,8 @@ function renderPlanStudio() {
 
   const form = $("#planStudioEditor");
   form.classList.toggle("hidden", !selected);
+  $("#planStudioRemoveTask").classList.toggle("hidden", locked);
+  $("#planStudioRemoveTask").disabled = locked || tasks.length <= 1;
   if (selected) {
     form.elements.title.value = selected.title || "";
     form.elements.task_key.value = selected.task_key || "";
@@ -3213,7 +3292,7 @@ async function openPlanStudio(epicId) {
 
 async function savePlanStudio() {
   if (!state.planStudio) return;
-  updatePlanStudioTaskFromEditor();
+  validatePlanStudioDraft();
   const saved = await api(`/api/epics/${encodeURIComponent(state.planStudio.id)}/plan`, {method: "POST", body: JSON.stringify({plan: state.planStudio.plan})});
   state.planStudio = saved;
   state.planStudioDirty = false; $("#planStudioSave").textContent = "Save draft"; renderPlanStudio();
@@ -3848,7 +3927,14 @@ function bindDialogs() {
     if (!project) { toast("Add a repository first.", true); return; }
     const sourceKind = String(data.get("source_kind") || "user_request");
     const repositorySources = selectedEpicRepositorySources();
-    const requirementParts = [`Outcome:\n${String(data.get("requirement") || "").trim()}`];
+    const additionalInstructions = String(data.get("requirement") || "").trim();
+    if (!additionalInstructions && !epicSourceCount()) {
+      toast("Choose an ADR, issue, specification, or describe the outcome.", true);
+      event.currentTarget.elements.requirement.focus();
+      return;
+    }
+    const requirementParts = [];
+    if (additionalInstructions) requirementParts.push(`Additional instructions:\n${additionalInstructions}`);
     if (String(data.get("required_behavior") || "").trim()) requirementParts.push(`Must work:\n${String(data.get("required_behavior")).trim()}`);
     if (String(data.get("forbidden_regressions") || "").trim()) requirementParts.push(`Must not break:\n${String(data.get("forbidden_regressions")).trim()}`);
     if (String(data.get("required_evidence") || "").trim()) requirementParts.push(`Proof required:\n${String(data.get("required_evidence")).trim()}`);
@@ -3870,11 +3956,12 @@ function bindDialogs() {
       $("#epicDialog").close();
       event.currentTarget.reset();
       state.planSelectedSourcePaths = []; state.planRepositorySources = []; state.planUploadedSources = []; state.planGithubCatalog = []; state.planSelectedGithub = []; state.planUrlSources = []; state.planForcedSourcePaths = [];
-      toast("Draft created. Edit the task template; nothing runs until you approve it.");
-      await Promise.all([refreshEpics(), refreshProjectOverview()]);
       setView("epics");
-      try { await openPlanStudio(draft.id); }
-      catch (openError) { toast(`Draft was created, but could not be opened: ${openError.message}`, true); }
+      try {
+        await openPlanStudio(draft.id);
+        toast("Draft ready. Review, add, remove, or edit tasks before approval.");
+      } catch (openError) { toast(`Draft was created, but could not be opened: ${openError.message}`, true); }
+      Promise.all([refreshEpics(), refreshProjectOverview()]).catch((refreshError) => toast(`Draft is open, but the list could not refresh: ${refreshError.message}`, true));
     } catch (error) { toast(error.message, true); }
     finally { submit.disabled = false; submit.textContent = "Create draft"; }
   });
@@ -3886,6 +3973,8 @@ function bindDialogs() {
     renderPlanStudio();
   });
   $("#planStudioTaskSort").addEventListener("change", (event) => { state.planStudioTaskSort = event.currentTarget.value; renderPlanStudio(); });
+  $("#planStudioAddTask").addEventListener("click", addPlanStudioTask);
+  $("#planStudioRemoveTask").addEventListener("click", removePlanStudioTask);
   $("#planStudioEditor").addEventListener("input", updatePlanStudioTaskFromEditor);
   $("#planStudioEditor").addEventListener("change", updatePlanStudioTaskFromEditor);
   $("#planStudioSave").addEventListener("click", async () => {
@@ -4196,6 +4285,11 @@ async function runBrowserRegression() {
     assert($("#planStudioEditor").textContent.includes("Acceptance criteria") && $("#planStudioEditor").textContent.includes("Execution profile"), "task contract exposes evidence and execution profile");
     assert($("#planStudioEstimate").textContent.includes("Cost") || $("#planStudioEstimate").textContent.includes("$"), "Plan Studio states estimate coverage honestly");
     assert($$("#planStudioGraph .dag-graph-node").length >= 1, "Plan Studio keeps the dependency graph visible");
+    const originalTaskCount = state.planStudio.plan.tasks.length;
+    $("#planStudioAddTask").click();
+    assert(state.planStudio.plan.tasks.length === originalTaskCount + 1, "draft Plan Studio can add a task");
+    $("#planStudioRemoveTask").click();
+    assert(state.planStudio.plan.tasks.length === originalTaskCount, "draft Plan Studio can remove an unsaved task");
     $("#planStudioDialog").close();
   }
 

@@ -14,6 +14,11 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
+- Reworked Plan intake around sources: ADRs, issues, and specifications can now
+  define the outcome without duplicate instructions, and their contents open
+  in a large right-hand preview instead of tiny inline text.
+- Made the generated draft open directly in Plan Studio and added draft-task
+  creation and removal before the explicit approval boundary.
 - Made Plan creation explicitly draft-first: **Create draft** runs the
   read-only Planner, opens the editable task template in Plan Studio, and keeps
   implementation blocked until a separate **Approve & start** decision.

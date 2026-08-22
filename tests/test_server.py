@@ -248,7 +248,6 @@ class ServerTests(unittest.TestCase):
                 payload = {
                     "project_id": registered["id"],
                     "source_paths": ["_ADR/0001-runtime.md"],
-                    "requirement": "Implement the selected decision.",
                 }
                 request = urllib.request.Request(
                     f"{base}/api/epics/plan",
@@ -262,6 +261,7 @@ class ServerTests(unittest.TestCase):
                 source = planner.call_args.kwargs["source_documents"][0]
                 self.assertEqual(source["path"], "_ADR/0001-runtime.md")
                 self.assertIn("separate runtime", source["content"])
+                self.assertIn("Runtime isolation", planner.call_args.args[0])
                 self.assertEqual(Path(planner.call_args.args[1]).resolve(), project.resolve())
 
                 invalid = urllib.request.Request(
@@ -761,15 +761,21 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="planFilters"', html)
                 self.assertIn('id="planSourceNav"', html)
                 self.assertIn('id="planStudioSourceFilter"', html)
-                self.assertIn("What should the agents deliver?", html)
+                self.assertIn("Additional instructions", html)
+                self.assertIn("optional when a source is selected", html)
+                self.assertIn('textarea name="requirement" rows="4"', html)
                 self.assertIn("Must not break", html)
                 self.assertIn("Upload a file", html)
                 self.assertIn("Add source material", html)
                 self.assertIn("Create draft", html)
-                self.assertIn("creates an editable draft", html)
+                self.assertIn('id="epicSourcePreview"', html)
+                self.assertIn('id="planStudioAddTask"', html)
+                self.assertIn('id="planStudioRemoveTask"', html)
                 self.assertIn("Edit this task template", html)
                 self.assertIn("Approve &amp; start", html)
                 self.assertNotIn(">Create plan<", html)
+                self.assertNotIn("DRAFT FIRST · NO IMPLEMENTATION YET", html)
+                self.assertNotIn("What should the agents deliver?", html)
                 self.assertNotIn("56 SHOWN", html)
                 self.assertIn('id="taskSkillRecommendations"', html)
                 self.assertIn('id="environmentProfile"', html)

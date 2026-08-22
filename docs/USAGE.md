@@ -347,9 +347,11 @@ so you can revise the tasks, prompts, dependencies, evidence, and execution
 profiles. No implementation agent starts at this boundary. The equivalent CLI
 flow is:
 
-After choosing the repository, describe the finished outcome. Open **Add source
-material** only when the Plan needs an ADR, specification, incident, finding,
-milestone, or another supporting document. The GitHub tab lists open Issues
+After choosing the repository, either select a source or add your own
+instructions. A complete ADR, specification, or GitHub Issue can stand on its
+own; **Additional instructions** is optional in that case. Open **Add source
+material** for an ADR, specification, incident, finding, milestone, or another
+supporting document. The GitHub tab lists open Issues
 and pull requests through the authenticated `gh` CLI. You can also drag/drop an ADR, PRD, specification,
 finding, or incident note, choose its type independently, inspect its preview,
 or add a public HTTPS text document. The composer shows every selected source
@@ -361,9 +363,14 @@ remote content fail closed. A source whose linked Plan is completed is marked
 **Implemented** and cannot be selected again unless you choose **Force again**.
 That override is stored in the source snapshot; it never edits the ADR file.
 
-Answer **What should the agents deliver?** with the finished outcome.
-For a stricter contract, expand **Add success criteria** and separate Must work, Must
-not break, and Proof required. Simple Plans still need only the outcome.
+When the source is incomplete, use **Additional instructions** for the missing
+outcome or constraints. Without a source, this field is required. For a
+stricter contract, expand **Add success criteria** and separate Must work, Must
+not break, and Proof required.
+
+The source browser keeps the list on the left and a readable document preview
+on the right. Selecting **Read** no longer expands a small preview below the
+list item.
 
 Open **Edit draft** to return to Plan Studio. The frozen requirement is on
 the left and its task contracts are on the right. Select a task to highlight
@@ -372,6 +379,7 @@ the finished outcome, agent instruction, dependencies, acceptance criteria,
 required evidence, full Execution Profile, and low/medium/high-confidence
 cost/time range. Filter task contracts to one ADR/source and sort them by Plan,
 source, or dependency order. **Save draft** creates a new immutable version.
+You can add and remove draft tasks before saving.
 Only **Approve & start** binds the exact source and PlanVersion and creates
 implementation runs. The Plans page and repository sidebar can also group or
 filter history by ADR, GitHub, specification, incident/security, other source,
