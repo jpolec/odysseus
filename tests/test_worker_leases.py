@@ -349,6 +349,14 @@ class WorkerLeaseTests(unittest.TestCase):
                 "recovered_after_terminal_projection",
             )
 
+    def test_scheduler_recovery_reuses_runtime_snapshot_without_full_reload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, _run = self._run(Path(temp))
+            snapshot = store.runtime_runs()
+
+            with mock.patch.object(store, "list", side_effect=AssertionError("unexpected full reload")):
+                self.assertEqual(store.recover_interrupted(runs=snapshot), [])
+
 
 if __name__ == "__main__":
     unittest.main()

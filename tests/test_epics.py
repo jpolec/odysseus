@@ -106,7 +106,13 @@ class EpicTests(unittest.TestCase):
     def test_legacy_epic_tasks_remain_unclassified(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store, project = self._store(Path(temp))
-            epic = store.epics.create({"title": "Legacy", "project_path": str(project)})
+            epic = store.epics.create(
+                {
+                    "title": "Legacy",
+                    "project_path": str(project),
+                    "source_documents": [{"kind": "adr", "path": "legacy.md", "content": "Legacy rule."}],
+                }
+            )
             path = store.epics._path(epic["id"])
             legacy = json.loads(path.read_text(encoding="utf-8"))
             legacy["schema_version"] = 1
@@ -114,13 +120,18 @@ class EpicTests(unittest.TestCase):
             legacy.pop("release")
             path.write_text(json.dumps(legacy), encoding="utf-8")
 
-            loaded = store.epics.get(epic["id"])
-            mapping = store.epics.create_task_batch(
+            reopened = RunStore(Path(temp) / "state")
+            loaded = reopened.epics.get(epic["id"])
+            mapping = reopened.epics.create_task_batch(
                 epic["id"], [{"task_key": "old", "task": "Materialize old plan"}]
             )
 
             self.assertEqual(loaded["evidence_class"], "unclassified")
-            self.assertEqual(store.get(mapping["old"])["provenance"]["evidence_class"], "unclassified")
+            self.assertEqual(reopened.get(mapping["old"])["provenance"]["evidence_class"], "unclassified")
+
+            persisted = json.loads(reopened.epics._path(epic["id"]).read_text(encoding="utf-8"))
+            self.assertEqual(persisted["schema_version"], 4)
+            self.assertEqual(persisted["source_documents"][0]["sections"][0]["ref"], "S1")
 
     def test_versioned_contract_maps_source_changes_only_to_affected_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

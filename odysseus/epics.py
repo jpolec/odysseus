@@ -173,6 +173,37 @@ class EpicStore:
         self.epics_dir = store.root / "epics"
         if not store.readonly:
             self.epics_dir.mkdir(exist_ok=True)
+            self._migrate_records()
+
+    @staticmethod
+    def _upgrade_record(value: dict[str, Any]) -> dict[str, Any]:
+        value.setdefault("evidence_class", "unclassified")
+        value.setdefault("release", "")
+        value.setdefault("source_documents", [])
+        value.setdefault("intake", {})
+        value.setdefault("gate_policy", "human_review")
+        value.setdefault("plan_version", None)
+        value.setdefault("plan_history", [])
+        value["source_documents"] = _normalize_sources(value.get("source_documents") or [])
+        value["schema_version"] = EPIC_SCHEMA_VERSION
+        return value
+
+    def _migrate_records(self) -> None:
+        """Normalize legacy source snapshots once, never on each scheduler read."""
+
+        with self.store.locked():
+            for path in self.epics_dir.glob("*.json"):
+                try:
+                    value = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if not isinstance(value, dict):
+                    continue
+                schema_version = int(value.get("schema_version", 0) or 0)
+                if schema_version > EPIC_SCHEMA_VERSION:
+                    continue
+                if schema_version < EPIC_SCHEMA_VERSION:
+                    self.store._atomic_json(path, self._upgrade_record(value))
 
     def _path(self, epic_id: str):  # noqa: ANN202 - Path type follows store root
         if not EPIC_ID_RE.fullmatch(epic_id):
@@ -245,14 +276,7 @@ class EpicStore:
                 f"this Odysseus supports up to {EPIC_SCHEMA_VERSION}"
             )
         if schema_version < EPIC_SCHEMA_VERSION:
-            value.setdefault("evidence_class", "unclassified")
-            value.setdefault("release", "")
-            value.setdefault("source_documents", [])
-            value.setdefault("intake", {})
-            value.setdefault("gate_policy", "human_review")
-            value.setdefault("plan_version", None)
-            value.setdefault("plan_history", [])
-            value["source_documents"] = _normalize_sources(value.get("source_documents") or [])
+            value = self._upgrade_record(value)
         return value
 
     def list(self) -> list[dict[str, Any]]:
@@ -265,14 +289,7 @@ class EpicStore:
             if isinstance(value, dict):
                 schema_version = int(value.get("schema_version", 0) or 0)
                 if schema_version < EPIC_SCHEMA_VERSION:
-                    value.setdefault("evidence_class", "unclassified")
-                    value.setdefault("release", "")
-                    value.setdefault("source_documents", [])
-                    value.setdefault("intake", {})
-                    value.setdefault("gate_policy", "human_review")
-                    value.setdefault("plan_version", None)
-                    value.setdefault("plan_history", [])
-                    value["source_documents"] = _normalize_sources(value.get("source_documents") or [])
+                    value = self._upgrade_record(value)
                 values.append(value)
         return sorted(values, key=lambda item: str(item.get("created_at", "")), reverse=True)
 

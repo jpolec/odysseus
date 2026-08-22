@@ -1453,9 +1453,9 @@ class RunStore:
         failpoint("worker.cancel.after_intent")
         return self.get(run_id)
 
-    def recover_interrupted(self) -> list[str]:
+    def recover_interrupted(self, *, runs: list[Mapping[str, Any]] | None = None) -> list[str]:
         recovered: list[str] = []
-        for run in self.list():
+        for run in runs if runs is not None else self.list():
             lease = run.get("worker_lease") if isinstance(run.get("worker_lease"), Mapping) else {}
             expected = {
                 "status": str(run.get("status") or ""),

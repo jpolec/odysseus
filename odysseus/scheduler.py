@@ -144,8 +144,9 @@ class Scheduler:
     def _loop(self) -> None:
         while not self._stop.is_set():
             self._reap_and_cancel()
-            self.store.recover_interrupted()
             runtime_runs = self.store.runtime_runs()
+            if self.store.recover_interrupted(runs=runtime_runs):
+                runtime_runs = self.store.runtime_runs()
             self._advance_variant_parents(runtime_runs)
             self.store.epics.refresh_all(runs=runtime_runs)
             config = self.store.config()
