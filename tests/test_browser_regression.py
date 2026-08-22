@@ -115,12 +115,11 @@ class BrowserRegressionTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
             ).stdout.strip()
             store = RunStore(root / "state")
-            store.epics.create(
+            failed_epic = store.epics.create(
                 {
                     "title": "Browser planning decision",
                     "project_path": str(repo),
                     "status": "planning_failed",
-                    "planner_error": "planner did not return the required ODYSSEUS_PLAN marker",
                     "source_documents": [
                         {
                             "kind": "adr",
@@ -130,6 +129,10 @@ class BrowserRegressionTests(unittest.TestCase):
                         }
                     ],
                 }
+            )
+            store.epics.update(
+                failed_epic["id"],
+                planner_error="The selected model requires a newer version of Codex. Upgrade to the latest app or CLI.",
             )
             running = store.create({"title": "Running task", "task": "Keep progress concise", "project_path": str(repo), "status": "running"})
             store.append_event(running["id"], "agent.tool.started", "codex", {"tool": "shell", "command": "python -m unittest"})

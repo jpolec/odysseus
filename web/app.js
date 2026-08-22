@@ -3087,6 +3087,7 @@ function planEstimateLabel(task) {
 
 function plannerFailureSummary(epic) {
   const raw = String(epic?.planner_error || "");
+  if (/requires a newer version of Codex|upgrade to the latest app or CLI/i.test(raw)) return "The selected planning model requires a newer Codex version. Upgrade Codex, then create the draft again. The selected sources are preserved.";
   if (/missing field [`']?base_instructions|models cache/i.test(raw)) return "The planning agent could not start because its local Codex model cache is incompatible. Update or restart Codex, then create the draft again.";
   if (/AuthRequired|oauth-protected-resource|authentication required/i.test(raw)) return "The planning agent was stopped by an unauthenticated external tool. Reconnect that tool, or disable it for planning, then try again.";
   if (/permission denied|operation not permitted/i.test(raw)) return "The planning agent could not read a required local resource. Review the technical detail before trying again.";
@@ -4514,6 +4515,7 @@ async function runBrowserRegression() {
   if (failedPlan) {
     const failedCard = $("#epicList .epic-attempt-failed");
     assert(failedCard?.textContent.includes("Draft was not created") && failedCard.querySelector('[data-open-plan-studio]')?.textContent.includes("Review failed draft"), "failed planning attempt is visible and directly openable");
+    assert(plannerFailureSummary(failedPlan).includes("newer Codex"), "known planning startup failure is translated into an actionable explanation");
     await openPlanStudio(failedPlan.id);
     assert($("#planStudioTitle").textContent === "Draft was not created", "failed attempt opens its own result screen");
     assert($("#planStudioSourceSections").textContent.includes("existing API compatible"), "failed attempt preserves and displays the selected ADR");
