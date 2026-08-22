@@ -3255,7 +3255,7 @@ function plannerActivityMarkup(epic) {
     const time = event.occurred_at ? new Date(event.occurred_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "";
     return `<li class="planner-activity-${kind}"><i></i><div><span><strong>${escapeHtml(label)}</strong>${time ? `<time>${escapeHtml(time)}</time>` : ""}</span><p>${escapeHtml(plannerActivityDetail(event))}</p></div></li>`;
   }).join("");
-  return `<section class="planner-live-activity" aria-live="polite"><header><span class="planner-live-pulse"></span><div><strong>Planner is working</strong><p>${escapeHtml(current)}</p></div></header><ol>${rows || `<li class="planner-activity-system"><i></i><div><span><strong>System</strong></span><p>Preparing the read-only repository context.</p></div></li>`}</ol><footer>Implementation agents have not started. You can close this window and return later.</footer></section>`;
+  return `<section class="planner-live-activity" aria-live="polite"><header><span class="planner-live-pulse"></span><div><strong>Planner is working</strong><p>${escapeHtml(current)}</p></div></header><ol>${rows || `<li class="planner-activity-system"><i></i><div><span><strong>System</strong></span><p>Preparing the read-only repository context.</p></div></li>`}</ol><footer>Implementation agents have not started. The finished task draft and DAG will replace this activity automatically.</footer></section>`;
 }
 
 function stopPlanStudioPolling() {

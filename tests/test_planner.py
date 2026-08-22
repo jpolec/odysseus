@@ -67,7 +67,48 @@ class VerbosePlannerRunner:
         )
 
 
+class LivePlannerRunner:
+    def __init__(self, store) -> None:  # noqa: ANN001
+        self.store = store
+        self.live_snapshot = {}
+
+    def run(self, lane, worktree, prompt, **kwargs):  # noqa: ANN001
+        kwargs["emit"]("agent.session", lane, {"session_id": "planner-live"})
+        kwargs["emit"](
+            "agent.tool.started",
+            lane,
+            {"tool": "shell", "command": "git status --short", "aggregated_output": "x" * 50_000},
+        )
+        self.live_snapshot = self.store.epics.list()[0]
+        return ProcessResult(
+            0,
+            'ODYSSEUS_PLAN: {"summary":"Live draft","tasks":['
+            '{"task_key":"task","title":"Task","task":"Do the work","depends_on":[]}]}',
+            0.1,
+            session_id="planner-live",
+        )
 class PlannerTests(unittest.TestCase):
+    def test_live_planner_activity_is_durable_before_the_draft_finishes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            runner = LivePlannerRunner(store)
+
+            proposal = EpicPlanner(store, agent_runner=runner).plan(
+                "Create a live plan",
+                project,
+                lane="codex",
+            )
+
+            live_events = runner.live_snapshot["planner_events"]
+            self.assertEqual([event["type"] for event in live_events], ["agent.session", "agent.tool.started"])
+            self.assertEqual(live_events[1]["data"]["command"], "git status --short")
+            self.assertNotIn("aggregated_output", live_events[1]["data"])
+            self.assertEqual(runner.live_snapshot["planner_progress"]["state"], "inspecting")
+            self.assertEqual(proposal["status"], "proposed")
+
     def test_final_agent_message_survives_a_truncated_raw_planner_buffer(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

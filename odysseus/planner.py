@@ -18,6 +18,73 @@ PLANNER_COMPATIBILITY_FAILURES = (
     "requires a newer version of codex",
     "upgrade to the latest app or cli",
 )
+PLANNER_LIVE_EVENT_TYPES = frozenset(
+    {
+        "planner.route_fallback",
+        "agent.session",
+        "agent.message",
+        "agent.tool.started",
+        "agent.tool.completed",
+        "agent.usage",
+    }
+)
+PLANNER_LIVE_DATA_KEYS = frozenset(
+    {
+        "phase",
+        "session_id",
+        "resumed",
+        "tool_call_id",
+        "tool",
+        "kind",
+        "status",
+        "command",
+        "path",
+        "query",
+        "exit_code",
+        "error",
+        "input",
+        "text",
+        "requested_lane",
+        "selected_lane",
+        "reason",
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+    }
+)
+
+
+def _live_planner_events(events: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Bound the durable live preview without losing a returned plan marker."""
+
+    values: list[dict[str, Any]] = []
+    for event in events:
+        if event.get("type") not in PLANNER_LIVE_EVENT_TYPES:
+            continue
+        raw_data = event.get("data") if isinstance(event.get("data"), Mapping) else {}
+        data: dict[str, Any] = {}
+        for key, raw in raw_data.items():
+            if key not in PLANNER_LIVE_DATA_KEYS:
+                continue
+            if isinstance(raw, str):
+                limit = 20_000 if key == "text" and PLAN_MARKER in raw else 2_000
+                data[key] = raw[:limit]
+            elif isinstance(raw, Mapping):
+                data[key] = {
+                    str(child_key)[:120]: str(child_value)[:500]
+                    for child_key, child_value in list(raw.items())[:20]
+                }
+            elif isinstance(raw, (bool, int, float)) or raw is None:
+                data[key] = raw
+        values.append(
+            {
+                "type": str(event.get("type") or ""),
+                "source": str(event.get("source") or ""),
+                "occurred_at": str(event.get("occurred_at") or ""),
+                "data": data,
+            }
+        )
+    return values[-80:]
 
 
 class PlanningFailed(RuntimeError):
@@ -122,8 +189,13 @@ class EpicPlanner:
                     "message": "Planner returned a proposal; validating the task graph",
                     "source": source,
                 }
-            if progress:
-                self.epics.update(epic["id"], planner_progress=progress)
+            if progress or event_type in PLANNER_LIVE_EVENT_TYPES:
+                changes: dict[str, Any] = {
+                    "planner_events": _live_planner_events(planner_events)
+                }
+                if progress:
+                    changes["planner_progress"] = progress
+                self.epics.update(epic["id"], **changes)
 
         prompt = self._prompt(
             requirement,
@@ -179,6 +251,7 @@ class EpicPlanner:
                     "message": f"{planner_lane} is incompatible; continuing with {fallback_lane}",
                     "source": "odysseus",
                 },
+                planner_events=_live_planner_events(planner_events),
             )
         if result.returncode != 0:
             output = result.output
