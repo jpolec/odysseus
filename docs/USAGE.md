@@ -341,8 +341,11 @@ bin/odysseus config --max-parallel 3
 ## Plan and approve a task DAG
 
 From **Plans** in the web UI, enter a requirement and project; advanced agent
-and verification choices are optional. The Planner proposes the task graph;
-the equivalent CLI flow is:
+and verification choices are optional. **Create draft** runs only the read-only
+Planner and produces an editable task template. Plan Studio opens immediately
+so you can revise the tasks, prompts, dependencies, evidence, and execution
+profiles. No implementation agent starts at this boundary. The equivalent CLI
+flow is:
 
 After choosing the repository, describe the finished outcome. Open **Add source
 material** only when the Plan needs an ADR, specification, incident, finding,
@@ -362,17 +365,17 @@ Answer **What should the agents deliver?** with the finished outcome.
 For a stricter contract, expand **Add success criteria** and separate Must work, Must
 not break, and Proof required. Simple Plans still need only the outcome.
 
-Open **Review plan contract** to use Plan Studio. The frozen requirement is on
+Open **Edit draft** to return to Plan Studio. The frozen requirement is on
 the left and its task contracts are on the right. Select a task to highlight
 the clauses that justify it; select a clause to link or unlink it. You can edit
 the finished outcome, agent instruction, dependencies, acceptance criteria,
 required evidence, full Execution Profile, and low/medium/high-confidence
 cost/time range. Filter task contracts to one ADR/source and sort them by Plan,
 source, or dependency order. **Save draft** creates a new immutable version.
-**Approve & start** binds the exact source and PlanVersion before creating any
-runs. The Plans page and repository sidebar can also group or filter history by
-ADR, GitHub, specification, incident/security, other source, or one exact
-source path.
+Only **Approve & start** binds the exact source and PlanVersion and creates
+implementation runs. The Plans page and repository sidebar can also group or
+filter history by ADR, GitHub, specification, incident/security, other source,
+or one exact source path.
 
 ```sh
 bin/odysseus plan \

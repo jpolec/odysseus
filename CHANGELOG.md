@@ -14,6 +14,9 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
+- Made Plan creation explicitly draft-first: **Create draft** runs the
+  read-only Planner, opens the editable task template in Plan Studio, and keeps
+  implementation blocked until a separate **Approve & start** decision.
 - Simplified Plan creation to one required outcome field. Optional source
   material is collapsed, discovery excludes build/workflow/Skill noise, and
   focused ADR, specification, incident, GitHub, upload, and URL choices appear

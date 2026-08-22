@@ -3135,8 +3135,11 @@ function renderPlanStudio() {
   const source = (epic.source_documents || [])[sourceIndex];
   const version = epic.plan_version || {};
   const locked = Boolean(epic.approved);
-  $("#planStudioTitle").textContent = epic.title || "Review plan";
-  $("#planStudioSummary").textContent = epic.plan?.summary || "Review requirements, task contracts, evidence and execution profiles.";
+  const planSummary = String(epic.plan?.summary || "review tasks, sources, evidence and execution profiles").trim().replace(/[.\s]+$/, "");
+  $("#planStudioTitle").textContent = epic.title || (locked ? "Approved plan" : "Review plan draft");
+  $("#planStudioSummary").textContent = locked
+    ? (epic.plan?.summary || "This exact plan version is approved.")
+    : `Editable task template · ${planSummary}. Nothing runs until you approve this exact version.`;
   $("#planStudioVersion").textContent = version.id ? `v${version.number} · ${String(version.sha256 || "").slice(0, 8)}` : locked ? "Legacy approved plan" : "Unsaved draft";
   $("#planStudioSave").classList.toggle("hidden", locked);
   $("#planStudioApprove").classList.toggle("hidden", locked);
@@ -3282,15 +3285,15 @@ async function refreshEpics() {
     const sourceLine = sources.length ? `<div class="epic-source-line"><strong>Sources</strong>${sources.map((source) => `<button data-plan-filter="source:${escapeHtml(source.path)}" type="button" title="Filter plans and tasks by this source"><b>${escapeHtml(planSourceKindLabel(source.kind))}</b>${escapeHtml(source.title || source.path)} <code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code>${source.repeat_authorized ? `<em>forced repeat</em>` : ""}</button>`).join("")}</div>` : "";
     const runButtons = (epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("");
     return `${groupHeading}<article class="stack-card epic-card">
-      <div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div>
+      <div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status === "proposed" ? "draft" : epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div>
       <h3>${escapeHtml(epic.title)}</h3>
-      <p>${escapeHtml(epic.status === "proposed" ? "Review the dependency graph, then approve execution." : epic.status === "active" ? "Odysseus is scheduling dependency-ready tasks." : epic.plan?.summary || epic.description || "Planning...")}</p>
+      <p>${escapeHtml(epic.status === "proposed" ? "Editable draft. Review and change the tasks before approving this exact version." : epic.status === "active" ? "Odysseus is scheduling dependency-ready tasks." : epic.plan?.summary || epic.description || "Planning...")}</p>
       <div class="epic-progress" aria-label="Plan progress"><span><strong>${taskCount}</strong> tasks</span><span><strong>${intelligence.criticalStages || "—"}</strong> critical-path stages</span><span><strong>${intelligence.peakParallel || "—"}</strong> peak parallel</span><span><strong>${epic.status === "proposed" ? readyNodes : activeNodes}</strong> ${epic.status === "proposed" ? "ready after approval" : "active"}</span><span class="${attentionNodes ? "needs" : ""}"><strong>${attentionNodes}</strong> need you</span><span><strong>${acceptedNodes}</strong> accepted</span>${intelligence.conflictRisks ? `<span class="needs"><strong>${intelligence.conflictRisks}</strong> merge risks</span>` : ""}${intelligence.humanGates ? `<span><strong>${intelligence.humanGates}</strong> human gates</span>` : ""}${intelligence.budgetTokens ? `<span><strong>${compactNumber(intelligence.budgetTokens)}</strong> token ceiling</span>` : ""}${intelligence.budgetCost ? `<span><strong>$${intelligence.budgetCost.toFixed(2)}</strong> cost ceiling</span>` : ""}</div>
       <details class="epic-graph-details" ${epic.status === "proposed" ? "open" : ""}>
         <summary><span><strong>${epic.status === "proposed" ? "Review execution graph" : "Execution graph"}</strong><small>${dependencyCount} dependenc${dependencyCount === 1 ? "y" : "ies"} · ${intelligence.criticalStages || "—"} critical-path stages · up to ${intelligence.peakParallel || "—"} parallel</small></span><span>${epic.status === "proposed" ? "Approval required" : "Open graph"}</span></summary>
         <div class="epic-graph-content">${sourceLine}${graph}</div>
       </details>
-      <div class="card-actions"><button class="${epic.status === "proposed" ? "primary" : "ghost"}" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">${epic.status === "proposed" ? "Review plan contract" : "Open plan contract"}</button>${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
+      <div class="card-actions"><button class="${epic.status === "proposed" ? "primary" : "ghost"}" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">${epic.status === "proposed" ? "Edit draft" : "Open plan contract"}</button>${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
     </article>`;
   }).join("") : `<div class="empty-card">No plans yet.</div>`;
   $$('[data-open-plan-studio]').forEach((button) => button.addEventListener("click", () => openPlanStudio(button.dataset.openPlanStudio).catch((error) => toast(error.message, true))));
@@ -3862,16 +3865,18 @@ function bindDialogs() {
     };
     try {
       submit.disabled = true;
-      submit.textContent = "Freezing sources…";
-      await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)});
+      submit.textContent = "Creating draft…";
+      const draft = await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)});
       $("#epicDialog").close();
       event.currentTarget.reset();
       state.planSelectedSourcePaths = []; state.planRepositorySources = []; state.planUploadedSources = []; state.planGithubCatalog = []; state.planSelectedGithub = []; state.planUrlSources = []; state.planForcedSourcePaths = [];
-      toast("Task graph proposed. Review the frozen sources and tasks before approving any work.");
+      toast("Draft created. Edit the task template; nothing runs until you approve it.");
       await Promise.all([refreshEpics(), refreshProjectOverview()]);
       setView("epics");
+      try { await openPlanStudio(draft.id); }
+      catch (openError) { toast(`Draft was created, but could not be opened: ${openError.message}`, true); }
     } catch (error) { toast(error.message, true); }
-    finally { submit.disabled = false; submit.textContent = "Create plan"; }
+    finally { submit.disabled = false; submit.textContent = "Create draft"; }
   });
   $("#planStudioClose").addEventListener("click", () => $("#planStudioDialog").close());
   $("#planStudioSourceFilter").addEventListener("change", (event) => {

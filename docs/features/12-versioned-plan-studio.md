@@ -42,7 +42,9 @@ Uploaded text is read locally by the web client and sent only to the local
 Odysseus server. Sources are limited to 80 KB each, 20 documents, and 320 KB in
 total. Duplicate content and likely secrets are rejected at the durable
 boundary. The selected-source summary shows exactly what will be frozen before
-the Planner runs.
+the Planner runs. **Create draft** produces an editable task template and opens
+Plan Studio immediately; it does not approve the graph or start an
+implementation agent.
 
 The one required question is **What should the agents deliver?** A
 document says where the requirements came from; the answer tells the Planner
@@ -61,7 +63,7 @@ file itself is never rewritten to track execution state.
 
 ## Plan Studio
 
-Open a proposed Plan and choose **Review plan contract**. The full-screen
+Open a draft Plan and choose **Edit draft**. The full-screen
 studio keeps the frozen source on the left and task contracts on the right.
 
 - Selecting a task highlights the source clauses that justify it.
@@ -75,7 +77,7 @@ studio keeps the frozen source on the left and task contracts on the right.
   filter.
 - **Save draft** creates a new immutable `PlanVersion`; it never edits the
   preceding version in place.
-- **Approve & start** binds approval to the exact plan and source hashes, then
+- Only **Approve & start** binds approval to the exact plan and source hashes, then
   materializes the existing dependency-aware runs.
 
 No implementation starts before approval. Approval still does not grant push,

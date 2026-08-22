@@ -80,7 +80,9 @@ Completed, accepted, integrated, and delivered are separate states.
   source and sort them by Plan, source, or dependency order.
 - Review frozen sources and task contracts side by side, link requirement
   clauses bidirectionally to tasks, edit outcomes/prompts/evidence/profiles,
-  and save each draft as a new immutable PlanVersion.
+  and save each draft as a new immutable PlanVersion. **Create draft** opens
+  this editable template immediately; only **Approve & start** creates worker
+  runs for the exact reviewed version.
 - Detect local source changes, identify only linked tasks affected by changed
   clauses, and require an explicit source refresh instead of silently changing
   an approved contract.

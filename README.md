@@ -356,7 +356,7 @@ release-proof`, publish only after proof, and ship source/wheel artifacts with
 | --- | --- |
 | **New task** in the web UI | A branch and worktree are created, then the bounded agent/check/review workflow runs. |
 | `bin/odysseus run ...` | The same workflow is queued from a terminal or script. |
-| **Plan feature** / `bin/odysseus plan ...` | A read-only planner proposes a DAG; tasks exist only after explicit approval. |
+| **Plan feature** / `bin/odysseus plan ...` | A read-only Planner creates an editable draft DAG; only explicit **Approve & start** creates worker tasks. |
 | Existing Codex/Claude tmux pane | It appears in **Agent terminals** automatically; no import button is required. |
 | **Track in Odysseus** on a tmux pane | A durable shortcut is created without restarting, controlling, or interrupting the pane. |
 | Inbox **Queue as agent task** | A human or agent follow-up becomes a queued task in its repository. |

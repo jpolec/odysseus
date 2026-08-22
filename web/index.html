@@ -596,7 +596,7 @@
     </form></dialog>
 
     <dialog id="epicDialog"><form method="dialog" id="epicForm">
-      <div class="dialog-head"><div><p class="eyebrow">NOTHING RUNS BEFORE APPROVAL</p><h2>Plan a feature</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">DRAFT FIRST · NO IMPLEMENTATION YET</p><h2>Plan a feature</h2><p>Odysseus prepares an editable task template for you to review.</p></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <label>Repository
         <span class="field-help">Where should the work happen?</span>
         <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
@@ -634,14 +634,14 @@
         <label>Independent review agent <select name="review_lane" id="epicReviewLaneSelect"></select></label>
         <label>Verification commands <span class="optional">optional</span><span class="field-help">Trusted shell commands, one per line, inherited by proposed tasks.</span><textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea></label>
       </details>
-      <p class="submit-note">Creates a proposal only.</p>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create plan</button></div>
+      <p class="submit-note">Runs the read-only Planner and creates an editable draft. No implementation agent starts.</p>
+      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create draft</button></div>
     </form></dialog>
 
     <dialog id="planStudioDialog" class="plan-studio-dialog">
       <section class="plan-studio-shell">
         <header class="plan-studio-head">
-          <div><p class="eyebrow">VERSIONED EXECUTION CONTRACT</p><h2 id="planStudioTitle">Review plan</h2><p id="planStudioSummary">Nothing runs until you approve this version.</p></div>
+          <div><p class="eyebrow">VERSIONED EXECUTION CONTRACT</p><h2 id="planStudioTitle">Review plan draft</h2><p id="planStudioSummary">Edit this task template. Nothing runs until you approve this exact version.</p></div>
           <div class="plan-studio-head-actions"><span id="planStudioVersion">Draft</span><button class="ghost" id="planStudioSave" type="button">Save draft</button><button class="primary" id="planStudioApprove" type="button">Approve &amp; start</button><button class="icon-button" id="planStudioClose" type="button" aria-label="Close">×</button></div>
         </header>
         <div class="plan-studio-impact hidden" id="planStudioImpact"></div>
