@@ -78,7 +78,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
-RUN_SCHEMA_VERSION = 15
+RUN_SCHEMA_VERSION = 16
 ROUTE_OBSERVATION_FORMAT = "odysseus-route-observation-v1"
 ROUTE_OBSERVATION_FEATURE_SCHEMA_VERSION = "outcome-router-features-v1"
 ROUTE_OBSERVATION_POLICY_VERSION = "outcome-routing-policy-v1"
@@ -104,6 +104,10 @@ def _run_defaults() -> dict[str, Any]:
         "block_keys": [],
         "parallelizable": True,
         "blocked_reason": "",
+        "task_contract": {},
+        "execution_profile": {},
+        "estimate": {},
+        "failure": {},
         "evaluation": {},
         "verifier_results": [],
         "confidence": None,
@@ -204,6 +208,10 @@ def _selected_model_for(run: Mapping[str, Any]) -> str:
         return model[:120]
     variant = run.get("variant") if isinstance(run.get("variant"), Mapping) else {}
     model = str(variant.get("model") or "").strip()
+    if model:
+        return model[:120]
+    profile = run.get("execution_profile") if isinstance(run.get("execution_profile"), Mapping) else {}
+    model = str(profile.get("model") or "").strip()
     if model:
         return model[:120]
     lane = str(run.get("lane") or "")
@@ -315,7 +323,10 @@ def _slug(value: str, fallback: str = "task", limit: int = 36) -> str:
 def _display_title(task: str, limit: int = 82) -> str:
     """Create a quiet navigation label while preserving the full task body."""
 
-    first_line = next((line.strip() for line in task.splitlines() if line.strip()), task)
+    lines = [re.sub(r"\s+", " ", line).strip() for line in task.splitlines() if line.strip()]
+    first_line = lines[0] if lines else task
+    if len(lines) > 1 and first_line.casefold() == lines[1].casefold():
+        first_line = lines[1]
     value = re.sub(r"\s+", " ", first_line).strip().lstrip("-*# ")
     value = re.sub(
         r"^(?:please|could you|can you|prosz[eę]|czy mo[zż]esz|jeszcze|zobacz)\s*[:,—-]?\s*",
@@ -323,6 +334,8 @@ def _display_title(task: str, limit: int = 82) -> str:
         value,
         flags=re.IGNORECASE,
     ).strip()
+    value = re.split(r"\s+(?:np\.|e\.g\.|na przyk(?:ł|l)ad)\s*", value, maxsplit=1, flags=re.IGNORECASE)[0]
+    value = re.sub(r"^(?:i teraz|a teraz|and now)\s+", "", value, flags=re.IGNORECASE).strip(" :,-–—")
     sentence = re.split(r"[.!?](?:\s|$)", value, maxsplit=1)[0].strip() or value
     if len(sentence) <= limit:
         return sentence
@@ -904,6 +917,17 @@ class RunStore:
             "block_keys": graph_lists["block_keys"],
             "parallelizable": bool(request.get("parallelizable", True)),
             "blocked_reason": str(request.get("blocked_reason") or ""),
+            "task_contract": {
+                "outcome": str(request.get("outcome") or ""),
+                "source_refs": list(request.get("source_refs") or []),
+                "acceptance_criteria": list(request.get("acceptance_criteria") or []),
+                "required_evidence": list(request.get("required_evidence") or []),
+                "plan_version_id": str(request.get("plan_version_id") or ""),
+                "plan_version_sha256": str(request.get("plan_version_sha256") or ""),
+                "source_version_hashes": list(request.get("source_version_hashes") or []),
+            },
+            "execution_profile": dict(request.get("execution_profile") or {}),
+            "estimate": dict(request.get("estimate") or {}),
             "priority": priority,
             "budgets": budgets,
             "skill_mode": skill_mode,

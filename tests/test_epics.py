@@ -122,6 +122,84 @@ class EpicTests(unittest.TestCase):
             self.assertEqual(loaded["evidence_class"], "unclassified")
             self.assertEqual(store.get(mapping["old"])["provenance"]["evidence_class"], "unclassified")
 
+    def test_versioned_contract_maps_source_changes_only_to_affected_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            store, project = self._store(Path(temp))
+            source = project / "decision.md"
+            source.write_text("Keep password login.\n\nAdd passkeys.\n", encoding="utf-8")
+            epic = store.epics.create(
+                {
+                    "title": "Passkeys",
+                    "project_path": str(project),
+                    "source_documents": [{"kind": "adr", "path": "decision.md", "content": source.read_text()}],
+                }
+            )
+            first = store.epics.save_plan(
+                epic["id"],
+                {
+                    "summary": "Versioned passkey contract",
+                    "tasks": [
+                        {
+                            "task_key": "password",
+                            "title": "Preserve password login",
+                            "task": "Keep password login unchanged",
+                            "source_refs": ["S1"],
+                        },
+                        {
+                            "task_key": "passkeys",
+                            "title": "Add passkeys",
+                            "task": "Implement passkeys",
+                            "source_refs": ["S2"],
+                            "acceptance_criteria": ["Passkey sign-in works"],
+                            "required_evidence": ["Browser flow passes"],
+                            "execution_profile": {
+                                "mode": "override",
+                                "harness": "claude",
+                                "model": "claude-test",
+                                "skills": ["security-review"],
+                                "review_lane": "codex",
+                            },
+                            "estimate": {"cost_usd_min": 2, "cost_usd_max": 5, "confidence": "low", "basis": "small cohort"},
+                        },
+                    ],
+                },
+            )
+            second = store.epics.save_plan(first["id"], first["plan"])
+            self.assertEqual(first["plan_version"]["number"], 1)
+            self.assertEqual(second["plan_version"]["number"], 2)
+            self.assertEqual(len(second["plan_history"]), 1)
+
+            source.write_text("Keep password login exactly as today.\n\nAdd passkeys.\n", encoding="utf-8")
+            impact = store.epics.source_impact(epic["id"])
+            self.assertEqual(impact["changed_refs"], ["S1"])
+            self.assertEqual(impact["affected_task_keys"], ["password"])
+
+            source.write_text("Keep password login.\n\nAdd passkeys with recovery.\n", encoding="utf-8")
+            impact = store.epics.source_impact(epic["id"])
+            self.assertEqual(impact["changed_refs"], ["S2"])
+            self.assertEqual(impact["affected_task_keys"], ["passkeys"])
+
+            source.write_text("Keep password login.\n\nAdd passkeys.\n\nDocument rollout.\n", encoding="utf-8")
+            impact = store.epics.source_impact(epic["id"])
+            self.assertEqual(impact["status"], "changed")
+            self.assertEqual(impact["affected_task_keys"], [])
+            self.assertFalse(impact["requires_reapproval"])
+
+            refreshed = store.epics.refresh_local_sources(epic["id"])
+            self.assertEqual(store.epics.source_impact(epic["id"])["status"], "current")
+            third = store.epics.save_plan(epic["id"], refreshed["plan"])
+            self.assertNotEqual(third["plan_version"]["source_hashes"], second["plan_version"]["source_hashes"])
+            self.assertNotEqual(third["plan_version"]["sha256"], second["plan_version"]["sha256"])
+            mapping = store.epics.create_task_batch(epic["id"], third["plan"]["tasks"])
+            run = store.get(mapping["passkeys"])
+            self.assertEqual(run["task_contract"]["source_refs"], ["S2"])
+            self.assertEqual(run["task_contract"]["plan_version_sha256"], third["plan_version"]["sha256"])
+            self.assertEqual(run["execution_profile"]["skills"], ["security-review"])
+            self.assertEqual(run["lane"], "claude")
+            self.assertEqual(run["review_lane"], "codex")
+            self.assertEqual(run["execution_profile"]["model"], "claude-test")
+            self.assertEqual(run["estimate"]["cost_usd_max"], 5.0)
+
 
 if __name__ == "__main__":
     unittest.main()

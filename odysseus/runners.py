@@ -157,6 +157,7 @@ class AgentRunner:
         *,
         review: bool,
         resume_session_id: str = "",
+        model: str = "",
     ) -> list[str]:
         if lane == "codex":
             sandbox = "read-only" if review else "workspace-write"
@@ -171,6 +172,8 @@ class AgentRunner:
                 "--sandbox",
                 sandbox,
             ]
+            if model:
+                command.extend(["--model", model])
             if not review:
                 for git_directory in self._linked_git_directories(worktree):
                     command.extend(["--add-dir", str(git_directory)])
@@ -188,6 +191,8 @@ class AgentRunner:
                 "--permission-mode",
                 permission_mode,
             ]
+            if model:
+                command.extend(["--model", model])
             if resume_session_id:
                 command.extend(["--resume", resume_session_id])
             command.append(prompt)
@@ -204,7 +209,10 @@ class AgentRunner:
             raise ValueError(
                 f"unknown lane {lane!r}; configure it in $ODYSSEUS_HOME/config.json"
             )
-        replaced = [item.replace("{worktree}", str(worktree)).replace("{prompt}", prompt) for item in args]
+        replaced = [
+            item.replace("{worktree}", str(worktree)).replace("{prompt}", prompt).replace("{model}", model)
+            for item in args
+        ]
         if not any("{prompt}" in item for item in args):
             replaced.append(prompt)
         return replaced
@@ -251,6 +259,7 @@ class AgentRunner:
         emit: Emit,
         cancelled: Cancelled,
         resume_session_id: str = "",
+        model: str = "",
         phase: str = "agent",
         timeout_seconds: float = 0,
         stall_seconds: float = 0,
@@ -262,6 +271,7 @@ class AgentRunner:
             prompt,
             review=review,
             resume_session_id=resume_session_id,
+            model=model,
         )
         host_args, cwd, process_env = wrap_command(execution, args, worktree, phase=phase)
         return _stream_process(

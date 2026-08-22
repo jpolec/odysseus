@@ -331,6 +331,48 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
+    def test_plan_studio_reads_and_versions_execution_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            source = project / "SPEC.md"
+            source.write_text("Preserve login.\n\nAdd passkeys.\n", encoding="utf-8")
+            store = RunStore(root / "state")
+            epic = store.epics.create(
+                {"title": "Passkeys", "project_path": str(project), "source_documents": [{"kind": "specification", "path": "SPEC.md", "content": source.read_text()}]}
+            )
+            epic = store.epics.save_plan(
+                epic["id"],
+                {"summary": "Passkey contract", "tasks": [{"task_key": "auth", "title": "Authentication", "task": "Add passkeys", "source_refs": ["S2"]}]},
+            )
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                with urllib.request.urlopen(f"{base}/api/epics/{epic['id']}") as response:
+                    detail = json.load(response)
+                self.assertEqual(detail["source_documents"][0]["sections"][1]["ref"], "S2")
+                self.assertEqual(detail["source_impact"]["status"], "current")
+
+                edited = {**detail["plan"], "tasks": [{**detail["plan"]["tasks"][0], "outcome": "Passkey login works"}]}
+                request = urllib.request.Request(
+                    f"{base}/api/epics/{epic['id']}/plan",
+                    data=json.dumps({"plan": edited}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with urllib.request.urlopen(request) as response:
+                    saved = json.load(response)
+                self.assertEqual(saved["plan_version"]["number"], 2)
+                self.assertEqual(saved["plan"]["tasks"][0]["outcome"], "Passkey login works")
+                self.assertEqual(len(saved["plan_history"]), 1)
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_economics_endpoint_exports_csv_and_ndjson(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

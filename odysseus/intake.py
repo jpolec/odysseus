@@ -91,7 +91,7 @@ def github_issue_signal(issue: Mapping[str, Any], project: Mapping[str, Any]) ->
         sort_keys=True,
         separators=(",", ":"),
     )
-    return {
+    plan = {
         "schema_version": INTAKE_SCHEMA_VERSION,
         "kind": "external_signal",
         "received_at": now_iso(),
@@ -113,6 +113,7 @@ def github_issue_signal(issue: Mapping[str, Any], project: Mapping[str, Any]) ->
         },
         "connector_boundary": SUPPORTED_CONNECTORS["github_issue"],
     }
+    return plan
 
 
 def plan_for_signal(signal: Mapping[str, Any], *, lane: str = "", review_lane: str = "", checks: list[str] | None = None) -> dict[str, Any]:
@@ -129,7 +130,7 @@ def plan_for_signal(signal: Mapping[str, Any], *, lane: str = "", review_lane: s
         f"Redacted evidence:\n{body or '(no body provided)'}"
     )
     default_checks = list(checks or [])
-    return {
+    plan = {
         "summary": f"Approval-gated intake plan for {title}",
         "tasks": [
             {
@@ -189,6 +190,21 @@ def plan_for_signal(signal: Mapping[str, Any], *, lane: str = "", review_lane: s
             },
         ],
     }
+    for task in plan["tasks"]:
+        task["outcome"] = str(task["title"])
+        task["source_refs"] = ["S1"]
+        task["acceptance_criteria"] = ["The linked external signal is addressed without unrelated behavior changes."]
+        task["required_evidence"] = list(task.get("checks") or ["Independent review evidence linked to the frozen source."])
+        task["execution_profile"] = {
+            "mode": "auto",
+            "harness": "auto",
+            "environment": "isolated_worktree",
+            "policy": "standard",
+            "review_policy": "independent_provider",
+            "reason": "Auto routes from task type, repository history, and available outcome evidence.",
+        }
+        task["estimate"] = {"confidence": "unknown", "basis": "No calibrated comparable cohort yet"}
+    return plan
 
 
 class IntakeCoordinator:
@@ -211,6 +227,17 @@ class IntakeCoordinator:
         gate_policy: str = "human_review",
     ) -> dict[str, Any]:
         dedupe_key = str(signal.get("dedupe_key") or "")
+        evidence = signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
+        identity = signal.get("identity") if isinstance(signal.get("identity"), dict) else {}
+        source_content = "\n".join(
+            item for item in [str(evidence.get("title") or "").strip(), str(evidence.get("body_excerpt") or evidence.get("summary") or "").strip()] if item
+        )
+        source_document = {
+            "kind": str(identity.get("connector") or signal.get("connector") or "external_signal"),
+            "path": str(identity.get("url") or f"odysseus://intake/{identity.get('external_id') or dedupe_key[:12]}"),
+            "title": str(evidence.get("title") or identity.get("source_id") or "External signal"),
+            "content": source_content or "External signal",
+        }
         for epic in self.store.epics.list():
             intake = epic.get("intake") if isinstance(epic.get("intake"), dict) else {}
             if dedupe_key and intake.get("dedupe_key") == dedupe_key:
@@ -244,13 +271,14 @@ class IntakeCoordinator:
                 changes: dict[str, Any] = {"intake": refreshed_intake}
                 if str(epic.get("status") or "") == "proposed" and not epic.get("approved"):
                     refreshed_plan = plan_for_signal(signal, lane=lane, review_lane=review_lane, checks=checks or [])
-                    changes.update(
-                        {
-                            "title": str(evidence.get("title") or identity.get("source_id") or epic.get("title") or "External signal")[:100],
-                            "description": refreshed_plan["summary"],
-                            "plan": refreshed_plan,
-                        }
+                    self.store.epics.update(
+                        str(epic["id"]),
+                        **changes,
+                        title=str(evidence.get("title") or identity.get("source_id") or epic.get("title") or "External signal")[:100],
+                        description=refreshed_plan["summary"],
                     )
+                    self.store.epics.replace_sources(str(epic["id"]), [source_document])
+                    return {**self.store.epics.save_plan(str(epic["id"]), refreshed_plan), "duplicate": True}
                 return {**self.store.epics.update(str(epic["id"]), **changes), "duplicate": True}
 
         plan = plan_for_signal(signal, lane=lane, review_lane=review_lane, checks=checks or [])
@@ -262,8 +290,8 @@ class IntakeCoordinator:
                 "title": title[:100],
                 "description": plan["summary"],
                 "project_path": project_path,
-                "status": "proposed",
-                "plan": plan,
+                "status": "planning",
+                "source_documents": [source_document],
                 "evidence_class": "observed",
                 "gate_policy": gate_policy,
                 "intake": {
@@ -287,4 +315,4 @@ class IntakeCoordinator:
                 },
             }
         )
-        return {**epic, "duplicate": False}
+        return {**self.store.epics.save_plan(str(epic["id"]), plan), "duplicate": False}

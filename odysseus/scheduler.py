@@ -584,6 +584,7 @@ class Scheduler:
             return False
 
         budgets = run.get("budgets") if isinstance(run.get("budgets"), dict) else {}
+        execution_profile = run.get("execution_profile") if isinstance(run.get("execution_profile"), dict) else {}
         timeout_seconds = float(budgets.get("timeout_seconds") or 0)
         stall_seconds = float(budgets.get("stall_seconds") or 0)
 
@@ -604,7 +605,12 @@ class Scheduler:
             emit(
                 "step.started",
                 "odysseus",
-                {"step": "agent", "attempt": attempt, "lane": run["lane"]},
+                {
+                    "step": "agent",
+                    "attempt": attempt,
+                    "lane": run["lane"],
+                    "model": str(execution_profile.get("model") or ""),
+                },
             )
             agent_result = self._run_agent(
                 str(run["lane"]),
@@ -614,6 +620,7 @@ class Scheduler:
                 emit=emit,
                 cancelled=should_stop,
                 resume_session_id=implementation_session,
+                model=str(execution_profile.get("model") or ""),
                 phase="agent",
                 timeout_seconds=timeout_seconds,
                 stall_seconds=stall_seconds,
@@ -753,13 +760,18 @@ class Scheduler:
             emit(
                 "step.started",
                 "odysseus",
-                {"step": "review", "lane": run["review_lane"]},
+                {
+                    "step": "review",
+                    "lane": run["review_lane"],
+                    "model": str(execution_profile.get("review_model") or ""),
+                },
             )
             review_result = self._run_agent(
                 str(run["review_lane"]),
                 worktree,
                 self._review_prompt(run, check_results),
                 review=True,
+                model=str(execution_profile.get("review_model") or ""),
                 emit=emit,
                 cancelled=should_stop,
                 phase="review",
@@ -1115,18 +1127,40 @@ class Scheduler:
         return results
 
     def _fail_process(self, run_id: str, step: str, result: ProcessResult) -> None:
-        message = f"{step} process exited with code {result.returncode}"
+        output = result.output[-10_000:]
+        failure = {
+            "class": "model_error" if step in {"agent", "review"} else "tool_failure",
+            "title": f"{step.title()} process stopped",
+            "message": f"{step} process exited with code {result.returncode}",
+            "action": "Inspect Activity, then retry with a narrower instruction or continue in the terminal.",
+        }
+        if re.search(r"base_instructions|selected model requires|unsupported model|models cache", output, re.IGNORECASE):
+            failure = {
+                "class": "agent_version_incompatible",
+                "title": "Selected model is incompatible with this agent version",
+                "message": "The agent could not start because the installed CLI cannot load the selected model configuration.",
+                "action": "Upgrade the agent CLI or retry with a compatible model. The worktree is preserved.",
+            }
+        elif re.search(r"AuthRequired|oauth-protected-resource|MCP.*(?:auth|transport)|Transport channel closed", output, re.IGNORECASE | re.DOTALL):
+            failure = {
+                "class": "mcp_authentication",
+                "title": "An MCP connection needs authentication",
+                "message": "The agent lost an authenticated MCP transport before it could continue.",
+                "action": "Reconnect the MCP provider or disable that integration, then retry the same task.",
+            }
+        message = str(failure["message"])
         self.store.append_event(
             run_id,
             "step.failed",
             "odysseus",
-            {"step": step, "returncode": result.returncode, "output": result.output[-10_000:]},
+            {"step": step, "returncode": result.returncode, "output": output, "failure": failure},
         )
         self.store.transition(
             run_id,
             "failed",
             event_type="run.failed",
             last_error=message,
+            failure=failure,
             data={"message": message},
         )
 
@@ -1146,6 +1180,28 @@ class Scheduler:
             "or decision_required), title, message, optional options, and priority.\n\n"
             f"Task:\n{run['task']}\n"
         )
+        contract = run.get("task_contract") if isinstance(run.get("task_contract"), Mapping) else {}
+        if contract:
+            if contract.get("outcome"):
+                prompt += f"\nRequired finished outcome:\n{contract['outcome']}\n"
+            if contract.get("acceptance_criteria"):
+                prompt += "\nAcceptance criteria:\n" + "\n".join(
+                    f"- {item}" for item in contract["acceptance_criteria"]
+                ) + "\n"
+            if contract.get("required_evidence"):
+                prompt += "\nEvidence this task must produce:\n" + "\n".join(
+                    f"- {item}" for item in contract["required_evidence"]
+                ) + "\n"
+        profile = run.get("execution_profile") if isinstance(run.get("execution_profile"), Mapping) else {}
+        if profile:
+            prompt += (
+                "\nApproved execution contract:\n"
+                f"- Harness: {profile.get('harness') or run.get('lane')}\n"
+                f"- Model: {profile.get('model') or 'agent default'}\n"
+                f"- Environment: {profile.get('environment') or 'isolated worktree'}\n"
+                f"- Policy: {profile.get('policy') or 'standard'}\n"
+                f"- Independent review: {profile.get('review_policy') or 'required'}\n"
+            )
         if cycle:
             prompt += f"\nThis is human review cycle {cycle + 1}.\n"
         if failure_context:

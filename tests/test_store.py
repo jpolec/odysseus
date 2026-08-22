@@ -134,6 +134,19 @@ class StoreTests(unittest.TestCase):
             self.assertNotIn("Please", run["title"])
             self.assertEqual(run["task"], task)
 
+    def test_generated_title_removes_conversational_example_noise(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            task = "Zobacz, popraw układ repozytorium np. GIT REPOSITORY ma za dużo miejsca i zachowaj pełny prompt."
+
+            run = store.create({"task": task, "project_path": str(project)})
+
+            self.assertEqual(run["title"], "popraw układ repozytorium")
+            self.assertEqual(run["task"], task)
+
     def test_persistent_config_updates_concurrency(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             store = RunStore(Path(temp) / "state")

@@ -32,6 +32,12 @@ task decision surface that keeps execution telemetry folded until requested.
 These changes reuse the existing Task, Plan, evidence, CI, integration, Skill,
 ADR, and Settings APIs; the UI is not a separate system of record.
 
+It also contains a versioned Plan Studio that freezes requirements from ADRs,
+specifications, issues, incidents, findings, milestones, document sets, or a
+direct request; maps exact source clauses to editable task contracts; records
+full execution profiles and honest estimate ranges; and binds approval to an
+immutable PlanVersion before materializing any worker run.
+
 ## Product contract
 
 Odysseus is a free, local-first delivery system for coding agents:
@@ -60,6 +66,12 @@ Completed, accepted, integrated, and delivered are separate states.
   dependencies, role separation, parallelism, and independent review nodes.
 - Discover and plan from `_ADR/` and conventional ADR directories while
   binding source content, status, size, path, and SHA-256 to the Epic.
+- Review frozen sources and task contracts side by side, link requirement
+  clauses bidirectionally to tasks, edit outcomes/prompts/evidence/profiles,
+  and save each draft as a new immutable PlanVersion.
+- Detect local source changes, identify only linked tasks affected by changed
+  clauses, and require an explicit source refresh instead of silently changing
+  an approved contract.
 - Import an authenticated GitHub Issue as redacted, deduplicated evidence and
   propose a Plan without silently beginning implementation.
 - Queue several tasks from one composer and schedule them by priority and the

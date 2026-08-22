@@ -18,6 +18,7 @@ and know where it stops. Planned capabilities stay in the
 | [09 — CI, integration, and delivery](09-ci-integration-and-delivery.md) | v0.4.0–v0.6.12 | How does accepted work reach a checkout or draft PR safely? |
 | [10 — Portfolio, routing, and variants](10-portfolio-routing-and-variants.md) | v0.8.0–v0.8.1 | Which outcomes, costs, workers, and alternatives are performing? |
 | [11 — Worker Leases and fencing](11-worker-leases-and-fencing.md) | v0.9.2 | Can an expired worker overwrite its successor after a crash or takeover? |
+| [12 — Versioned source-to-plan contracts](12-versioned-plan-studio.md) | main, unreleased | Which requirement justifies each task, profile, and required proof? |
 
 For the complete workflow, start with [START.md](../../START.md) and then use
 the [usage guide](../USAGE.md). The exact wire and persistence formats live in

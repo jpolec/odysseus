@@ -150,11 +150,20 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "title": "Passkey authentication",
             "description": "Add passkey registration and login with independent security review.",
             "project_path": str(project),
-            "status": "proposed",
+            "status": "planning",
             "evidence_class": "demo",
-            "plan": {
-                "summary": "Parallel backend and frontend work converge in an integration task.",
-                "tasks": [
+            "source_documents": [{
+                "kind": "specification", "path": "odysseus://demo/passkey-spec", "title": "Passkey authentication specification",
+                "content": "Existing password login must remain unchanged.\n\nAdd WebAuthn registration and authentication endpoints.\n\nAdd browser registration and login flows.\n\nRequire independent security validation before delivery.",
+            }],
+        }
+    )
+    epic = store.epics.save_plan(
+        epic["id"],
+        {
+            "summary": "Parallel backend and frontend work converge in independently validated integration.",
+            "constraints": ["Password login remains compatible", "No implementation starts before approval"],
+            "tasks": [
                     {
                         "task_key": "auth-api",
                         "title": "WebAuthn backend",
@@ -165,6 +174,12 @@ def seed(state_dir: Path, project: Path) -> RunStore:
                         "lane": "codex",
                         "review_lane": "claude",
                         "project_path": str(project),
+                        "outcome": "WebAuthn challenge and verification endpoints are production-ready.",
+                        "source_refs": ["S1", "S2"],
+                        "acceptance_criteria": ["Password login remains unchanged", "WebAuthn challenge and verification succeed"],
+                        "required_evidence": ["API contract checks", "Authentication unit and integration tests"],
+                        "execution_profile": {"mode": "auto", "harness": "auto", "skills": ["api-contracts", "security-review"], "environment": "isolated_worktree", "policy": "standard", "reason": "Backend authentication task; route from repository outcomes"},
+                        "estimate": {"cost_usd_min": 2, "cost_usd_max": 4, "duration_minutes_min": 12, "duration_minutes_max": 24, "confidence": "low", "basis": "Small comparable backend cohort"},
                     },
                     {
                         "task_key": "passkey-ui",
@@ -176,6 +191,12 @@ def seed(state_dir: Path, project: Path) -> RunStore:
                         "lane": "claude",
                         "review_lane": "codex",
                         "project_path": str(project),
+                        "outcome": "Users can register and use a passkey in supported browsers.",
+                        "source_refs": ["S1", "S3"],
+                        "acceptance_criteria": ["Registration and sign-in user flows complete", "Password sign-in remains available"],
+                        "required_evidence": ["Browser E2E recording", "Accessibility checks"],
+                        "execution_profile": {"mode": "auto", "harness": "auto", "skills": ["frontend-accessibility"], "environment": "isolated_worktree", "policy": "standard", "reason": "Browser flow; route from frontend delivery history"},
+                        "estimate": {"cost_usd_min": 2, "cost_usd_max": 5, "duration_minutes_min": 15, "duration_minutes_max": 30, "confidence": "low", "basis": "Small comparable frontend cohort"},
                     },
                     {
                         "task_key": "integration",
@@ -187,9 +208,14 @@ def seed(state_dir: Path, project: Path) -> RunStore:
                         "lane": "claude",
                         "review_lane": "codex",
                         "project_path": str(project),
+                        "outcome": "The immutable integrated candidate satisfies the passkey contract and security review.",
+                        "source_refs": ["S1", "S2", "S3", "S4"],
+                        "acceptance_criteria": ["Backend and browser flows interoperate", "Independent reviewer reports no blocking finding"],
+                        "required_evidence": ["Integrated regression suite", "Independent security review"],
+                        "execution_profile": {"mode": "override", "harness": "claude", "skills": ["security-review"], "environment": "isolated_worktree", "policy": "strict", "review_policy": "independent_provider", "reason": "Independent provider validates the combined artifact"},
+                        "estimate": {"cost_usd_min": 1, "cost_usd_max": 3, "duration_minutes_min": 8, "duration_minutes_max": 18, "confidence": "low", "basis": "Small independent review cohort"},
                     },
                 ],
-            },
         }
     )
     mapping = store.epics.create_task_batch(epic["id"], epic["plan"]["tasks"])
@@ -404,14 +430,19 @@ def seed(state_dir: Path, project: Path) -> RunStore:
             "operator",
             {"message": "Keep the browser retry contract visible and run the Chromium checkout scenario before review."},
         )
-    store.epics.create(
+    release_epic = store.epics.create(
         {
             "title": "Durable release delivery",
             "description": "Make release publication retry-safe and independently verifiable.",
             "project_path": str(project),
-            "status": "proposed",
+            "status": "planning",
             "evidence_class": "demo",
-            "plan": {
+            "source_documents": [{"kind": "milestone", "path": "odysseus://demo/release", "title": "Durable release milestone", "content": "Record publication intent before external effects.\n\nReconcile interrupted effects without duplicates.\n\nVerify artifact and receipt lineage independently."}],
+        }
+    )
+    store.epics.save_plan(
+        release_epic["id"],
+        {
                 "summary": "Record publication intent before the external effect, then reconcile and verify the receipt.",
                 "tasks": [
                     {
@@ -424,6 +455,9 @@ def seed(state_dir: Path, project: Path) -> RunStore:
                         "lane": "codex",
                         "review_lane": "claude",
                         "project_path": str(project),
+                        "source_refs": ["S1"],
+                        "execution_profile": {"mode": "auto", "harness": "auto", "environment": "isolated_worktree", "policy": "standard", "reason": "Auto routes durable backend work from repository outcomes"},
+                        "estimate": {"cost_usd_min": 1, "cost_usd_max": 3, "duration_minutes_min": 8, "duration_minutes_max": 18, "confidence": "low", "basis": "Small comparable durability cohort"},
                     },
                     {
                         "task_key": "release-reconcile",
@@ -435,6 +469,9 @@ def seed(state_dir: Path, project: Path) -> RunStore:
                         "lane": "codex",
                         "review_lane": "claude",
                         "project_path": str(project),
+                        "source_refs": ["S2"],
+                        "execution_profile": {"mode": "auto", "harness": "auto", "environment": "isolated_worktree", "policy": "standard", "reason": "Auto routes recovery work from repository outcomes"},
+                        "estimate": {"cost_usd_min": 1, "cost_usd_max": 4, "duration_minutes_min": 10, "duration_minutes_max": 25, "confidence": "low", "basis": "Small comparable recovery cohort"},
                     },
                     {
                         "task_key": "release-proof",
@@ -446,9 +483,11 @@ def seed(state_dir: Path, project: Path) -> RunStore:
                         "lane": "claude",
                         "review_lane": "codex",
                         "project_path": str(project),
+                        "source_refs": ["S3"],
+                        "execution_profile": {"mode": "auto", "harness": "auto", "environment": "isolated_worktree", "policy": "strict", "review_policy": "independent_provider", "reason": "Independent validation is selected separately from implementation"},
+                        "estimate": {"cost_usd_min": 1, "cost_usd_max": 2, "duration_minutes_min": 6, "duration_minutes_max": 14, "confidence": "low", "basis": "Small independent review cohort"},
                     },
                 ],
-            },
         }
     )
     return store

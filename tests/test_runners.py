@@ -46,11 +46,13 @@ class RunnerTests(unittest.TestCase):
 
     def test_builtin_review_modes_are_read_only(self) -> None:
         runner = AgentRunner()
-        codex = runner.command("codex", Path("/tmp/worktree"), "review", review=True)
-        claude = runner.command("claude", Path("/tmp/worktree"), "review", review=True)
+        codex = runner.command("codex", Path("/tmp/worktree"), "review", review=True, model="gpt-test")
+        claude = runner.command("claude", Path("/tmp/worktree"), "review", review=True, model="claude-test")
 
         self.assertEqual(codex[codex.index("--sandbox") + 1], "read-only")
+        self.assertEqual(codex[codex.index("--model") + 1], "gpt-test")
         self.assertEqual(claude[claude.index("--permission-mode") + 1], "plan")
+        self.assertEqual(claude[claude.index("--model") + 1], "claude-test")
 
     def test_codex_resume_and_typed_telemetry(self) -> None:
         runner = AgentRunner()

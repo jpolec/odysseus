@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .epics import EpicStore, VALID_ROLES
+from .events import now_iso
 from .runners import AgentRunner, ProcessResult
 
 
@@ -37,6 +38,7 @@ class EpicPlanner:
         default_review_lane: str = "",
         checks: list[str] | None = None,
         source_documents: list[Mapping[str, Any]] | None = None,
+        source_kind: str = "user_request",
     ) -> dict[str, Any]:
         requirement = requirement.strip()
         if not requirement:
@@ -48,6 +50,16 @@ class EpicPlanner:
         planner_lane = lane or str(config.get("planner_lane") or config["default_lane"])
         implementation_lane = default_task_lane or str(config["default_lane"])
         reviewer_lane = default_review_lane or str(config.get("review_lane") or implementation_lane)
+        sources = list(source_documents or [])
+        if not sources:
+            sources = [
+                {
+                    "kind": source_kind or "user_request",
+                    "path": "odysseus://user-request",
+                    "title": title.strip() or "Submitted requirement",
+                    "content": requirement,
+                }
+            ]
         epic = self.epics.create(
             {
                 "title": title.strip() or requirement.splitlines()[0][:100],
@@ -55,7 +67,7 @@ class EpicPlanner:
                 "project_path": str(project),
                 "planner_lane": planner_lane,
                 "status": "planning",
-                "source_documents": list(source_documents or []),
+                "source_documents": sources,
             }
         )
         planner_events: list[dict[str, Any]] = []
@@ -69,7 +81,13 @@ class EpicPlanner:
         result = self.agent_runner.run(
             planner_lane,
             project,
-            self._prompt(requirement, implementation_lane, reviewer_lane, checks or [], source_documents or []),
+            self._prompt(
+                requirement,
+                implementation_lane,
+                reviewer_lane,
+                checks or [],
+                epic.get("source_documents") or [],
+            ),
             review=True,
             emit=emit,
             cancelled=lambda: False,
@@ -90,14 +108,11 @@ class EpicPlanner:
             default_review_lane=reviewer_lane,
             default_checks=checks or [],
         )
-        return self.epics.update(
-            epic["id"],
-            status="proposed",
-            plan=proposal,
-            planner_session_id=result.session_id,
-            planner_events=planner_events,
-            planner_error="",
+        self.epics.update(
+            epic["id"], planner_session_id=result.session_id, planner_events=planner_events, planner_error=""
         )
+        return self.epics.save_plan(epic["id"], proposal)
+
     def approve(self, epic_id: str) -> dict[str, Any]:
         epic = self.epics.get(epic_id)
         if epic.get("status") != "proposed":
@@ -105,12 +120,26 @@ class EpicPlanner:
         plan = epic.get("plan")
         if not isinstance(plan, dict) or not isinstance(plan.get("tasks"), list):
             raise ValueError("epic has no valid task proposal")
+        impact = self.epics.source_impact(epic_id)
+        if impact["requires_reapproval"]:
+            affected = ", ".join(impact["affected_task_keys"])
+            raise ValueError(f"source changed; review affected tasks before approval: {affected}")
+        version = epic.get("plan_version") if isinstance(epic.get("plan_version"), dict) else {}
+        if not version:
+            # Backward compatibility: proposals created before PlanVersion
+            # existed are frozen once at the approval boundary. They still
+            # receive the same immutable contract binding before any run is
+            # materialized.
+            epic = self.epics.save_plan(epic_id, plan)
+            plan = epic["plan"]
+            version = epic.get("plan_version") if isinstance(epic.get("plan_version"), dict) else {}
         mapping = self.epics.create_task_batch(epic_id, plan["tasks"])
         return self.epics.update(
             epic_id,
             status="active",
             approved=True,
             task_run_ids=mapping,
+            plan_version={**version, "status": "approved", "approved_at": now_iso()},
         )
 
     @classmethod
@@ -167,12 +196,26 @@ class EpicPlanner:
                     "title": title,
                     "task": task,
                     "role": role,
+                    "outcome": str(raw.get("outcome") or raw.get("intended_outcome") or title),
+                    "source_refs": raw.get("source_refs") or [],
+                    "acceptance_criteria": raw.get("acceptance_criteria") or [],
+                    "required_evidence": raw.get("required_evidence") or raw_checks,
                     "depends_on": depends_on,
                     "parallelizable": bool(raw.get("parallelizable", True)),
                     "lane": str(raw.get("lane") or default_lane),
                     "review_lane": str(raw.get("review_lane") or default_review_lane),
                     "project_path": project_path,
                     "checks": list(raw_checks),
+                    "execution_profile": raw.get("execution_profile") or {
+                        "mode": "auto",
+                        "harness": "auto",
+                        "review_lane": default_review_lane,
+                        "reason": "Auto will select from repository evidence",
+                    },
+                    "estimate": raw.get("estimate") or {
+                        "confidence": "unknown",
+                        "basis": "No calibrated repository estimate yet",
+                    },
                 }
             )
         unknown = sorted({dep for task in tasks for dep in task["depends_on"]} - keys)
@@ -195,10 +238,16 @@ class EpicPlanner:
         if source_documents:
             documents = []
             for source in source_documents:
+                sections = source.get("sections") or []
+                rendered = "\n".join(
+                    f"[{section.get('ref')}] {section.get('text')}"
+                    for section in sections
+                    if isinstance(section, Mapping)
+                )
                 documents.append(
                     f"SOURCE {source.get('path') or source.get('title') or 'decision'}\n"
                     f"SHA256: {source.get('sha256') or ''}\n"
-                    f"{str(source.get('content') or '')[:80_000]}"
+                    f"{rendered or str(source.get('content') or '')[:80_000]}"
                 )
             source_context = "\n\nSelected architecture decisions (treat as auditable requirements):\n\n" + "\n\n".join(documents)
         return (
@@ -208,10 +257,18 @@ class EpicPlanner:
             "implementation, integration, and independent review when the work warrants it. Avoid artificial "
             "parallelism when tasks will modify the same semantic surface. Finish with exactly one single-line "
             f"{PLAN_MARKER} JSON object. The object schema is: "
-            '{"summary":"...","tasks":[{"task_key":"stable-key","title":"...",'
-            '"task":"complete implementation instruction","role":"implementer|reviewer",'
+            '{"summary":"...","constraints":["global invariant"],"tasks":[{"task_key":"stable-key","title":"...",'
+            '"outcome":"finished state","task":"complete editable implementation instruction",'
+            '"source_refs":["S1"],"acceptance_criteria":["observable criterion"],'
+            '"required_evidence":["test or review evidence"],"role":"implementer|reviewer",'
             '"depends_on":["other-key"],"parallelizable":true,"lane":"optional",'
-            '"review_lane":"optional","checks":["optional command"]}]}. '
+            '"review_lane":"optional","checks":["optional command"],'
+            '"execution_profile":{"mode":"auto","harness":"auto","model":"",'
+            '"skills":[],"environment":"isolated_worktree","policy":"standard",'
+            '"review_policy":"independent_review","review_lane":"optional","review_model":"",'
+            '"reason":"why this profile fits"},'
+            '"estimate":{"cost_usd_min":null,"cost_usd_max":null,"duration_minutes_min":null,'
+            '"duration_minutes_max":null,"confidence":"unknown","basis":"historical basis or unavailable"}}]}. '
             "Do not wrap that final JSON in a Markdown fence. Planner is a role, not an implementation task.\n\n"
             f"Default implementation lane: {default_lane}\n"
             f"Default independent review lane: {default_review_lane}\n"

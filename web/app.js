@@ -21,6 +21,7 @@ const state = {
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
   assistantOpen: false, helpOpen: false, activityFocus: false, activityWide: true,
   selectedDecisionPaths: [],
+  planStudio: null, planStudioTaskKey: "", planStudioDirty: false,
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
 
@@ -160,7 +161,7 @@ function formatDuration(seconds) {
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 function runElapsedSeconds(run) {
-  const start = new Date(run?.started_at || run?.created_at || "").getTime();
+  const start = new Date(run?.started_at || "").getTime();
   if (!Number.isFinite(start)) return null;
   const terminal = !activeStatuses.has(run?.status);
   const endValue = run?.finished_at || run?.artifact_created_at || (terminal ? run?.updated_at : "");
@@ -1509,8 +1510,8 @@ function renderDetail(run) {
   $("#detailTitle").textContent = discovered?.title || discovered?.window_name || runTitle(run);
   $("#detailAgent").textContent = `Agent ${run.lane || "—"}`;
   $("#detailStage").textContent = `Stage ${statusLabel(run.stage || run.status)}`;
-  $("#detailElapsed").textContent = `Time ${formatDuration(runElapsedSeconds(run))}`;
-  $("#detailElapsed").title = "Total elapsed task time";
+  $("#detailElapsed").textContent = `Wall ${formatDuration(runElapsedSeconds(run))}`;
+  $("#detailElapsed").title = run.started_at ? "Wall-clock time from execution start; queue time excluded" : "Execution has not started; queue time is excluded";
   $("#detailCost").textContent = `Cost ${run.metrics?.cost_observed ? compactMoney(run.metrics.cost_usd) : "—"}`;
   $("#detailCost").title = run.metrics?.cost_observed ? "Total observed provider cost" : "Total provider cost not observed";
   $("#detailTask").textContent = interactive ? `Existing ${run.lane} session in tmux ${discovered?.tmux_session || run.tmux_session || "—"}${(discovered?.tmux_target || run.tmux_target) ? `, pane ${discovered?.tmux_target || run.tmux_target}` : ""}.` : run.task;
@@ -1526,13 +1527,18 @@ function renderDetail(run) {
   $("#metrics").classList.toggle("hidden", interactive);
   $("#detailGrid").classList.toggle("hidden", interactive);
   const metrics = run.metrics || {};
-  const observedTokens = Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0);
+  const modelTokens = Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0);
+  const cacheReadTokens = Number(metrics.cached_input_tokens || 0);
+  const billableObserved = metrics.billable_tokens_observed === true || metrics.billable_tokens !== undefined;
+  const billableTokens = billableObserved ? Number(metrics.billable_tokens || 0) : null;
   const tokenLimit = Number(run.budgets?.max_tokens || 0);
-  const tokenLabel = tokenLimit ? `${compactNumber(observedTokens)} / ${compactNumber(tokenLimit)}` : compactNumber(observedTokens);
+  const tokenLabel = tokenLimit ? `${compactNumber(modelTokens)} / ${compactNumber(tokenLimit)}` : compactNumber(modelTokens);
   const strength = evidenceStrength(run.confidence);
   $("#metrics").innerHTML = [
-    ["Tokens", tokenLabel, tokenLimit && observedTokens >= tokenLimit * .8 ? "budget-warning" : ""],
-    ["Cost", metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown],
+    ["Model tokens", tokenLabel, tokenLimit && modelTokens >= tokenLimit * .8 ? "budget-warning" : ""],
+    ["Cache read", cacheReadTokens ? compactNumber(cacheReadTokens) : UI_COPY.notObserved],
+    ["Billable tokens", billableTokens === null ? UI_COPY.unknown : compactNumber(billableTokens)],
+    ["Actual cost", metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown],
     ["Evidence strength", strength.label, `evidence-${strength.tone}`],
     ["GitHub CI", run.ci?.status || "not started"],
   ].map(([label, value, tone = ""]) => `<div class="metric ${tone}"><small>${label}</small><strong>${escapeHtml(value)}</strong></div>`).join("");
@@ -1543,8 +1549,9 @@ function renderDetail(run) {
   }
   const executionFacts = [
     statusLabel(run.stage || run.status),
-    `Tokens ${observedTokens ? compactNumber(observedTokens) : UI_COPY.notObserved}`,
-    `Cost ${metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown}`,
+    `Model tokens ${modelTokens ? compactNumber(modelTokens) : UI_COPY.notObserved}`,
+    `Cache ${cacheReadTokens ? compactNumber(cacheReadTokens) : UI_COPY.notObserved}`,
+    `Actual cost ${metrics.cost_observed ? `$${Number(metrics.cost_usd || 0).toFixed(4)}` : UI_COPY.unknown}`,
     `CI ${statusLabel(run.ci?.status || "not started")}`,
   ];
   $("#executionDetailsSummary").textContent = executionFacts.join(" · ");
@@ -2135,11 +2142,21 @@ function activityPhaseDurations(events) {
 function renderActivitySummary() {
   const run = state.selected || {};
   const phases = activityPhaseDurations(state.eventsLoadedRunId === state.selectedId ? state.events : []);
+  const metrics = run.metrics || {};
+  const activeCompute = Object.entries(phases.totals).reduce((sum, [phase, seconds]) => sum + (phases.observed[phase] ? seconds : 0), 0);
+  const hasActiveCompute = Object.values(phases.observed).some(Boolean);
+  const modelTokens = Number(metrics.input_tokens || 0) + Number(metrics.output_tokens || 0);
+  const cacheTokens = Number(metrics.cached_input_tokens || 0);
+  const billableObserved = metrics.billable_tokens_observed === true || metrics.billable_tokens !== undefined;
   const items = [
-    ["Total", formatDuration(runElapsedSeconds(run)), "Task start to finish"],
+    ["Wall clock", formatDuration(runElapsedSeconds(run)), "Execution start to finish; queue time excluded"],
+    ["Active compute", hasActiveCompute ? formatDuration(activeCompute) : "—", "Observed agent, checks, and review phases"],
     ["Agent", phases.observed.agent ? formatDuration(phases.totals.agent) : "—", "Observed worker execution"],
     ["Checks", phases.observed.check ? formatDuration(phases.totals.check) : "—", "Observed verification"],
     ["Review", phases.observed.review ? formatDuration(phases.totals.review) : "—", "Observed independent review"],
+    ["Model tokens", modelTokens ? compactNumber(modelTokens) : "—", "Provider input plus output tokens"],
+    ["Cache read", cacheTokens ? compactNumber(cacheTokens) : "—", "Provider-reported cached input tokens"],
+    ["Billable", billableObserved ? compactNumber(metrics.billable_tokens || 0) : "—", "Only shown when the provider reports billable tokens"],
     ["Total cost", run.metrics?.cost_observed ? compactMoney(run.metrics.cost_usd) : "—", run.metrics?.cost_observed ? "Observed provider cost" : "Provider cost not observed"],
   ];
   $("#activitySummary").innerHTML = items.map(([label, value, title]) => `<span title="${escapeHtml(title)}"><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong></span>`).join("");
@@ -2461,6 +2478,12 @@ function canTakeover(run = state.selected) {
 
 function controlledRecovery(run) {
   const error = String(run?.last_error || run?.delivery?.error || "");
+  if (run?.failure?.class === "agent_version_incompatible") {
+    return {label: "AGENT VERSION", title: run.failure.title, copy: `${run.failure.message} ${run.failure.action}`, prompt: "Retry this preserved task with a model supported by the installed agent CLI. Do not redo completed work.", action: "Retry compatibly"};
+  }
+  if (run?.failure?.class === "mcp_authentication") {
+    return {label: "MCP AUTHENTICATION", title: run.failure.title, copy: `${run.failure.message} ${run.failure.action}`, prompt: "Continue the preserved task without the unavailable MCP integration if it is optional; otherwise state the exact authentication step required.", action: "Retry after reconnect"};
+  }
   if (/(?:\.git\/worktrees|index\.lock|gitdir|outside the writable sandbox).*(?:operation not permitted|permission denied)|(?:operation not permitted|permission denied).*(?:\.git\/worktrees|index\.lock|gitdir)/i.test(error)) {
     return {
       label: "GIT WORKTREE ACCESS",
@@ -2830,6 +2853,146 @@ function planGraphIntelligence(epic, linkedRuns, plannedTasks) {
   return {criticalStages, peakParallel, humanGates, conflictRisks, budgetTokens, budgetCost};
 }
 
+function planEstimateLabel(task) {
+  const estimate = task?.estimate || {};
+  const min = Number(estimate.cost_usd_min);
+  const max = Number(estimate.cost_usd_max);
+  const hasMin = estimate.cost_usd_min !== null && estimate.cost_usd_min !== undefined && Number.isFinite(min);
+  const hasMax = estimate.cost_usd_max !== null && estimate.cost_usd_max !== undefined && Number.isFinite(max);
+  if (!hasMin && !hasMax) return "Cost not estimated";
+  const range = hasMin && hasMax ? `$${min.toFixed(2)}–$${max.toFixed(2)}` : hasMax ? `up to $${max.toFixed(2)}` : `from $${min.toFixed(2)}`;
+  return `${range} · ${escapeHtml(estimate.confidence || "unknown")} confidence`;
+}
+
+function planStudioTask() {
+  return state.planStudio?.plan?.tasks?.find((task) => task.task_key === state.planStudioTaskKey) || null;
+}
+
+function planStudioNumber(value) {
+  return value === "" || value === null || value === undefined ? null : Number(value);
+}
+
+function updatePlanStudioTaskFromEditor() {
+  const task = planStudioTask();
+  const form = $("#planStudioEditor");
+  if (!task || !form) return;
+  const data = new FormData(form);
+  task.title = String(data.get("title") || "").trim();
+  task.outcome = String(data.get("outcome") || "").trim();
+  task.task = String(data.get("task") || "").trim();
+  task.acceptance_criteria = String(data.get("acceptance_criteria") || "").split("\n").map((item) => item.trim()).filter(Boolean);
+  task.required_evidence = String(data.get("required_evidence") || "").split("\n").map((item) => item.trim()).filter(Boolean);
+  task.depends_on = [...form.elements.depends_on.selectedOptions].map((option) => option.value);
+  task.execution_profile = {
+    ...(task.execution_profile || {}), version: "execution-profile-v1",
+    mode: String(data.get("profile_mode") || "auto"), harness: String(data.get("harness") || "auto"),
+    model: String(data.get("model") || "").trim(),
+    environment: String(data.get("environment") || "isolated_worktree"),
+    policy: String(data.get("policy") || "standard").trim(),
+    skills: String(data.get("skills") || "").split(",").map((item) => item.trim()).filter(Boolean),
+    review_lane: String(data.get("review_lane") || "auto"),
+    review_model: String(data.get("review_model") || "").trim(),
+    reason: String(data.get("profile_reason") || "").trim(),
+  };
+  task.estimate = {
+    ...(task.estimate || {}), version: "task-estimate-v1",
+    cost_usd_min: planStudioNumber(data.get("cost_min")), cost_usd_max: planStudioNumber(data.get("cost_max")),
+    duration_minutes_min: planStudioNumber(data.get("duration_min")), duration_minutes_max: planStudioNumber(data.get("duration_max")),
+    confidence: String(data.get("estimate_confidence") || "unknown"), basis: String(data.get("estimate_basis") || "").trim(),
+  };
+  state.planStudioDirty = true;
+  $("#planStudioSave").textContent = "Save draft · unsaved";
+}
+
+function renderPlanStudio() {
+  const epic = state.planStudio;
+  if (!epic) return;
+  const tasks = epic.plan?.tasks || [];
+  if (!tasks.some((task) => task.task_key === state.planStudioTaskKey)) state.planStudioTaskKey = tasks[0]?.task_key || "";
+  const selected = planStudioTask();
+  const sourceIndex = Math.min(Number(epic._sourceIndex || 0), Math.max(0, (epic.source_documents || []).length - 1));
+  const source = (epic.source_documents || [])[sourceIndex];
+  const version = epic.plan_version || {};
+  const locked = Boolean(epic.approved);
+  $("#planStudioTitle").textContent = epic.title || "Review plan";
+  $("#planStudioSummary").textContent = epic.plan?.summary || "Review requirements, task contracts, evidence and execution profiles.";
+  $("#planStudioVersion").textContent = version.id ? `v${version.number} · ${String(version.sha256 || "").slice(0, 8)}` : locked ? "Legacy approved plan" : "Unsaved draft";
+  $("#planStudioSave").classList.toggle("hidden", locked);
+  $("#planStudioApprove").classList.toggle("hidden", locked);
+  $("#planStudioSourceCount").textContent = `${(epic.source_documents || []).length} source${(epic.source_documents || []).length === 1 ? "" : "s"}`;
+  const estimated = tasks.filter((task) => task.estimate?.cost_usd_min !== null && task.estimate?.cost_usd_min !== undefined && task.estimate?.cost_usd_max !== null && task.estimate?.cost_usd_max !== undefined);
+  const totalMin = estimated.reduce((sum, task) => sum + Number(task.estimate.cost_usd_min), 0);
+  const totalMax = estimated.reduce((sum, task) => sum + Number(task.estimate.cost_usd_max), 0);
+  $("#planStudioEstimate").textContent = estimated.length ? `$${totalMin.toFixed(2)}–$${totalMax.toFixed(2)} · ${estimated.length}/${tasks.length} tasks estimated` : "Cost unknown · no calibrated history";
+  const impact = epic.source_impact || {status: "current", affected_task_keys: []};
+  $("#planStudioImpact").classList.toggle("hidden", impact.status !== "changed");
+  $("#planStudioImpact").innerHTML = impact.status === "changed" ? `<strong>Source changed</strong><span>${impact.affected_task_keys?.length ? `${escapeHtml(impact.affected_task_keys.join(", "))} require review.` : "No linked task contract is affected."}</span>${locked ? "" : `<button class="ghost" id="planStudioRefreshSources" type="button">Freeze current source</button>`}` : "";
+  $("#planStudioSourceTabs").innerHTML = (epic.source_documents || []).map((item, index) => `<button class="${index === sourceIndex ? "active" : ""}" data-plan-source="${index}" type="button"><span>${escapeHtml(item.kind || "source")}</span><strong>${escapeHtml(item.title || item.path)}</strong></button>`).join("");
+  const linkedRefs = new Set(selected?.source_refs || []);
+  $("#planStudioSourceSections").innerHTML = source ? (source.sections || []).map((section) => `<button class="plan-source-section ${linkedRefs.has(section.ref) ? "linked" : ""}" data-source-ref="${escapeHtml(section.ref)}" type="button" ${locked ? "disabled" : ""}><span>${escapeHtml(section.ref)}</span><p>${escapeHtml(section.text)}</p>${linkedRefs.has(section.ref) ? `<em>Used by ${escapeHtml(selected.task_key)}</em>` : ""}</button>`).join("") : `<div class="empty-list">No frozen source content.</div>`;
+  $("#planStudioTaskList").innerHTML = tasks.map((task, index) => `<button class="plan-task-card ${task.task_key === state.planStudioTaskKey ? "active" : ""}" data-plan-task="${escapeHtml(task.task_key)}" type="button"><span>T${index + 1}</span><div><strong>${escapeHtml(task.title || task.task_key)}</strong><small>${escapeHtml(task.outcome || "Finished outcome not specified")}</small><em>${escapeHtml(task.execution_profile?.mode === "override" ? `${task.execution_profile.harness || "manual"} override` : `Auto · ${task.execution_profile?.reason || "routing at execution"}`)} · ${task.source_refs?.length || 0} source links</em></div><b>${planEstimateLabel(task)}</b></button>`).join("");
+
+  const form = $("#planStudioEditor");
+  form.classList.toggle("hidden", !selected);
+  if (selected) {
+    form.elements.title.value = selected.title || "";
+    form.elements.task_key.value = selected.task_key || "";
+    form.elements.outcome.value = selected.outcome || "";
+    form.elements.task.value = selected.task || "";
+    form.elements.acceptance_criteria.value = (selected.acceptance_criteria || []).join("\n");
+    form.elements.required_evidence.value = (selected.required_evidence || []).join("\n");
+    form.elements.profile_mode.value = selected.execution_profile?.mode || "auto";
+    form.elements.harness.value = ["auto", "codex", "claude"].includes(selected.execution_profile?.harness) ? selected.execution_profile.harness : "auto";
+    form.elements.model.value = selected.execution_profile?.model || "";
+    form.elements.environment.value = ["isolated_worktree", "host", "docker", "devcontainer"].includes(selected.execution_profile?.environment) ? selected.execution_profile.environment : "isolated_worktree";
+    form.elements.policy.value = selected.execution_profile?.policy || "standard";
+    form.elements.skills.value = (selected.execution_profile?.skills || []).join(", ");
+    form.elements.review_lane.value = ["auto", "codex", "claude"].includes(selected.execution_profile?.review_lane) ? selected.execution_profile.review_lane : "auto";
+    form.elements.review_model.value = selected.execution_profile?.review_model || "";
+    form.elements.profile_reason.value = selected.execution_profile?.reason || "Auto will select from repository evidence";
+    form.elements.depends_on.innerHTML = tasks.filter((task) => task.task_key !== selected.task_key).map((task) => `<option value="${escapeHtml(task.task_key)}" ${(selected.depends_on || []).includes(task.task_key) ? "selected" : ""}>${escapeHtml(task.title || task.task_key)}</option>`).join("");
+    form.elements.cost_min.value = selected.estimate?.cost_usd_min ?? ""; form.elements.cost_max.value = selected.estimate?.cost_usd_max ?? "";
+    form.elements.duration_min.value = selected.estimate?.duration_minutes_min ?? ""; form.elements.duration_max.value = selected.estimate?.duration_minutes_max ?? "";
+    form.elements.estimate_confidence.value = selected.estimate?.confidence || "unknown"; form.elements.estimate_basis.value = selected.estimate?.basis || "No calibrated repository estimate yet";
+    [...form.elements].forEach((control) => { control.disabled = locked; });
+  }
+  $("#planStudioGraph").innerHTML = renderEpicGraph(epic);
+  const dependencies = tasks.reduce((sum, task) => sum + (task.depends_on || []).length, 0);
+  $("#planStudioGraphMeta").textContent = `${tasks.length} tasks · ${dependencies} dependencies`;
+  $$('[data-plan-source]').forEach((button) => button.addEventListener("click", () => { epic._sourceIndex = Number(button.dataset.planSource); renderPlanStudio(); }));
+  $$('[data-plan-task]').forEach((button) => button.addEventListener("click", () => { state.planStudioTaskKey = button.dataset.planTask; renderPlanStudio(); }));
+  $$('[data-source-ref]').forEach((button) => button.addEventListener("click", () => {
+    if (!selected || locked) return;
+    const refs = new Set(selected.source_refs || []); const ref = button.dataset.sourceRef;
+    if (refs.has(ref)) refs.delete(ref); else refs.add(ref);
+    selected.source_refs = [...refs]; state.planStudioDirty = true; renderPlanStudio();
+  }));
+  $("#planStudioRefreshSources")?.addEventListener("click", async () => {
+    try {
+      state.planStudio = await api(`/api/epics/${encodeURIComponent(epic.id)}/refresh-sources`, {method: "POST", body: "{}"});
+      state.planStudioDirty = true; $("#planStudioSave").textContent = "Save draft · source updated"; renderPlanStudio();
+    } catch (error) { toast(error.message, true); }
+  });
+}
+
+async function openPlanStudio(epicId) {
+  state.planStudio = await api(`/api/epics/${encodeURIComponent(epicId)}`);
+  state.planStudioTaskKey = state.planStudio.plan?.tasks?.[0]?.task_key || "";
+  state.planStudioDirty = false;
+  $("#planStudioSave").textContent = "Save draft";
+  renderPlanStudio();
+  $("#planStudioDialog").showModal();
+}
+
+async function savePlanStudio() {
+  if (!state.planStudio) return;
+  updatePlanStudioTaskFromEditor();
+  const saved = await api(`/api/epics/${encodeURIComponent(state.planStudio.id)}/plan`, {method: "POST", body: JSON.stringify({plan: state.planStudio.plan})});
+  state.planStudio = saved;
+  state.planStudioDirty = false; $("#planStudioSave").textContent = "Save draft"; renderPlanStudio();
+  toast("Plan draft saved as a new immutable version.");
+}
+
 async function refreshEpics() {
   state.epics = (await api("/api/epics")).epics;
   $("#epicNavCount").textContent = state.epics.filter((epic) => ["planning", "proposed", "active"].includes(epic.status)).length || "";
@@ -2860,14 +3023,10 @@ async function refreshEpics() {
         <summary><span><strong>${epic.status === "proposed" ? "Review execution graph" : "Execution graph"}</strong><small>${dependencyCount} dependenc${dependencyCount === 1 ? "y" : "ies"} · ${intelligence.criticalStages || "—"} critical-path stages · up to ${intelligence.peakParallel || "—"} parallel</small></span><span>${epic.status === "proposed" ? "Approval required" : "Open graph"}</span></summary>
         <div class="epic-graph-content">${sourceLine}${graph}</div>
       </details>
-      <div class="card-actions">${epic.status === "proposed" ? `<button class="primary" data-approve-epic="${escapeHtml(epic.id)}" type="button">Approve and start</button>` : ""}${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
+      <div class="card-actions"><button class="${epic.status === "proposed" ? "primary" : "ghost"}" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">${epic.status === "proposed" ? "Review plan contract" : "Open plan contract"}</button>${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
     </article>`;
   }).join("") : `<div class="empty-card">No plans yet.</div>`;
-  $$('[data-approve-epic]').forEach((button) => button.addEventListener("click", async () => {
-    const approved = await confirmChoice({eyebrow: "START A TASK PLAN", title: "Approve this plan?", lead: "Every dependency-ready root task will start.", message: "Review the task graph first. Dependent tasks remain blocked until their predecessors produce accepted artifacts.", confirmLabel: "Approve and start"});
-    if (!approved) return;
-    try { await api(`/api/epics/${encodeURIComponent(button.dataset.approveEpic)}/approve`, {method: "POST", body: "{}"}); toast("Plan approved. Ready tasks are waiting to start."); await Promise.all([refreshEpics(), refreshRuns()]); } catch (error) { toast(error.message, true); }
-  }));
+  $$('[data-open-plan-studio]').forEach((button) => button.addEventListener("click", () => openPlanStudio(button.dataset.openPlanStudio).catch((error) => toast(error.message, true))));
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
 }
 
@@ -3389,7 +3548,28 @@ function bindDialogs() {
   });
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => openEpicDialog()));
   $("#planSelectedDecisions").addEventListener("click", () => openEpicDialog(state.selectedDecisionPaths));
-  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById($("#epicProjectSelect").value); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), project_id: project.id, project_path: project.path, source_paths: [...state.selectedDecisionPaths], planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); state.selectedDecisionPaths = []; toast("Task graph proposed. Review it before approving any work."); await Promise.all([refreshEpics(), refreshProjectOverview()]); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
+  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById($("#epicProjectSelect").value); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), source_kind: data.get("source_kind"), project_id: project.id, project_path: project.path, source_paths: [...state.selectedDecisionPaths], planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); state.selectedDecisionPaths = []; toast("Task graph proposed. Review it before approving any work."); await Promise.all([refreshEpics(), refreshProjectOverview()]); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
+  $("#planStudioClose").addEventListener("click", () => $("#planStudioDialog").close());
+  $("#planStudioEditor").addEventListener("input", updatePlanStudioTaskFromEditor);
+  $("#planStudioEditor").addEventListener("change", updatePlanStudioTaskFromEditor);
+  $("#planStudioSave").addEventListener("click", async () => {
+    try { $("#planStudioSave").disabled = true; await savePlanStudio(); await refreshEpics(); }
+    catch (error) { toast(error.message, true); }
+    finally { $("#planStudioSave").disabled = false; }
+  });
+  $("#planStudioApprove").addEventListener("click", async () => {
+    if (!state.planStudio) return;
+    const approved = await confirmChoice({eyebrow: "FREEZE EXECUTION CONTRACT", title: "Approve this exact plan version?", lead: "Dependency-ready root tasks will start.", message: "The source links, prompts, profiles, criteria and required evidence are frozen for this version. Push, PR and integration still use their existing safety gates.", confirmLabel: "Approve & start"});
+    if (!approved) return;
+    try {
+      $("#planStudioApprove").disabled = true;
+      if (state.planStudioDirty) await savePlanStudio();
+      await api(`/api/epics/${encodeURIComponent(state.planStudio.id)}/approve`, {method: "POST", body: "{}"});
+      $("#planStudioDialog").close(); toast("Execution contract approved. Ready tasks are queued.");
+      await Promise.all([refreshEpics(), refreshRuns()]);
+    } catch (error) { toast(error.message, true); }
+    finally { $("#planStudioApprove").disabled = false; }
+  });
   $("#feedbackForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const data = new FormData(event.currentTarget); const prompt = data.get("feedback"); const strategy = data.get("strategy"); try { await api(`/api/runs/${encodeURIComponent(state.selectedId)}/resume`, {method: "POST", body: JSON.stringify({prompt, strategy, lane: data.get("lane")})}); $("#feedbackDialog").close(); event.currentTarget.reset(); toast(strategy === "resume" ? "Existing agent session is waiting to continue." : strategy === "switch" ? "Branch handed to the selected lane." : "Clean-context attempt is waiting on the same branch."); await refreshRuns(); await refreshSelected(); } catch (error) { toast(error.message, true); } });
   $("#integrationForm").addEventListener("submit", submitIntegrationDisposition);
   $("#attentionResponseForm").addEventListener("submit", async (event) => {
@@ -3564,6 +3744,7 @@ async function init() {
     if (requestedSection === "activity" && params.get("focus") === "0") setActivityFocus(false);
     const requestedTab = params.get("tab"); if (["diff", "integration", "checks", "context", "review", "evaluation", "ci"].includes(requestedTab)) activateTab(requestedTab);
     const requestedDialog = params.get("dialog"); if (requestedDialog === "task") openTaskDialog({prompt: params.get("prompt") || "", projectId: preferredProjectId()}); else if (requestedDialog === "epic") $("#newEpicButton").click();
+    const requestedPlan = params.get("plan"); if (requestedPlan && state.epics.some((epic) => epic.id === requestedPlan)) await openPlanStudio(requestedPlan);
     if (params.get("help") === "1") toggleHelp(true);
     setConnection(true);
     if (params.get("browser-regression") === "1" && state.bootstrap?.test_capabilities?.browser_regression === true) runBrowserRegression().catch((error) => {
@@ -3669,6 +3850,19 @@ async function runBrowserRegression() {
     assert($("#repositoryGantt .gantt-track"), "repository timeline uses CSP-safe SVG geometry");
   }
 
+  setView("epics");
+  const proposedContract = state.epics.find((epic) => epic.status === "proposed");
+  if (proposedContract) {
+    await openPlanStudio(proposedContract.id);
+    assert($("#planStudioDialog").open, "versioned execution contract opens from Plans");
+    assert($$("#planStudioSourceSections .plan-source-section").length >= 1, "Plan Studio shows frozen source requirements");
+    assert($("#planStudioTaskList .plan-task-card"), "Plan Studio shows editable task contracts");
+    assert($("#planStudioEditor").textContent.includes("Acceptance criteria") && $("#planStudioEditor").textContent.includes("Execution profile"), "task contract exposes evidence and execution profile");
+    assert($("#planStudioEstimate").textContent.includes("Cost") || $("#planStudioEstimate").textContent.includes("$"), "Plan Studio states estimate coverage honestly");
+    assert($$("#planStudioGraph .dag-graph-node").length >= 1, "Plan Studio keeps the dependency graph visible");
+    $("#planStudioDialog").close();
+  }
+
   $("#newTaskButton").click();
   await sleep(50);
   assert($("#portfolioView").classList.contains("active"), "new task opens the shared home composer");
@@ -3695,9 +3889,9 @@ async function runBrowserRegression() {
   assert(!$(".detail-breadcrumb") && $(".task-context-bar"), "task context is one compact metadata row");
   assert($("#narrativeTitle").textContent === "Agent is working", "running task uses one-line progress");
   assert($("#narrativeCopy").textContent === "Progress appears in Activity.", "running task avoids essay");
-  assert($("#detailElapsed").textContent.startsWith("Time ") && $("#detailCost").textContent.startsWith("Cost "), "task heading exposes total time and cost");
+  assert($("#detailElapsed").textContent.startsWith("Wall ") && $("#detailCost").textContent.startsWith("Cost "), "task heading separates wall time and cost");
   assert(!$("#executionDetails").open, "execution telemetry starts folded");
-  assert($("#executionDetailsSummary").textContent.includes("Tokens") && $("#executionDetailsSummary").textContent.includes("CI"), "folded execution summary remains informative");
+  assert($("#executionDetails").textContent.includes("Forensic details") && $("#executionDetailsSummary").textContent.includes("Model tokens") && $("#executionDetailsSummary").textContent.includes("CI"), "folded forensic summary remains informative");
   assert($("#summaryAssistant").classList.contains("hidden"), "assistant hidden when no decision is needed");
   state.assistantOpen = true;
   renderDetail(running);

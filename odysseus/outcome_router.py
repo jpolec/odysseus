@@ -142,6 +142,10 @@ class OutcomeRouter:
             model = str(data.get("model") or "").strip()
             if model:
                 return model[:120]
+        profile = run.get("execution_profile") if isinstance(run.get("execution_profile"), Mapping) else {}
+        model = str(profile.get("model") or "").strip()
+        if model:
+            return model[:120]
         lane = str(run.get("lane") or "unknown")
         return "local-cli" if lane in {"codex", "claude"} else lane
 

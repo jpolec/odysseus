@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,10 +57,16 @@ class PlannerTests(unittest.TestCase):
             )
 
             self.assertEqual(proposal["status"], "proposed")
+            self.assertEqual(proposal["plan_version"]["number"], 1)
+            self.assertTrue(proposal["plan_version"]["sha256"])
             self.assertIn("read-only Planner role", runner.prompt)
             self.assertIn("_ADR/0001-auth.md", runner.prompt)
             self.assertIn("Use passkeys", runner.prompt)
-            self.assertEqual(proposal["source_documents"][0]["sha256"], "abc123")
+            self.assertIn("[S1]", runner.prompt)
+            self.assertIn("acceptance_criteria", runner.prompt)
+            frozen = "# Authentication\n\nUse passkeys.".encode()
+            self.assertEqual(proposal["source_documents"][0]["sha256"], hashlib.sha256(frozen).hexdigest())
+            self.assertEqual(proposal["source_documents"][0]["bytes"], len(frozen))
             approved = planner.approve(proposal["id"])
             runs = {run["task_key"]: run for run in store.list()}
             self.assertEqual(approved["status"], "active")

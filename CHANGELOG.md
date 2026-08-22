@@ -14,6 +14,23 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
+- Added a full-screen Plan Studio that turns ADRs, specifications, issues,
+  incidents, findings, milestones, document sets, or direct requirements into
+  versioned execution contracts before any implementation starts.
+- Added bidirectional source-clause ↔ task mapping, editable task outcomes and
+  prompts, acceptance criteria, required evidence, dependency-aware DAGs, and
+  complete Execution Profiles spanning Auto/override routing, harness, model,
+  Skills, environment, policy, and independent review.
+- Added immutable PlanVersion history, source-content hashes, targeted source
+  impact analysis, explicit source refresh, and honest cost/time ranges with a
+  confidence label and estimation basis.
+- Copied the approved task contract, source links, execution profile, estimate,
+  and plan version into each materialized run; interpreted common Codex-version
+  and MCP-auth failures into actionable recovery guidance while retaining raw
+  evidence.
+- Separated wall-clock elapsed, active compute, model tokens, cache-read
+  tokens, observed billable tokens, and provider-reported cost so large cached
+  histories no longer masquerade as active or billable work.
 - Enlarged Activity typography and added a wide event stream below the retained
   task context. It uses the full workspace width by default, has distinct actor
   backgrounds, and offers diagonal expand/narrow controls plus Escape.

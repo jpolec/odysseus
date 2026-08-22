@@ -48,7 +48,7 @@ PROJECT_ROUTER_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
 PROJECT_SKILL_LOCAL_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/local$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
-EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve))?$")
+EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve|plan|refresh-sources))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
 COMMAND_ROUTE = re.compile(r"^/api/commands(?:/(?P<command_id>[0-9a-f-]{36}))?$")
 
@@ -461,7 +461,13 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             try:
                 epic_id = epic_match.group("epic_id")
                 epic = self.server.app.store.epics.get(epic_id)
-                self._json({**epic, "runs": self.server.app.store.epics.runs(epic_id)})
+                self._json(
+                    {
+                        **epic,
+                        "runs": self.server.app.store.epics.runs(epic_id),
+                        "source_impact": self.server.app.store.epics.source_impact(epic_id),
+                    }
+                )
             except KeyError:
                 self._json_error(HTTPStatus.NOT_FOUND, "epic not found")
             return
@@ -626,6 +632,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     default_review_lane=str(body.get("review_lane") or ""),
                     checks=checks,
                     source_documents=source_documents,
+                    source_kind=str(body.get("source_kind") or "user_request"),
                 )
                 self._json(epic, HTTPStatus.CREATED)
                 return
@@ -662,6 +669,17 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 self._post_inbox(inbox_match.group("item_id"), inbox_match.group("action"), body)
                 return
             epic_match = EPIC_ROUTE.fullmatch(parsed.path)
+            if epic_match and epic_match.group("action") == "refresh-sources":
+                epic_id = epic_match.group("epic_id")
+                refreshed = self.server.app.store.epics.refresh_local_sources(epic_id)
+                self._json({**refreshed, "source_impact": self.server.app.store.epics.source_impact(epic_id)})
+                return
+            if epic_match and epic_match.group("action") == "plan":
+                plan = body.get("plan") if isinstance(body.get("plan"), dict) else body
+                epic_id = epic_match.group("epic_id")
+                saved = self.server.app.store.epics.save_plan(epic_id, plan)
+                self._json({**saved, "source_impact": self.server.app.store.epics.source_impact(epic_id)})
+                return
             if epic_match and epic_match.group("action") == "approve":
                 self._json(self.server.app.planner.approve(epic_match.group("epic_id")))
                 return

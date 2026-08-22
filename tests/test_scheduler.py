@@ -166,6 +166,26 @@ class QuotaAgentRunner:
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_agent_start_failures_are_interpreted_without_losing_raw_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            run = store.create({"task": "Start compatible agent", "project_path": str(project)})
+            scheduler = Scheduler(store)
+
+            scheduler._fail_process(
+                run["id"],
+                "agent",
+                ProcessResult(1, "failed to load models cache: missing field `base_instructions`", 0.1),
+            )
+
+            failed = store.get(run["id"])
+            self.assertEqual(failed["failure"]["class"], "agent_version_incompatible")
+            self.assertIn("installed CLI", failed["last_error"])
+            self.assertIn("base_instructions", store.events(run["id"])[-2]["data"]["output"])
+
     @staticmethod
     def _repo(root: Path) -> Path:
         repo = root / "repo"

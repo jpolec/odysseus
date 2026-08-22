@@ -303,7 +303,7 @@
                   </section>
                   <details class="execution-details" id="executionDetails">
                     <summary>
-                      <span><strong>Execution details</strong><small>Workflow, usage, CI, and environment</small></span>
+                      <span><strong>Forensic details</strong><small>Runtime, usage, IDs, CI, and environment</small></span>
                       <span id="executionDetailsSummary">Preparing task</span>
                     </summary>
                     <div class="execution-details-content">
@@ -606,6 +606,10 @@
         <span class="field-help">The planner inspects this repository read-only.</span>
         <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
       </label>
+      <label>Source type
+        <span class="field-help">The requirement is frozen as a versioned source contract.</span>
+        <select name="source_kind"><option value="user_request">User request</option><option value="adr">ADR / architecture decision</option><option value="specification">PRD / specification</option><option value="github_issue">GitHub issue</option><option value="security_finding">Security finding</option><option value="incident">Incident</option><option value="milestone">Milestone</option><option value="document_set">Document set</option></select>
+      </label>
       <details class="advanced"><summary>Advanced: choose agents and verification commands</summary>
         <div class="form-row"><label>Planning agent <select name="planner_lane" id="plannerLaneSelect"></select></label><label>Implementation agent <select name="lane" id="epicLaneSelect"></select></label></div>
         <label>Independent review agent <select name="review_lane" id="epicReviewLaneSelect"></select></label>
@@ -614,6 +618,50 @@
       <p class="submit-note">Creates a proposal only.</p>
       <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Generate task plan</button></div>
     </form></dialog>
+
+    <dialog id="planStudioDialog" class="plan-studio-dialog">
+      <section class="plan-studio-shell">
+        <header class="plan-studio-head">
+          <div><p class="eyebrow">VERSIONED EXECUTION CONTRACT</p><h2 id="planStudioTitle">Review plan</h2><p id="planStudioSummary">Nothing runs until you approve this version.</p></div>
+          <div class="plan-studio-head-actions"><span id="planStudioVersion">Draft</span><button class="ghost" id="planStudioSave" type="button">Save draft</button><button class="primary" id="planStudioApprove" type="button">Approve &amp; start</button><button class="icon-button" id="planStudioClose" type="button" aria-label="Close">×</button></div>
+        </header>
+        <div class="plan-studio-impact hidden" id="planStudioImpact"></div>
+        <div class="plan-studio-grid">
+          <section class="plan-studio-source" aria-label="Frozen source requirements">
+            <header><div><small>SOURCE CONTRACT</small><h3>Why this work exists</h3></div><span id="planStudioSourceCount"></span></header>
+            <div class="plan-source-tabs" id="planStudioSourceTabs"></div>
+            <div class="plan-source-sections" id="planStudioSourceSections"></div>
+          </section>
+          <section class="plan-studio-tasks" aria-label="Task contracts">
+            <header><div><small>EXECUTION PLAN</small><h3>What agents will deliver</h3></div><span id="planStudioEstimate"></span></header>
+            <div class="plan-task-list" id="planStudioTaskList"></div>
+            <form class="plan-task-editor" id="planStudioEditor">
+              <div class="form-row"><label>Task title<input name="title" required></label><label>Task key<input name="task_key" readonly></label></div>
+              <label>Finished outcome<textarea name="outcome" rows="2" required></textarea></label>
+              <label>Agent instruction<textarea name="task" rows="5" required></textarea></label>
+              <details open><summary>How we know it is correct</summary>
+                <label>Acceptance criteria <span class="field-help">One observable criterion per line.</span><textarea name="acceptance_criteria" rows="3"></textarea></label>
+                <label>Required evidence <span class="field-help">Tests, review, screenshots, contracts or commands.</span><textarea name="required_evidence" rows="3"></textarea></label>
+              </details>
+              <details><summary>Execution profile</summary>
+                <div class="form-row"><label>Routing<select name="profile_mode"><option value="auto">Auto — recommended</option><option value="override">Manual override</option></select></label><label>Harness<select name="harness"><option value="auto">Auto</option><option value="codex">Codex</option><option value="claude">Claude</option></select></label></div>
+                <div class="form-row"><label>Model<input name="model" placeholder="Agent default"></label><label>Environment<select name="environment"><option value="isolated_worktree">Isolated worktree</option><option value="host">Host</option><option value="docker">Docker</option><option value="devcontainer">Dev container</option></select></label></div>
+                <div class="form-row"><label>Policy<input name="policy" value="standard"></label><label>Skills<input name="skills" placeholder="python, security-review"></label></div>
+                <div class="form-row"><label>Independent reviewer<select name="review_lane"><option value="auto">Auto — independent</option><option value="codex">Codex</option><option value="claude">Claude</option></select></label><label>Review model<input name="review_model" placeholder="Reviewer default"></label></div>
+                <label>Why this profile?<textarea name="profile_reason" rows="2"></textarea></label>
+              </details>
+              <details><summary>Dependencies and estimate</summary>
+                <label>Dependencies<select name="depends_on" multiple size="3"></select></label>
+                <div class="form-row"><label>Cost range (USD)<span class="inline-inputs"><input name="cost_min" type="number" min="0" step="0.01" placeholder="min"><input name="cost_max" type="number" min="0" step="0.01" placeholder="max"></span></label><label>Duration range (minutes)<span class="inline-inputs"><input name="duration_min" type="number" min="0" step="1" placeholder="min"><input name="duration_max" type="number" min="0" step="1" placeholder="max"></span></label></div>
+                <div class="form-row"><label>Estimate confidence<select name="estimate_confidence"><option value="unknown">Unknown</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label><label>Estimate basis<input name="estimate_basis" placeholder="No calibrated repository history yet"></label></div>
+              </details>
+              <p class="plan-source-link-hint">Select this task, then click source paragraphs on the left to link or unlink them.</p>
+            </form>
+          </section>
+        </div>
+        <section class="plan-studio-graph"><header><div><small>DEPENDENCY DAG</small><h3>Execution order and parallel work</h3></div><span id="planStudioGraphMeta"></span></header><div id="planStudioGraph"></div></section>
+      </section>
+    </dialog>
 
     <dialog id="feedbackDialog"><form method="dialog" id="feedbackForm">
       <div class="dialog-head"><div><p class="eyebrow">SAME AGENT THREAD</p><h2>Resume with feedback</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>

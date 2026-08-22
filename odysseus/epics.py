@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import secrets
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
 from .events import now_iso
@@ -21,11 +23,146 @@ EPIC_FINAL_STATUSES = DEPENDENCY_MET_STATUSES | DEPENDENCY_FAILED_STATUSES
 ACTIVE_RUN_STATUSES = frozenset(
     {"starting", "running", "checking", "reviewing", "cancelling", "publishing"}
 )
-EPIC_SCHEMA_VERSION = 3
+EPIC_SCHEMA_VERSION = 4
+ESTIMATE_CONFIDENCE = frozenset({"low", "medium", "high", "unknown"})
+EXECUTION_MODES = frozenset({"auto", "override"})
 
 
 class CycleError(ValueError):
     """Raised when an epic task graph contains a dependency cycle."""
+
+
+def _digest(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _source_sections(content: str, *, start: int = 1) -> list[dict[str, Any]]:
+    """Split a source into stable, reviewable paragraph references."""
+
+    sections: list[dict[str, Any]] = []
+    buffer: list[str] = []
+    first_line = 1
+    lines = content.splitlines()
+
+    def flush(end_line: int) -> None:
+        nonlocal buffer, first_line
+        text = "\n".join(buffer).strip()
+        if text:
+            ref = f"S{start + len(sections)}"
+            sections.append(
+                {
+                    "ref": ref,
+                    "text": text[:12_000],
+                    "start_line": first_line,
+                    "end_line": max(first_line, end_line),
+                    "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                }
+            )
+        buffer = []
+
+    for index, line in enumerate(lines, start=1):
+        if not line.strip():
+            flush(index - 1)
+            first_line = index + 1
+            continue
+        if not buffer:
+            first_line = index
+        buffer.append(line)
+        if len(sections) >= 199:
+            break
+    flush(len(lines))
+    return sections[:200]
+
+
+def _normalize_sources(raw_sources: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    values: list[dict[str, Any]] = []
+    next_ref = 1
+    for raw in raw_sources[:20]:
+        source = {
+            key: raw.get(key)
+            for key in ("kind", "path", "title", "status", "sha256", "bytes", "content", "frozen_at")
+            if raw.get(key) is not None
+        }
+        content = str(source.get("content") or "")[:80_000]
+        source["kind"] = str(source.get("kind") or "source")
+        source["path"] = str(source.get("path") or f"odysseus://source/{len(values) + 1}")
+        source["title"] = str(source.get("title") or source["path"])
+        source["content"] = content
+        encoded = content.encode("utf-8")
+        # Content is the source of truth whenever it is present. Never bind a
+        # SourceVersion to a caller-supplied digest that does not match its
+        # frozen bytes.
+        source["sha256"] = hashlib.sha256(encoded).hexdigest() if content else str(
+            source.get("sha256") or hashlib.sha256(encoded).hexdigest()
+        )
+        source["bytes"] = len(encoded) if content else int(source.get("bytes") or 0)
+        source["version_id"] = f"source:{source['sha256'][:16]}"
+        source["frozen_at"] = str(source.get("frozen_at") or now_iso())
+        source["sections"] = _source_sections(content, start=next_ref)
+        next_ref += len(source["sections"])
+        values.append(source)
+    return values
+
+
+def _string_list(value: Any, *, field: str) -> list[str]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"{field} must be a list of strings")
+    return list(dict.fromkeys(item.strip() for item in value if item.strip()))
+
+
+def _execution_profile(raw: Any, *, lane: str, review_lane: str, role: str) -> dict[str, Any]:
+    value = dict(raw) if isinstance(raw, Mapping) else {}
+    mode = str(value.get("mode") or ("override" if lane else "auto"))
+    if mode not in EXECUTION_MODES:
+        raise ValueError("execution profile mode must be auto or override")
+    skills = _string_list(value.get("skills") or [], field="execution profile skills")
+    return {
+        "version": "execution-profile-v1",
+        "mode": mode,
+        "harness": str(value.get("harness") or lane or "auto")[:80],
+        "model": str(value.get("model") or "")[:120],
+        "skills": skills,
+        "environment": str(value.get("environment") or "isolated_worktree")[:80],
+        "policy": str(value.get("policy") or "standard")[:80],
+        "review_policy": str(value.get("review_policy") or ("independent_provider" if role == "reviewer" else "independent_review"))[:80],
+        "review_lane": str(value.get("review_lane") or review_lane)[:80],
+        "review_model": str(value.get("review_model") or "")[:120],
+        "reason": str(value.get("reason") or ("operator override" if mode == "override" else "Auto will select from repository evidence"))[:500],
+    }
+
+
+def _estimate(raw: Any) -> dict[str, Any]:
+    value = dict(raw) if isinstance(raw, Mapping) else {}
+
+    def number(name: str) -> float | None:
+        if value.get(name) in (None, ""):
+            return None
+        try:
+            return max(0.0, float(value[name]))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"estimate {name} must be numeric") from exc
+
+    confidence = str(value.get("confidence") or "unknown").lower()
+    if confidence not in ESTIMATE_CONFIDENCE:
+        raise ValueError("estimate confidence must be low, medium, high, or unknown")
+    cost_min, cost_max = number("cost_usd_min"), number("cost_usd_max")
+    duration_min, duration_max = number("duration_minutes_min"), number("duration_minutes_max")
+    if cost_min is not None and cost_max is not None and cost_min > cost_max:
+        raise ValueError("estimate cost range is reversed")
+    if duration_min is not None and duration_max is not None and duration_min > duration_max:
+        raise ValueError("estimate duration range is reversed")
+    return {
+        "version": "task-estimate-v1",
+        "cost_usd_min": cost_min,
+        "cost_usd_max": cost_max,
+        "duration_minutes_min": duration_min,
+        "duration_minutes_max": duration_max,
+        "confidence": confidence,
+        "basis": str(value.get("basis") or "No calibrated repository estimate yet")[:500],
+    }
 
 
 class EpicStore:
@@ -58,14 +195,8 @@ class EpicStore:
         raw_sources = request.get("source_documents") or []
         if not isinstance(raw_sources, list) or not all(isinstance(item, dict) for item in raw_sources):
             raise ValueError("source_documents must be a list of objects")
-        source_documents = [
-            {
-                key: source.get(key)
-                for key in ("kind", "path", "title", "status", "sha256", "bytes", "content")
-                if source.get(key) is not None
-            }
-            for source in raw_sources[:20]
-        ]
+        source_documents = _normalize_sources(raw_sources)
+        raw_plan = request.get("plan") if isinstance(request.get("plan"), dict) else None
         epic = {
             "schema_version": EPIC_SCHEMA_VERSION,
             "id": epic_id,
@@ -78,7 +209,9 @@ class EpicStore:
             "planner_session_id": "",
             "planner_events": [],
             "planner_error": "",
-            "plan": request.get("plan") if isinstance(request.get("plan"), dict) else None,
+            "plan": raw_plan,
+            "plan_version": None,
+            "plan_history": [],
             "intake": request.get("intake") if isinstance(request.get("intake"), dict) else {},
             "gate_policy": str(request.get("gate_policy") or "human_review"),
             "source_documents": source_documents,
@@ -117,6 +250,9 @@ class EpicStore:
             value.setdefault("source_documents", [])
             value.setdefault("intake", {})
             value.setdefault("gate_policy", "human_review")
+            value.setdefault("plan_version", None)
+            value.setdefault("plan_history", [])
+            value["source_documents"] = _normalize_sources(value.get("source_documents") or [])
         return value
 
     def list(self) -> list[dict[str, Any]]:
@@ -134,6 +270,9 @@ class EpicStore:
                     value.setdefault("source_documents", [])
                     value.setdefault("intake", {})
                     value.setdefault("gate_policy", "human_review")
+                    value.setdefault("plan_version", None)
+                    value.setdefault("plan_history", [])
+                    value["source_documents"] = _normalize_sources(value.get("source_documents") or [])
                 values.append(value)
         return sorted(values, key=lambda item: str(item.get("created_at", "")), reverse=True)
 
@@ -154,6 +293,169 @@ class EpicStore:
             except KeyError:
                 continue
         return values
+
+    def save_plan(self, epic_id: str, plan: Mapping[str, Any]) -> dict[str, Any]:
+        """Persist an editable draft as a new immutable plan version."""
+
+        epic = self.get(epic_id)
+        if epic.get("approved") or epic.get("status") not in {"planning", "proposed"}:
+            raise ValueError("only an unapproved plan can be edited")
+        raw_tasks = plan.get("tasks")
+        if not isinstance(raw_tasks, list) or not raw_tasks:
+            raise ValueError("plan requires at least one task")
+        normalized = self._normalize_tasks(raw_tasks)
+        valid_refs = {
+            str(section.get("ref") or "")
+            for source in epic.get("source_documents") or []
+            for section in source.get("sections") or []
+        }
+        unknown_refs = sorted({ref for task in normalized for ref in task.get("source_refs") or []} - valid_refs)
+        if unknown_refs:
+            raise ValueError(f"tasks reference unknown source sections: {', '.join(unknown_refs)}")
+        graph = {str(item["task_key"]): list(item["depends_on"]) for item in normalized}
+        unknown = sorted({dependency for dependencies in graph.values() for dependency in dependencies} - set(graph))
+        if unknown:
+            raise ValueError(f"tasks depend on unknown keys: {', '.join(unknown)}")
+        self._check_cycles(graph)
+
+        previous = epic.get("plan_version") if isinstance(epic.get("plan_version"), dict) else None
+        number = int((previous or {}).get("number") or 0) + 1
+        frozen_plan = {
+            "summary": str(plan.get("summary") or "").strip()[:4_000],
+            "constraints": _string_list(plan.get("constraints") or [], field="plan constraints"),
+            "tasks": normalized,
+        }
+        source_versions = [
+            {
+                "path": str(source.get("path") or ""),
+                "version_id": str(source.get("version_id") or ""),
+                "sha256": str(source.get("sha256") or ""),
+            }
+            for source in epic.get("source_documents") or []
+        ]
+        contract_hash = _digest({"plan": frozen_plan, "source_versions": source_versions})
+        version = {
+            "schema": "plan-version-v1",
+            "number": number,
+            "id": f"plan-v{number}-{contract_hash[:12]}",
+            "sha256": contract_hash,
+            "plan_sha256": _digest(frozen_plan),
+            "source_versions": source_versions,
+            "source_hashes": [item["sha256"] for item in source_versions],
+            "status": "draft",
+            "created_at": now_iso(),
+        }
+        history = list(epic.get("plan_history") or [])
+        if previous and isinstance(epic.get("plan"), dict):
+            history.append({"version": previous, "plan": epic["plan"]})
+        return self.update(
+            epic_id,
+            schema_version=EPIC_SCHEMA_VERSION,
+            status="proposed",
+            plan=frozen_plan,
+            plan_version=version,
+            plan_history=history[-20:],
+        )
+
+    def replace_sources(self, epic_id: str, sources: list[Mapping[str, Any]]) -> dict[str, Any]:
+        epic = self.get(epic_id)
+        if epic.get("approved"):
+            raise ValueError("approved source versions are immutable")
+        return self.update(epic_id, source_documents=_normalize_sources(sources))
+
+    def refresh_local_sources(self, epic_id: str) -> dict[str, Any]:
+        """Explicitly freeze the current bytes of local sources into a new source version."""
+
+        epic = self.get(epic_id)
+        if epic.get("approved"):
+            raise ValueError("approved source versions are immutable")
+        refreshed: list[dict[str, Any]] = []
+        for source in epic.get("source_documents") or []:
+            path_value = str(source.get("path") or "")
+            if not path_value or path_value.startswith(("http://", "https://", "odysseus://")):
+                refreshed.append(dict(source))
+                continue
+            path = Path(path_value)
+            if not path.is_absolute() and epic.get("project_path"):
+                path = Path(str(epic["project_path"])) / path
+            try:
+                content = path.read_text(encoding="utf-8")[:80_000]
+            except OSError as exc:
+                raise ValueError(f"cannot refresh missing source: {path_value}") from exc
+            refreshed.append(
+                {
+                    **dict(source),
+                    "content": content,
+                    "sha256": "",
+                    "bytes": 0,
+                    "sections": [],
+                    "frozen_at": now_iso(),
+                }
+            )
+        return self.replace_sources(epic_id, refreshed)
+
+    def source_impact(self, epic_id: str) -> dict[str, Any]:
+        """Compare local sources with their frozen sections and identify affected nodes."""
+
+        epic = self.get(epic_id)
+        changed_refs: set[str] = set()
+        source_changed = False
+        sources: list[dict[str, Any]] = []
+        for source in epic.get("source_documents") or []:
+            item = {
+                "path": str(source.get("path") or ""),
+                "title": str(source.get("title") or ""),
+                "status": "current",
+                "changed_refs": [],
+            }
+            path_value = str(source.get("path") or "")
+            if not path_value or path_value.startswith(("http://", "https://", "odysseus://")):
+                item["status"] = "frozen"
+                sources.append(item)
+                continue
+            path = Path(path_value)
+            if not path.is_absolute() and epic.get("project_path"):
+                path = Path(str(epic["project_path"])) / path
+            try:
+                content = path.read_text(encoding="utf-8")[:80_000]
+            except OSError:
+                source_changed = True
+                item["status"] = "missing"
+                refs = [str(section.get("ref") or "") for section in source.get("sections") or []]
+                changed_refs.update(refs)
+                item["changed_refs"] = refs
+                sources.append(item)
+                continue
+            if hashlib.sha256(content.encode("utf-8")).hexdigest() == str(source.get("sha256") or ""):
+                sources.append(item)
+                continue
+            source_changed = True
+            item["status"] = "changed"
+            old_sections = source.get("sections") or []
+            current_sections = _source_sections(content, start=int(str((old_sections or [{"ref": "S1"}])[0].get("ref") or "S1")[1:] or 1))
+            current_hashes = {str(section.get("ref")): str(section.get("sha256")) for section in current_sections}
+            refs = [
+                str(section.get("ref") or "")
+                for section in old_sections
+                if current_hashes.get(str(section.get("ref") or "")) != str(section.get("sha256") or "")
+            ]
+            changed_refs.update(refs)
+            item["changed_refs"] = refs
+            sources.append(item)
+
+        tasks = ((epic.get("plan") or {}).get("tasks") or []) if isinstance(epic.get("plan"), dict) else []
+        affected = sorted(
+            str(task.get("task_key"))
+            for task in tasks
+            if set(str(ref) for ref in task.get("source_refs") or []) & changed_refs
+        )
+        return {
+            "status": "changed" if source_changed else "current",
+            "changed_refs": sorted(changed_refs),
+            "affected_task_keys": affected,
+            "requires_reapproval": bool(affected),
+            "sources": sources,
+        }
 
     def create_task_batch(
         self,
@@ -201,6 +503,8 @@ class EpicStore:
         created: dict[str, str] = {}
         try:
             for spec in normalized:
+                profile = spec.get("execution_profile") if isinstance(spec.get("execution_profile"), dict) else {}
+                version = epic.get("plan_version") if isinstance(epic.get("plan_version"), dict) else {}
                 request = {
                     **spec,
                     "project_path": spec.get("project_path") or epic.get("project_path"),
@@ -215,6 +519,12 @@ class EpicStore:
                     "source_documents": list(epic.get("source_documents") or []),
                     "evidence_class": str(epic.get("evidence_class") or "unclassified"),
                     "release": str(epic.get("release") or ""),
+                    "plan_version_id": str(version.get("id") or ""),
+                    "plan_version_sha256": str(version.get("sha256") or ""),
+                    "source_version_hashes": list(version.get("source_hashes") or []),
+                    "skills": list(profile.get("skills") or []),
+                    "skill_mode": "manual" if profile.get("skills") else "auto",
+                    "auto_route": str(profile.get("mode") or "auto") == "auto",
                 }
                 if request.get("max_retries") is None:
                     request.pop("max_retries", None)
@@ -310,9 +620,23 @@ class EpicStore:
             dependencies = raw.get("depends_on") or []
             if not isinstance(dependencies, list) or not all(isinstance(item, str) for item in dependencies):
                 raise ValueError(f"depends_on for {key} must be a list of task keys")
-            checks = raw.get("checks") or []
-            if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
-                raise ValueError(f"checks for {key} must be a list of commands")
+            checks = _string_list(raw.get("checks") or [], field=f"checks for {key}")
+            source_refs = _string_list(raw.get("source_refs") or [], field=f"source_refs for {key}")
+            acceptance = _string_list(raw.get("acceptance_criteria") or [], field=f"acceptance criteria for {key}")
+            evidence = _string_list(raw.get("required_evidence") or checks, field=f"required evidence for {key}")
+            lane = str(raw.get("lane") or "")
+            review_lane = str(raw.get("review_lane") or lane)
+            profile = _execution_profile(
+                raw.get("execution_profile"), lane=lane, review_lane=review_lane, role=role
+            )
+            if profile["mode"] == "override" and profile["harness"] not in {"", "auto"}:
+                lane = str(profile["harness"])
+            selected_review_lane = str(profile.get("review_lane") or "")
+            review_lane = str(
+                review_lane or lane
+                if selected_review_lane in {"", "auto"}
+                else selected_review_lane
+            )
             values.append(
                 {
                     "task_key": key,
@@ -320,11 +644,17 @@ class EpicStore:
                     "task": task,
                     "project_path": str(raw.get("project_path") or ""),
                     "role": role,
+                    "outcome": str(raw.get("outcome") or raw.get("intended_outcome") or task.splitlines()[0])[:2_000],
+                    "source_refs": source_refs,
+                    "acceptance_criteria": acceptance,
+                    "required_evidence": evidence,
                     "depends_on": list(dict.fromkeys(dependencies)),
                     "parallelizable": bool(raw.get("parallelizable", True)),
-                    "lane": str(raw.get("lane") or ""),
-                    "review_lane": str(raw.get("review_lane") or raw.get("lane") or ""),
-                    "checks": list(checks),
+                    "lane": lane,
+                    "review_lane": review_lane,
+                    "checks": checks,
+                    "execution_profile": profile,
+                    "estimate": _estimate(raw.get("estimate")),
                     "max_retries": raw.get("max_retries"),
                 }
             )
