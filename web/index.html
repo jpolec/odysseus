@@ -599,6 +599,7 @@
       <div class="dialog-head"><div><h2>Plan a feature</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="epic-plan-layout">
         <section class="epic-plan-fields">
+      <div class="epic-plan-fields-scroll">
       <label>Repository
         <span class="field-help">Where should the work happen?</span>
         <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
@@ -638,8 +639,8 @@
         <label>Independent review agent <select name="review_lane" id="epicReviewLaneSelect"></select></label>
         <label>Verification commands <span class="optional">optional</span><span class="field-help">Trusted shell commands, one per line, inherited by proposed tasks.</span><textarea name="checks" rows="3" placeholder="python3 -m unittest&#10;npm test"></textarea></label>
       </details>
-      <p class="submit-note">Creates a draft. Agents start only after approval.</p>
-      <div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create draft</button></div>
+      </div>
+      <footer class="epic-plan-footer"><p class="submit-note">Creates a draft. Agents start only after approval.</p><div class="dialog-actions"><button class="ghost" value="cancel" type="submit">Cancel</button><button class="primary" value="default" type="submit">Create draft</button></div></footer>
         </section>
         <aside class="epic-source-preview" id="epicSourcePreview" aria-live="polite"><p>Select an ADR, issue, or specification to read it here.</p></aside>
       </div>

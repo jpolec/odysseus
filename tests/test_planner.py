@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from odysseus.planner import EpicPlanner, PlanningFailed
@@ -31,7 +32,55 @@ class FailingPlannerRunner:
         return ProcessResult(1, "planner failed before returning a task graph", 0.1, session_id="failed-planner-thread")
 
 
+class CompatibilityFallbackPlannerRunner:
+    def __init__(self) -> None:
+        self.lanes = []
+
+    def run(self, lane, worktree, prompt, **kwargs):  # noqa: ANN001
+        self.lanes.append(lane)
+        if lane == "codex":
+            return ProcessResult(1, "The selected model requires a newer version of Codex.", 0.1)
+        return ProcessResult(
+            0,
+            'ODYSSEUS_PLAN: {"summary":"Recovered","tasks":['
+            '{"task_key":"implement","title":"Implement","task":"Implement the ADR","depends_on":[]}]}',
+            0.1,
+            session_id="fallback-planner-thread",
+        )
+
+
 class PlannerTests(unittest.TestCase):
+    def test_incompatible_planner_runtime_falls_back_to_an_installed_independent_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            runner = CompatibilityFallbackPlannerRunner()
+            planner = EpicPlanner(store, agent_runner=runner)
+
+            with mock.patch("odysseus.planner.shutil.which", side_effect=lambda command: f"/bin/{command}" if command == "claude" else None):
+                proposal = planner.plan("Implement the ADR", project, lane="codex")
+
+            self.assertEqual(runner.lanes, ["codex", "claude"])
+            self.assertEqual(proposal["status"], "proposed")
+            self.assertEqual(proposal["planner_lane"], "claude")
+            self.assertEqual(proposal["planner_requested_lane"], "codex")
+            self.assertEqual(proposal["planner_fallback"]["reason"], "runtime_compatibility")
+            self.assertIn("planner.route_fallback", {event["type"] for event in proposal["planner_events"]})
+
+    def test_ordinary_planner_failure_is_not_hidden_by_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            runner = FailingPlannerRunner()
+            planner = EpicPlanner(store, agent_runner=runner)
+
+            with mock.patch("odysseus.planner.shutil.which", return_value="/bin/claude"):
+                with self.assertRaises(PlanningFailed):
+                    planner.plan("Implement the ADR", project, lane="codex")
     def test_planner_is_read_only_and_approval_materializes_blocked_dag(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

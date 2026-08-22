@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shlex
+import shutil
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,6 +14,10 @@ from .runners import AgentRunner, ProcessResult
 
 
 PLAN_MARKER = "ODYSSEUS_PLAN:"
+PLANNER_COMPATIBILITY_FAILURES = (
+    "requires a newer version of codex",
+    "upgrade to the latest app or cli",
+)
 
 
 class PlanningFailed(RuntimeError):
@@ -86,26 +92,66 @@ class EpicPlanner:
                     {"type": event_type, "source": source, "data": dict(data)}
                 )
 
+        prompt = self._prompt(
+            requirement,
+            implementation_lane,
+            reviewer_lane,
+            checks or [],
+            epic.get("source_documents") or [],
+        )
         result = self.agent_runner.run(
             planner_lane,
             project,
-            self._prompt(
-                requirement,
-                implementation_lane,
-                reviewer_lane,
-                checks or [],
-                epic.get("source_documents") or [],
-            ),
+            prompt,
             review=True,
             emit=emit,
             cancelled=lambda: False,
             phase="planner",
         )
+        failed_output = result.output
+        fallback_lane = self._compatible_fallback_lane(planner_lane, config, result)
+        if result.returncode != 0 and fallback_lane:
+            planner_events.append(
+                {
+                    "type": "planner.route_fallback",
+                    "source": "odysseus",
+                    "data": {
+                        "requested_lane": planner_lane,
+                        "selected_lane": fallback_lane,
+                        "reason": "planner runtime or selected model is incompatible",
+                    },
+                }
+            )
+            result = self.agent_runner.run(
+                fallback_lane,
+                project,
+                prompt,
+                review=True,
+                emit=emit,
+                cancelled=lambda: False,
+                phase="planner",
+            )
+            epic = self.epics.update(
+                epic["id"],
+                planner_lane=fallback_lane,
+                planner_requested_lane=planner_lane,
+                planner_fallback={
+                    "from": planner_lane,
+                    "to": fallback_lane,
+                    "reason": "runtime_compatibility",
+                },
+            )
         if result.returncode != 0:
+            output = result.output
+            if fallback_lane:
+                output = (
+                    f"Requested planner {planner_lane} failed:\n{failed_output[-8_000:]}\n\n"
+                    f"Fallback planner {fallback_lane} also failed:\n{result.output[-10_000:]}"
+                )
             self.epics.update(
                 epic["id"],
                 status="planning_failed",
-                planner_error=result.output[-20_000:],
+                planner_error=output[-20_000:],
                 planner_events=planner_events,
                 planner_session_id=result.session_id,
             )
@@ -132,6 +178,45 @@ class EpicPlanner:
             epic["id"], planner_session_id=result.session_id, planner_events=planner_events, planner_error=""
         )
         return self.epics.save_plan(epic["id"], proposal)
+
+    @staticmethod
+    def _compatible_fallback_lane(
+        planner_lane: str,
+        config: Mapping[str, Any],
+        result: ProcessResult,
+    ) -> str:
+        """Choose another installed harness only for a known runtime mismatch.
+
+        Planning or schema errors must remain visible. This fallback is limited
+        to the case where the selected CLI cannot start its configured model,
+        before any plan graph exists.
+        """
+
+        if result.returncode == 0:
+            return ""
+        output = result.output.lower()
+        if not any(marker in output for marker in PLANNER_COMPATIBILITY_FAILURES):
+            return ""
+        configured = config.get("lanes") if isinstance(config.get("lanes"), Mapping) else {}
+        candidates = ["claude", "codex", *configured.keys()]
+        for candidate in candidates:
+            candidate = str(candidate)
+            if not candidate or candidate == planner_lane:
+                continue
+            if candidate in {"codex", "claude"}:
+                executable = candidate
+            else:
+                lane_config = configured.get(candidate)
+                command = lane_config.get("command") if isinstance(lane_config, Mapping) else lane_config
+                if isinstance(command, str):
+                    executable = shlex.split(command)[0] if command.strip() else ""
+                elif isinstance(command, list) and command:
+                    executable = str(command[0])
+                else:
+                    executable = ""
+            if executable and shutil.which(executable):
+                return candidate
+        return ""
 
     def approve(self, epic_id: str) -> dict[str, Any]:
         epic = self.epics.get(epic_id)

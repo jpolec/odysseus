@@ -4344,6 +4344,14 @@ async function runBrowserRegression() {
     const previewRect = $("#epicSourcePreview").getBoundingClientRect();
     assert(window.matchMedia("(max-width: 900px)").matches ? previewRect.top >= fieldsRect.bottom : previewRect.left >= fieldsRect.right, "selected ADR stays in a dedicated preview pane beside the composer");
     assert($("#epicSourcePreview").textContent.includes("Browser planning decision") && $("#epicSourcePreview").textContent.includes("existing API compatible"), "right pane shows the selected ADR content at readable size");
+    const composerButton = $('#epicForm button[value="default"]');
+    const dialogRect = $("#epicDialog").getBoundingClientRect();
+    const buttonRect = composerButton.getBoundingClientRect();
+    assert(buttonRect.top >= dialogRect.top && buttonRect.bottom <= dialogRect.bottom, "Create draft remains visible without scrolling the Plan composer");
+    const composerScroll = $("#epicDialog .epic-plan-fields-scroll");
+    composerScroll.scrollTop = composerScroll.scrollHeight;
+    const scrolledButtonRect = composerButton.getBoundingClientRect();
+    assert(scrolledButtonRect.top >= dialogRect.top && scrolledButtonRect.bottom <= dialogRect.bottom, "Create draft remains visible while reviewing advanced Plan fields");
     $("#epicDialog").close();
   }
 
