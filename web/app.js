@@ -23,7 +23,7 @@ const state = {
   selectedDecisionPaths: [],
   planSelectedSourcePaths: [], planRepositorySources: [], planUploadedSources: [], planGithubCatalog: [], planSelectedGithub: [], planUrlSources: [], planForcedSourcePaths: [],
   planSourceLoading: false, planGithubLoading: false, planSourceGeneration: 0, planSourceTab: "adr", planSourcePreviewKey: "", planFilter: "all", taskSourceFilter: "",
-  planStudio: null, planStudioTaskKey: "", planStudioDirty: false, planStudioSourceFilter: "all", planStudioTaskSort: "plan", planStudioPollTimer: null, planReadyId: "",
+  planStudio: null, planStudioTaskKey: "", planStudioDirty: false, planStudioSourceFilter: "all", planStudioTaskSort: "plan", planStudioPollTimer: null, planStudioActivityCursor: 0, planReadyId: "",
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
 
@@ -3247,15 +3247,22 @@ function plannerActivityDetail(event) {
 
 function plannerActivityMarkup(epic) {
   const events = (epic.planner_events || []).filter((event) => ["planner.route_fallback", "agent.session", "agent.message", "agent.tool.started", "agent.tool.completed", "agent.usage"].includes(event.type));
-  const latest = events.slice(-14);
+  const latest = events.slice(-10);
   const current = epic.planner_progress?.message || "Planner is starting.";
+  const progressState = String(epic.planner_progress?.state || "starting");
+  const activeStage = progressState === "starting" ? 0 : ["inspecting", "routing_fallback"].includes(progressState) ? 1 : progressState === "finalizing" ? 3 : 2;
+  const stages = ["Sources", "Repository", "Task graph", "Validation"].map((label, index) => `<span class="${index < activeStage ? "done" : index === activeStage ? "active" : ""}"><i>${index < activeStage ? "✓" : index + 1}</i>${label}</span>`).join("");
   const rows = latest.map((event) => {
     const kind = event.type === "planner.route_fallback" ? "route" : event.type.startsWith("agent.tool") ? "tool" : event.type === "agent.message" ? "message" : "system";
     const label = kind === "route" ? "Routing" : kind === "tool" ? "Repository" : kind === "message" ? "Planner" : "System";
     const time = event.occurred_at ? new Date(event.occurred_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "";
     return `<li class="planner-activity-${kind}"><i></i><div><span><strong>${escapeHtml(label)}</strong>${time ? `<time>${escapeHtml(time)}</time>` : ""}</span><p>${escapeHtml(plannerActivityDetail(event))}</p></div></li>`;
   }).join("");
-  return `<section class="planner-live-activity" aria-live="polite"><header><span class="planner-live-pulse"></span><div><strong>Planner is working</strong><p>${escapeHtml(current)}</p></div></header><ol>${rows || `<li class="planner-activity-system"><i></i><div><span><strong>System</strong></span><p>Preparing the read-only repository context.</p></div></li>`}</ol><footer>Implementation agents have not started. The finished task draft and DAG will replace this activity automatically.</footer></section>`;
+  return `<section class="planner-live-activity" aria-live="polite"><header><span class="planner-live-pulse"></span><div><strong>Creating task draft</strong><p>${escapeHtml(current)}</p></div></header><div class="planner-live-stages">${stages}</div><details class="planner-live-details" open><summary>Live details <span>${events.length}</span></summary><ol>${rows || `<li class="planner-activity-system"><i></i><div><span><strong>System</strong></span><p>Preparing the read-only repository context.</p></div></li>`}</ol></details><footer>Only the Planner is active. Agents start after approval.</footer></section>`;
+}
+
+function plannerActivityCursor(events) {
+  return Math.max(0, ...(events || []).map((event) => Number(event.sequence || 0)));
 }
 
 function stopPlanStudioPolling() {
@@ -3271,12 +3278,22 @@ function startPlanStudioPolling(epicId) {
       return;
     }
     try {
-      state.planStudio = await api(`/api/epics/${encodeURIComponent(epicId)}`);
-      renderPlanStudio();
-      if (state.planStudio.status !== "planning") {
+      const activity = await api(`/api/epics/${encodeURIComponent(epicId)}/activity?after=${state.planStudioActivityCursor}`);
+      state.planStudioActivityCursor = Number(activity.cursor || state.planStudioActivityCursor);
+      if (activity.ready) {
+        state.planStudio = await api(`/api/epics/${encodeURIComponent(epicId)}`);
+        state.planStudioActivityCursor = plannerActivityCursor(state.planStudio.planner_events);
         stopPlanStudioPolling();
         toast(state.planStudio.status === "proposed" ? "Draft ready. Review it before approval." : "The planning attempt stopped. Review the preserved result.", state.planStudio.status !== "proposed");
+      } else {
+        const existing = state.planStudio.planner_events || [];
+        const bySequence = new Map(existing.map((event) => [Number(event.sequence || 0), event]));
+        (activity.events || []).forEach((event) => bySequence.set(Number(event.sequence || 0), event));
+        state.planStudio.planner_events = [...bySequence.values()].sort((left, right) => Number(left.sequence || 0) - Number(right.sequence || 0)).slice(-20);
+        state.planStudio.planner_progress = activity.planner_progress || state.planStudio.planner_progress;
+        state.planStudio.updated_at = activity.updated_at || state.planStudio.updated_at;
       }
+      renderPlanStudio();
     } catch { /* The next poll can recover a transient local connection failure. */ }
   }, 2000);
 }
@@ -3378,6 +3395,7 @@ function renderPlanStudio() {
 async function openPlanStudio(epicId) {
   state.planReadyId = "";
   state.planStudio = await api(`/api/epics/${encodeURIComponent(epicId)}`);
+  state.planStudioActivityCursor = plannerActivityCursor(state.planStudio.planner_events);
   state.planStudioTaskKey = state.planStudio.plan?.tasks?.[0]?.task_key || "";
   state.planStudioDirty = false; state.planStudioSourceFilter = "all"; state.planStudioTaskSort = "plan";
   $("#planStudioSave").textContent = "Save draft";
@@ -4629,7 +4647,7 @@ async function runBrowserRegression() {
   state.planRepositorySources = savedPlanSourceState.repository; state.planSelectedSourcePaths = savedPlanSourceState.selected; state.planUploadedSources = savedPlanSourceState.uploaded; state.planUrlSources = savedPlanSourceState.urls; state.planGithubCatalog = savedPlanSourceState.github; state.planSelectedGithub = savedPlanSourceState.selectedGithub; state.planSourceTab = savedPlanSourceState.tab; state.planSourcePreviewKey = savedPlanSourceState.preview;
   renderEpicSourcePicker();
   const plannerPreview = plannerActivityMarkup({planner_progress: {message: "Planner is inspecting the repository · 30s elapsed"}, planner_events: [{type: "agent.session", source: "codex", occurred_at: "2026-08-22T12:00:00Z", data: {}}, {type: "agent.tool.started", source: "codex", occurred_at: "2026-08-22T12:00:01Z", data: {tool: "shell", command: "git status --short"}}]});
-  assert(plannerPreview.includes("Planner is working") && plannerPreview.includes("git status --short") && plannerPreview.toLowerCase().includes("implementation agents have not started"), "planning attempt exposes safe live activity instead of a vague spinner");
+  assert(plannerPreview.includes("Creating task draft") && plannerPreview.includes("Task graph") && plannerPreview.includes("git status --short") && plannerPreview.includes("Agents start after approval"), "planning attempt exposes four compact stages and safe live activity instead of a vague spinner");
   assert($$("#epicList .epic-card:not(.epic-attempt-card)").every((card) => card.querySelector(".epic-progress") && card.querySelector(".epic-graph-details")), "materialized Plans expose compact progress and a drill-down graph");
   const failedPlan = state.epics.find((epic) => epic.status === "planning_failed");
   if (failedPlan) {

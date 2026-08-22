@@ -29,7 +29,7 @@ from . import __version__
 from .ci import CIWatcher
 from .commands import CommandOutcomeUnknown, IdempotencyConflict
 from .economics import economics_csv, economics_ndjson, outcome_economics
-from .planner import EpicPlanner, PlanningFailed
+from .planner import PLAN_MARKER, EpicPlanner, PlanningFailed, compact_planner_events
 from .portfolio import engineering_portfolio
 from .redaction import DEFAULT_REDACTION_ENGINE
 from .runners import AgentRunner, _extract_text, _sanitize
@@ -52,7 +52,7 @@ PROJECT_ROUTER_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
 PROJECT_SKILL_LOCAL_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/local$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
-EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve|plan|recover|refresh-sources))?$")
+EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>activity|approve|plan|recover|refresh-sources))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
 COMMAND_ROUTE = re.compile(r"^/api/commands(?:/(?P<command_id>[0-9a-f-]{36}))?$")
 
@@ -181,6 +181,27 @@ def _epic_summary(epic: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(source, dict)
     ]
     return value
+
+
+def _epic_detail(epic: Mapping[str, Any]) -> dict[str, Any]:
+    """Bound legacy planner traces before returning a Plan detail response."""
+
+    value = dict(epic)
+    planner_events = epic.get("planner_events") if isinstance(epic.get("planner_events"), list) else []
+    value["planner_event_count"] = len(planner_events)
+    value["planner_events"] = _planner_activity_events(planner_events)
+    return value
+
+
+def _planner_activity_events(events: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Return UI-safe progress without transporting the final Plan JSON twice."""
+
+    values = compact_planner_events(events)
+    for event in values:
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        if PLAN_MARKER in str(data.get("text") or ""):
+            event["data"] = {**data, "text": "Task proposal returned."}
+    return values
 
 
 def _uploaded_plan_sources(value: Any, *, default_kind: str) -> list[dict[str, Any]]:
@@ -688,13 +709,39 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             self._get_run_route(match.group("run_id"), match.group("action"), parsed)
             return
         epic_match = EPIC_ROUTE.fullmatch(parsed.path)
+        if epic_match and epic_match.group("action") == "activity":
+            try:
+                epic = self.server.app.store.epics.get(epic_match.group("epic_id"))
+                query = parse_qs(parsed.query)
+                try:
+                    after = max(0, int(query.get("after", ["0"])[0]))
+                except (TypeError, ValueError):
+                    after = 0
+                events = _planner_activity_events(
+                    epic.get("planner_events") if isinstance(epic.get("planner_events"), list) else []
+                )
+                cursor = max([after, *[int(event.get("sequence") or 0) for event in events]])
+                self._json(
+                    {
+                        "id": epic.get("id"),
+                        "status": epic.get("status"),
+                        "updated_at": epic.get("updated_at"),
+                        "planner_progress": epic.get("planner_progress") or {},
+                        "events": [event for event in events if int(event.get("sequence") or 0) > after],
+                        "cursor": cursor,
+                        "ready": epic.get("status") != "planning",
+                    }
+                )
+            except KeyError:
+                self._json_error(HTTPStatus.NOT_FOUND, "epic not found")
+            return
         if epic_match and not epic_match.group("action"):
             try:
                 epic_id = epic_match.group("epic_id")
                 epic = self.server.app.store.epics.get(epic_id)
                 self._json(
                     {
-                        **epic,
+                        **_epic_detail(epic),
                         "runs": self.server.app.store.epics.runs(epic_id),
                         "source_impact": self.server.app.store.epics.source_impact(epic_id),
                     }

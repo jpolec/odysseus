@@ -604,7 +604,7 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
-    def test_epic_list_omits_heavy_planner_events_but_detail_keeps_them(self) -> None:
+    def test_epic_list_omits_activity_and_detail_and_poll_endpoints_bound_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             project = self._git_repo(root)
@@ -613,7 +613,15 @@ class ServerTests(unittest.TestCase):
             store.epics.update(
                 epic["id"],
                 planner_error="start\n" + ("x" * 8_000) + "\nimportant end",
-                planner_events=[{"type": "agent.output", "data": {"text": "large output"}}],
+                planner_events=[
+                    {"type": "agent.output", "data": {"text": "large output"}},
+                    {
+                        "type": "agent.tool.started",
+                        "source": "codex",
+                        "occurred_at": "2026-08-22T12:00:00Z",
+                        "data": {"tool": "shell", "command": "git status --short", "aggregated_output": "x" * 20_000},
+                    },
+                ],
             )
             app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
             host, port = app.start()
@@ -624,13 +632,24 @@ class ServerTests(unittest.TestCase):
                 with urllib.request.urlopen(f"{base}/api/epics") as response:
                     summary = json.load(response)["epics"][0]
                 self.assertEqual(summary["planner_events"], [])
-                self.assertEqual(summary["planner_event_count"], 1)
+                self.assertEqual(summary["planner_event_count"], 2)
                 self.assertLessEqual(len(summary["planner_error"]), 4_100)
                 self.assertIn("important end", summary["planner_error"])
                 with urllib.request.urlopen(f"{base}/api/epics/{epic['id']}") as response:
                     detail = json.load(response)
+                self.assertEqual(detail["planner_event_count"], 2)
                 self.assertEqual(len(detail["planner_events"]), 1)
+                self.assertEqual(detail["planner_events"][0]["sequence"], 1)
+                self.assertNotIn("aggregated_output", detail["planner_events"][0]["data"])
                 self.assertGreater(len(detail["planner_error"]), 8_000)
+                with urllib.request.urlopen(f"{base}/api/epics/{epic['id']}/activity?after=0") as response:
+                    activity = json.load(response)
+                self.assertEqual(activity["cursor"], 1)
+                self.assertEqual(len(activity["events"]), 1)
+                self.assertTrue(activity["ready"])
+                with urllib.request.urlopen(f"{base}/api/epics/{epic['id']}/activity?after=1") as response:
+                    incremental = json.load(response)
+                self.assertEqual(incremental["events"], [])
             finally:
                 app.stop()
                 thread.join(timeout=2)

@@ -54,8 +54,12 @@ PLANNER_LIVE_DATA_KEYS = frozenset(
 )
 
 
-def _live_planner_events(events: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Bound the durable live preview without losing a returned plan marker."""
+def compact_planner_events(
+    events: list[Mapping[str, Any]],
+    *,
+    preserve_plan_marker: bool = True,
+) -> list[dict[str, Any]]:
+    """Keep a small, safe activity tail without losing a returned plan marker."""
 
     values: list[dict[str, Any]] = []
     for event in events:
@@ -76,15 +80,37 @@ def _live_planner_events(events: list[Mapping[str, Any]]) -> list[dict[str, Any]
                 }
             elif isinstance(raw, (bool, int, float)) or raw is None:
                 data[key] = raw
+        try:
+            sequence = int(event.get("sequence") or 0)
+        except (TypeError, ValueError):
+            sequence = 0
         values.append(
             {
+                "sequence": sequence or len(values) + 1,
                 "type": str(event.get("type") or ""),
                 "source": str(event.get("source") or ""),
                 "occurred_at": str(event.get("occurred_at") or ""),
                 "data": data,
             }
         )
-    return values[-80:]
+    if not preserve_plan_marker:
+        values = [
+            event
+            for event in values
+            if PLAN_MARKER not in str((event.get("data") or {}).get("text") or "")
+        ]
+    tail = values[-20:]
+    marker = next(
+        (
+            event
+            for event in reversed(values)
+            if PLAN_MARKER in str((event.get("data") or {}).get("text") or "")
+        ),
+        None,
+    ) if preserve_plan_marker else None
+    if marker and marker not in tail:
+        tail = sorted([marker, *tail[-19:]], key=lambda event: int(event["sequence"]))
+    return tail
 
 
 class PlanningFailed(RuntimeError):
@@ -191,7 +217,7 @@ class EpicPlanner:
                 }
             if progress or event_type in PLANNER_LIVE_EVENT_TYPES:
                 changes: dict[str, Any] = {
-                    "planner_events": _live_planner_events(planner_events)
+                    "planner_events": compact_planner_events(planner_events)
                 }
                 if progress:
                     changes["planner_progress"] = progress
@@ -251,7 +277,7 @@ class EpicPlanner:
                     "message": f"{planner_lane} is incompatible; continuing with {fallback_lane}",
                     "source": "odysseus",
                 },
-                planner_events=_live_planner_events(planner_events),
+                planner_events=compact_planner_events(planner_events),
             )
         if result.returncode != 0:
             output = result.output
@@ -264,7 +290,7 @@ class EpicPlanner:
                 epic["id"],
                 status="planning_failed",
                 planner_error=output[-20_000:],
-                planner_events=planner_events,
+                planner_events=compact_planner_events(planner_events),
                 planner_session_id=result.session_id,
                 planner_progress={
                     "state": "failed",
@@ -305,7 +331,7 @@ class EpicPlanner:
                 epic["id"],
                 status="planning_failed",
                 planner_error=detail[-20_000:],
-                planner_events=planner_events,
+                planner_events=compact_planner_events(planner_events),
                 planner_session_id=result.session_id,
                 planner_progress={
                     "state": "failed",
@@ -317,7 +343,7 @@ class EpicPlanner:
         self.epics.update(
             epic["id"],
             planner_session_id=result.session_id,
-            planner_events=planner_events,
+            planner_events=compact_planner_events(planner_events),
             planner_error="",
             planner_progress={
                 "state": "draft_ready",
@@ -325,7 +351,11 @@ class EpicPlanner:
                 "source": fallback_lane or planner_lane,
             },
         )
-        return self.epics.save_plan(epic["id"], proposal)
+        saved = self.epics.save_plan(epic["id"], proposal)
+        return self.epics.update(
+            saved["id"],
+            planner_events=compact_planner_events(planner_events, preserve_plan_marker=False),
+        )
 
     @staticmethod
     def _compatible_fallback_lane(

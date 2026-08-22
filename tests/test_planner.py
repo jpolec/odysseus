@@ -87,6 +87,30 @@ class LivePlannerRunner:
             0.1,
             session_id="planner-live",
         )
+
+
+class NoisyPlannerRunner:
+    def run(self, lane, worktree, prompt, **kwargs):  # noqa: ANN001
+        for index in range(35):
+            kwargs["emit"](
+                "agent.tool.completed",
+                lane,
+                {
+                    "tool": "shell",
+                    "command": f"inspect {index}",
+                    "exit_code": 0,
+                    "aggregated_output": "x" * 50_000,
+                },
+            )
+        return ProcessResult(
+            0,
+            'ODYSSEUS_PLAN: {"summary":"Bounded draft","tasks":['
+            '{"task_key":"task","title":"Task","task":"Do the work","depends_on":[]}]}',
+            0.1,
+            session_id="planner-noisy",
+        )
+
+
 class PlannerTests(unittest.TestCase):
     def test_live_planner_activity_is_durable_before_the_draft_finishes(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -109,6 +133,25 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(runner.live_snapshot["planner_progress"]["state"], "inspecting")
             self.assertEqual(proposal["status"], "proposed")
 
+    def test_finished_plan_keeps_only_a_bounded_safe_activity_tail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+
+            proposal = EpicPlanner(store, agent_runner=NoisyPlannerRunner()).plan(
+                "Create a bounded plan",
+                project,
+                lane="codex",
+            )
+
+            events = proposal["planner_events"]
+            self.assertEqual(len(events), 20)
+            self.assertEqual(events[0]["sequence"], 16)
+            self.assertEqual(events[-1]["sequence"], 35)
+            self.assertTrue(all("aggregated_output" not in event["data"] for event in events))
+
     def test_final_agent_message_survives_a_truncated_raw_planner_buffer(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -125,7 +168,9 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(proposal["status"], "proposed")
             self.assertEqual(proposal["plan"]["summary"], "Recovered from final message")
             self.assertEqual(proposal["planner_progress"]["state"], "draft_ready")
-            self.assertTrue(proposal["planner_events"][0]["occurred_at"].endswith("Z"))
+            self.assertFalse(
+                any("ODYSSEUS_PLAN:" in str(event.get("data", {}).get("text") or "") for event in proposal["planner_events"])
+            )
 
     def test_failed_attempt_can_recover_a_returned_draft_without_another_agent_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
