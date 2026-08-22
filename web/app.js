@@ -22,7 +22,7 @@ const state = {
   assistantOpen: false, helpOpen: false, activityFocus: false, activityWide: true,
   selectedDecisionPaths: [],
   planSelectedSourcePaths: [], planRepositorySources: [], planUploadedSources: [], planGithubCatalog: [], planSelectedGithub: [], planUrlSources: [], planForcedSourcePaths: [],
-  planSourceLoading: false, planGithubLoading: false, planSourceGeneration: 0, planSourceTab: "all", planFilter: "all", taskSourceFilter: "",
+  planSourceLoading: false, planGithubLoading: false, planSourceGeneration: 0, planSourceTab: "adr", planFilter: "all", taskSourceFilter: "",
   planStudio: null, planStudioTaskKey: "", planStudioDirty: false, planStudioSourceFilter: "all", planStudioTaskSort: "plan",
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
@@ -892,27 +892,30 @@ function sourceKindOptions(selected) {
 function renderEpicSourcePicker() {
   const repositoryPanel = $("#epicRepositorySources");
   const selectedRepository = selectedEpicRepositorySources();
-  const visibleRepository = state.planRepositorySources.filter((item) => state.planSourceTab === "all" || state.planSourceTab === planSourceGroup(item.kind) || state.planSourceTab === "repository" && planSourceGroup(item.kind) === "other");
+  const visibleRepository = state.planRepositorySources.filter((item) => state.planSourceTab === planSourceGroup(item.kind) || state.planSourceTab === "repository" && planSourceGroup(item.kind) === "other");
+  const sourceHeading = ({adr: "Architecture decisions", specification: "Specifications", incident: "Incidents and security", repository: "Other planning files"})[state.planSourceTab] || "Repository sources";
   if (state.planSourceLoading) {
-    repositoryPanel.innerHTML = `<p>Discovering ADRs, specifications and planning documents…</p>`;
+    repositoryPanel.innerHTML = `<p>Looking for relevant source material…</p>`;
   } else if (visibleRepository.length) {
-    repositoryPanel.innerHTML = `<div class="epic-source-picker-heading"><strong>Repository documents</strong><small>${visibleRepository.length} shown · ${state.planRepositorySources.length} discovered</small></div><div class="epic-source-options">${visibleRepository.map((item) => {
+    repositoryPanel.innerHTML = `<div class="epic-source-picker-heading"><strong>${escapeHtml(sourceHeading)}</strong><small>${visibleRepository.length} available</small></div><div class="epic-source-options">${visibleRepository.map((item) => {
       const completed = item.implementation?.state === "completed";
       const forced = state.planForcedSourcePaths.includes(item.path);
       const checked = state.planSelectedSourcePaths.includes(item.path);
-      return `<article class="epic-source-option ${completed ? "implemented" : ""}"><label><input type="checkbox" data-epic-source-path="${escapeHtml(item.path)}" ${checked ? "checked" : ""} ${completed && !forced ? "disabled" : ""}><span><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(item.kind))}</span><strong>${escapeHtml(item.title || item.path)}</strong><small>${escapeHtml(item.path)} · ${escapeHtml(String(item.sha256 || "").slice(0, 8))}</small><em>${escapeHtml(item.summary || "No preview available.")}</em></span></label><div class="epic-source-option-actions">${completed ? `<b>Implemented</b><button class="text-button" data-force-source="${escapeHtml(item.path)}" type="button">${forced ? "Cancel repeat" : "Force again"}</button>` : ""}<details><summary>Preview</summary><pre>${escapeHtml(item.preview || item.summary || "")}</pre></details></div></article>`;
+      return `<article class="epic-source-option ${completed ? "implemented" : ""}"><label><input type="checkbox" data-epic-source-path="${escapeHtml(item.path)}" ${checked ? "checked" : ""} ${completed && !forced ? "disabled" : ""}><span><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(item.kind))}</span><strong>${escapeHtml(item.title || item.path)}</strong><small>${escapeHtml(item.path)}</small></span></label><div class="epic-source-option-actions">${completed ? `<b>Implemented</b><button class="text-button" data-force-source="${escapeHtml(item.path)}" type="button">${forced ? "Cancel repeat" : "Force again"}</button>` : ""}<details><summary>Preview</summary><pre>${escapeHtml(item.preview || item.summary || "")}</pre></details></div></article>`;
     }).join("")}</div>`;
   } else {
-    repositoryPanel.innerHTML = `<p>No repository documents match this category. Upload a file, choose GitHub, or add a public HTTPS source.</p>`;
+    repositoryPanel.innerHTML = state.planSourceTab === "github" ? "" : `<p>No matching source material. You can upload a file instead.</p>`;
   }
+  repositoryPanel.classList.toggle("hidden", state.planSourceTab === "github");
 
   const githubPanel = $("#epicGithubSources");
-  const showGithub = ["all", "github"].includes(state.planSourceTab);
+  const showGithub = state.planSourceTab === "github";
   githubPanel.classList.toggle("hidden", !showGithub);
   githubPanel.innerHTML = showGithub ? (state.planGithubLoading
     ? `<p>Loading GitHub issues and pull requests…</p>`
     : state.planGithubCatalog.length ? `<div class="epic-source-picker-heading"><strong>GitHub</strong><small>${state.planGithubCatalog.length} open sources</small></div><div class="epic-source-options">${state.planGithubCatalog.map((item) => { const key = `${item.kind}:${item.number}`; return `<label><input type="checkbox" data-epic-github-key="${escapeHtml(key)}" ${state.planSelectedGithub.includes(key) ? "checked" : ""}><span><span class="source-kind-badge">${escapeHtml(planSourceKindLabel(item.kind))}</span><strong>#${escapeHtml(item.number)} ${escapeHtml(item.title)}</strong><small>${escapeHtml(item.url || "GitHub")}</small></span></label>`; }).join("")}</div>`
-    : `<p>Load open issues and pull requests from the repository's GitHub remote.</p>`) : "";
+    : `<p>No open GitHub Issues or pull requests were found.</p>`) : "";
+  $("#epicLoadGithub").classList.toggle("hidden", !showGithub);
 
   const localPanel = $("#epicUploadedSources");
   const localSources = [...state.planUploadedSources.map((item, index) => ({...item, type: "upload", index})), ...state.planUrlSources.map((item, index) => ({...item, type: "url", index}))];
@@ -927,7 +930,8 @@ function renderEpicSourcePicker() {
   ];
   const sourcePanel = $("#epicDecisionSources");
   sourcePanel.classList.toggle("hidden", !selectedSources.length);
-  sourcePanel.innerHTML = selectedSources.length ? `<small>SELECTED SOURCES</small><strong>${selectedSources.length} document${selectedSources.length === 1 ? "" : "s"} will be frozen into this plan version</strong><div>${selectedSources.map((item) => `<span>${escapeHtml(item.title)} <code>${escapeHtml(item.detail)}</code></span>`).join("")}</div>` : "";
+  sourcePanel.innerHTML = selectedSources.length ? `<strong>Selected source${selectedSources.length === 1 ? "" : "s"}</strong><div>${selectedSources.map((item) => `<span>${escapeHtml(item.title)} <code>${escapeHtml(item.detail)}</code></span>`).join("")}</div>` : "";
+  $("#epicSourceSelectionSummary").textContent = selectedSources.length ? `${selectedSources.length} selected` : "None selected";
 
   $$("[data-plan-source-tab]").forEach((button) => button.classList.toggle("active", button.dataset.planSourceTab === state.planSourceTab));
   $$('[data-epic-source-path]').forEach((input) => input.addEventListener("change", () => {
@@ -1025,10 +1029,11 @@ async function addEpicUploadedSources(files) {
 
 function openEpicDialog(sourcePaths = []) {
   const form = $("#epicForm"); form.reset(); prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject"));
-  state.planSelectedSourcePaths = [...sourcePaths]; state.planUploadedSources = []; state.planUrlSources = []; state.planSelectedGithub = []; state.planForcedSourcePaths = []; state.planSourceTab = sourcePaths.length ? "adr" : "all";
+  state.planSelectedSourcePaths = [...sourcePaths]; state.planUploadedSources = []; state.planUrlSources = []; state.planSelectedGithub = []; state.planForcedSourcePaths = []; state.planSourceTab = "adr";
   const decisions = state.projectOverview?.decisions || []; const selected = decisions.filter((item) => state.planSelectedSourcePaths.includes(item.path));
   $("#epicProjectSelect").disabled = false; state.planRepositorySources = selected.length ? decisions : [];
   if (selected.length) { form.elements.source_kind.value = "adr"; form.elements.requirement.value = `Implement the selected architecture decision${selected.length === 1 ? "" : "s"} as one coherent, verified change. Preserve the recorded constraints and show any ambiguity before implementation.`; }
+  $("#epicSourceDropzone").open = Boolean(selected.length);
   renderEpicSourcePicker(); $("#epicDialog").showModal();
   refreshEpicSourceChoices($("#epicProjectSelect").value, {preserveSelection: Boolean(selected.length)}).catch((error) => toast(error.message, true));
 }
@@ -3866,7 +3871,7 @@ function bindDialogs() {
       await Promise.all([refreshEpics(), refreshProjectOverview()]);
       setView("epics");
     } catch (error) { toast(error.message, true); }
-    finally { submit.disabled = false; submit.textContent = "Generate task plan"; }
+    finally { submit.disabled = false; submit.textContent = "Create plan"; }
   });
   $("#planStudioClose").addEventListener("click", () => $("#planStudioDialog").close());
   $("#planStudioSourceFilter").addEventListener("change", (event) => {

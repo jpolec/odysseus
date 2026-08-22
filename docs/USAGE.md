@@ -344,10 +344,10 @@ From **Plans** in the web UI, enter a requirement and project; advanced agent
 and verification choices are optional. The Planner proposes the task graph;
 the equivalent CLI flow is:
 
-After choosing the repository, use the source categories to select discovered
-ADRs, specifications, incidents, findings, milestones, or other bounded text
-documents. **Load GitHub** lists open Issues and pull requests through the
-authenticated `gh` CLI. You can also drag/drop an ADR, PRD, specification,
+After choosing the repository, describe the finished outcome. Open **Add source
+material** only when the Plan needs an ADR, specification, incident, finding,
+milestone, or another supporting document. The GitHub tab lists open Issues
+and pull requests through the authenticated `gh` CLI. You can also drag/drop an ADR, PRD, specification,
 finding, or incident note, choose its type independently, inspect its preview,
 or add a public HTTPS text document. The composer shows every selected source
 before submission. Odysseus freezes those exact bytes into the proposed
@@ -358,8 +358,8 @@ remote content fail closed. A source whose linked Plan is completed is marked
 **Implemented** and cannot be selected again unless you choose **Force again**.
 That override is stored in the source snapshot; it never edits the ADR file.
 
-Answer **What should be true when this is done?** with the finished outcome.
-For a stricter contract, expand **Define success** and separate Must work, Must
+Answer **What should the agents deliver?** with the finished outcome.
+For a stricter contract, expand **Add success criteria** and separate Must work, Must
 not break, and Proof required. Simple Plans still need only the outcome.
 
 Open **Review plan contract** to use Plan Studio. The frozen requirement is on

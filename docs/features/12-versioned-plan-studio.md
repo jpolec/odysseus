@@ -27,12 +27,13 @@ the exact source bytes, content hash, and paragraph-level references such as
 `S1` and `S2`. Remote intake remains a redacted snapshot; local documents can
 be compared with their current bytes.
 
-In **Plans → Plan feature**, first choose a repository. The composer discovers
-bounded text documents throughout the checkout and classifies ADRs,
-specifications, incidents, security findings, milestones, and other repository
-documents. Category tabs keep the catalog usable. **Load GitHub** reads open
-Issues and pull requests authoritatively through the authenticated `gh` CLI;
-the browser supplies only the selected kind and number. **Upload documents**
+In **Plans → Plan feature**, first choose a repository and describe the outcome.
+Optional source material stays collapsed until requested. Discovery presents
+focused ADRs, specifications, incidents, security findings, milestones, and
+other planning documents instead of every readable file in the checkout.
+Build metadata, workflows, Skills, and generic documentation are excluded.
+The GitHub tab reads open Issues and pull requests authoritatively through the authenticated `gh` CLI;
+the browser supplies only the selected kind and number. **Upload a file**
 supports drag/drop of Markdown, text, JSON, or YAML, with a per-document type
 and preview. A public HTTPS URL can be previewed and added when it resolves to
 a public address and returns a supported textual content type.
@@ -43,7 +44,7 @@ total. Duplicate content and likely secrets are rejected at the durable
 boundary. The selected-source summary shows exactly what will be frozen before
 the Planner runs.
 
-The one required question is **What should be true when this is done?** A
+The one required question is **What should the agents deliver?** A
 document says where the requirements came from; the answer tells the Planner
 what this Plan must deliver. An optional success contract separates **Must
 work**, **Must not break**, and **Proof required** without making simple plans

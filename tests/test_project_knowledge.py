@@ -96,6 +96,10 @@ class ProjectKnowledgeTests(unittest.TestCase):
             spec = project / "docs" / "specs" / "billing-prd.md"
             spec.write_text("# Billing requirements\n\nInvoices remain idempotent.\n", encoding="utf-8")
             (project / "node_modules" / "ignored" / "fake-spec.md").write_text("# Ignore me\n", encoding="utf-8")
+            (project / ".github" / "workflows").mkdir(parents=True)
+            (project / ".github" / "workflows" / "ci.yml").write_text("name: CI\n", encoding="utf-8")
+            (project / "docs" / "usage.md").write_text("# Operator guide\n", encoding="utf-8")
+            (project / "_ADR" / "README.md").write_text("# ADR index\n", encoding="utf-8")
             store = RunStore(root / "state")
             registered = store.projects.upsert(project)
             sources = store.knowledge.planning_sources(registered["id"])
@@ -104,6 +108,9 @@ class ProjectKnowledgeTests(unittest.TestCase):
             self.assertEqual(by_path["_ADR/0002-events.md"]["kind"], "adr")
             self.assertEqual(by_path["docs/specs/billing-prd.md"]["kind"], "specification")
             self.assertNotIn("node_modules/ignored/fake-spec.md", by_path)
+            self.assertNotIn(".github/workflows/ci.yml", by_path)
+            self.assertNotIn("docs/usage.md", by_path)
+            self.assertNotIn("_ADR/README.md", by_path)
             self.assertIn("Invoices remain idempotent", by_path["docs/specs/billing-prd.md"]["preview"])
 
             frozen = store.knowledge.decision_sources(registered["id"], ["_ADR/0002-events.md"])

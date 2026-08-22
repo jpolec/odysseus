@@ -27,7 +27,18 @@ DECISION_FILE_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".rst", ".txt"
 DECISION_IGNORED_STEMS = frozenset({"readme", "index", "template", "adr-template"})
 PLANNING_FILE_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".rst", ".txt", ".adoc", ".json", ".yaml", ".yml"})
 PLANNING_IGNORED_DIRECTORIES = frozenset(
-    {".git", ".odysseus", ".venv", "venv", "node_modules", "vendor", "dist", "build", "coverage", "backups"}
+    {
+        ".git", ".github", ".odysseus", ".venv", "venv", "node_modules", "vendor",
+        "dist", "build", "coverage", "backups", "skills", "proofs",
+    }
+)
+PLANNING_ROOT_DOCUMENTS = frozenset(
+    {"readme.md", "readme.rst", "roadmap.md", "vision.md", "requirements.md", "prd.md", "spec.md", "security.md"}
+)
+PLANNING_PATH_HINTS = (
+    "adr", "decision", "prd", "spec", "requirement", "rfc", "design", "incident",
+    "postmortem", "post-mortem", "security", "finding", "threat", "roadmap",
+    "milestone", "master-plan", "master_plan", "plan-studio", "project-decision",
 )
 INSTRUCTION_CANDIDATES = (
     "AGENTS.md",
@@ -557,6 +568,23 @@ class ProjectKnowledge:
             return "specification"
         return "repository_document"
 
+    @staticmethod
+    def _is_planning_source_path(relative: str) -> bool:
+        """Keep discovery focused on requirements, not every text file in a repository."""
+
+        normalized = relative.replace("\\", "/").lower()
+        path = Path(normalized)
+        if any(part.endswith(".egg-info") for part in path.parts):
+            return False
+        if any(
+            normalized == candidate.lower() or normalized.startswith(f"{candidate.lower()}/")
+            for candidate in DECISION_DIRECTORY_CANDIDATES
+        ):
+            return path.stem not in DECISION_IGNORED_STEMS
+        if len(path.parts) == 1 and path.name in PLANNING_ROOT_DOCUMENTS:
+            return True
+        return any(hint in normalized for hint in PLANNING_PATH_HINTS)
+
     def planning_sources(self, project_id: str) -> list[dict[str, Any]]:
         """Return a bounded catalog of text documents that may source a Plan."""
 
@@ -571,7 +599,9 @@ class ProjectKnowledge:
             names[:] = sorted(
                 name
                 for name in names
-                if name not in PLANNING_IGNORED_DIRECTORIES and (not name.startswith(".") or name == ".github")
+                if name not in PLANNING_IGNORED_DIRECTORIES
+                and not name.endswith(".egg-info")
+                and not name.startswith(".")
             )
             for filename in sorted(filenames):
                 path = directory_path / filename
@@ -583,6 +613,8 @@ class ProjectKnowledge:
                 except (OSError, ValueError):
                     continue
                 relative = str(path.relative_to(root))
+                if not self._is_planning_source_path(relative):
+                    continue
                 try:
                     size = path.stat().st_size
                 except OSError:

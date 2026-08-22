@@ -14,6 +14,10 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
+- Simplified Plan creation to one required outcome field. Optional source
+  material is collapsed, discovery excludes build/workflow/Skill noise, and
+  focused ADR, specification, incident, GitHub, upload, and URL choices appear
+  only when requested.
 - Expanded Plan sources from ADR/upload-only intake to a classified repository
   catalog, GitHub Issues and pull requests, drag-and-drop uploads with per-file
   types and previews, and public HTTPS documents with private-address guards.

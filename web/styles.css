@@ -1449,7 +1449,21 @@ summary:focus-visible {
 @media (max-width: 850px) { .plan-studio-dialog { width: 100vw; height: 100vh; max-height: none; }.plan-studio-shell { grid-template-rows: auto auto minmax(0,1fr); }.plan-studio-grid { grid-template-columns: 1fr; overflow: auto; }.plan-studio-source,.plan-studio-tasks { min-height: 540px; border-right: 0; border-bottom: 1px solid var(--line); }.plan-studio-graph { display: none; }.plan-studio-head { align-items: flex-start; }.plan-studio-head-actions > span,.plan-studio-head-actions .ghost { display: none; } }
 
 /* Versioned Plan sources: one catalog, explicit repeat authorization, and source-scoped tasks. */
+details.epic-source-picker { padding: 0; background: var(--surface); }
+.epic-source-picker > summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 12px; cursor: pointer; list-style: none; }
+.epic-source-picker > summary::-webkit-details-marker { display: none; }
+.epic-source-picker > summary::before { content: "+"; flex: 0 0 auto; color: var(--brand); font-size: 16px; line-height: 1; }
+.epic-source-picker[open] > summary::before { content: "−"; }
+.epic-source-picker > summary > span { min-width: 0; margin-right: auto; }
+.epic-source-picker > summary strong,.epic-source-picker > summary small { display: block; }
+.epic-source-picker > summary strong { color: var(--ink); font-size: 11px; }
+.epic-source-picker > summary small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.epic-source-picker > summary em { color: var(--faint); font: 8.5px var(--mono); font-style: normal; white-space: nowrap; }
+.epic-source-picker-body { padding: 0 11px 11px; border-top: 1px solid var(--line); }
+.epic-source-picker-body .selected-decision-sources { margin: 9px 0; padding: 8px 9px; }
+.epic-source-picker-body .selected-decision-sources > strong { margin: 0; font-size: 9px; }
 .plan-source-categories,.plan-filter-bar { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.epic-source-picker-body .plan-source-categories { margin-top: 9px; }
 .plan-source-categories button,.plan-filter-bar > button { min-height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); background: var(--surface); font-size: 9.5px; }
 .plan-source-categories button.active,.plan-filter-bar > button.active { border-color: #9db8d4; color: var(--ink); background: #edf4fb; }
 .plan-filter-bar { align-items: center; margin: 0 0 12px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
@@ -1461,6 +1475,7 @@ summary:focus-visible {
 .epic-source-options em { display: -webkit-box; margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 9px; font-style: normal; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .epic-source-option-actions { display: flex; align-items: center; gap: 7px; padding: 0 10px 8px 35px; }.epic-source-option-actions > b { color: #147d44; font: 650 8px var(--mono); text-transform: uppercase; }.epic-source-option-actions details { min-width: 0; }.epic-source-option-actions summary,.epic-uploaded-sources summary { cursor: pointer; color: var(--brand); font-size: 8.5px; }.epic-source-option-actions pre,.epic-uploaded-sources pre { max-height: 130px; margin: 6px 0 0; padding: 8px; overflow: auto; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); background: var(--surface-2); font: 8px/1.5 var(--mono); white-space: pre-wrap; }
 .epic-source-url-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; margin-top: 8px; }.epic-source-url-row input { min-height: 30px; font-size: 10px; }.epic-drop-hint { margin: 6px 0 0; color: var(--faint); font-size: 8.5px; }
+.epic-source-url-details { margin-top: 8px; }.epic-source-url-details > summary { cursor: pointer; color: var(--muted); font-size: 9px; }.epic-source-url-details[open] > summary { color: var(--ink); }
 .source-default-kind { display: flex; align-items: center; gap: 6px; width: auto; margin: 0 0 0 auto; color: var(--faint); font-size: 8px; letter-spacing: 0; text-transform: none; }.source-default-kind select { width: auto; min-height: 28px; padding: 0 24px 0 7px; font-size: 9px; }
 .epic-uploaded-sources > div > span:first-child { flex: 1 1 auto; min-width: 0; }.epic-uploaded-sources > div > select { flex: 0 0 128px; width: 128px; min-height: 28px; padding: 0 22px 0 6px; font-size: 8.5px; }
 .epic-source-line > button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px; border: 1px solid var(--line-bright); border-radius: 4px; color: var(--ink); background: var(--surface-2); font: 9px var(--mono); }.epic-source-line > button b,.epic-source-line > button em { color: var(--brand); font: 650 7px var(--mono); text-transform: uppercase; }.epic-source-line > button em { color: var(--red); }
