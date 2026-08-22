@@ -500,7 +500,13 @@ def seed(state_dir: Path, project: Path) -> RunStore:
         ),
         (
             "GitHub issue intake",
-            {"kind": "github_issue", "path": "github://issue/42", "source_url": "https://github.com/jpolec/odysseus/issues/42", "title": "Issue #42 · Preserve source lineage", "content": "# Preserve source lineage\n\nA task created from GitHub must retain the issue number, immutable text digest, and required evidence."},
+            {
+                "kind": "github_issue",
+                "path": "github://issue/1",
+                "source_url": "https://github.com/jpolec/odysseus/issues/1",
+                "title": "Issue #1 · Plan source lineage demo",
+                "content": "# Plan source lineage demo\n\nFreeze this Issue as an immutable Plan source, retain its identity and digest, and require approval before any task starts.",
+            },
             "Freeze an authoritative GitHub issue",
         ),
     ]
