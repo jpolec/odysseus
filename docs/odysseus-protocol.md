@@ -139,7 +139,7 @@ The default origin is `http://127.0.0.1:8741`.
 | `POST` | `/api/attention/:id/resolve` | Close a notification without inventing an answer |
 | `GET` | `/api/epics` | List Epic proposals and active graphs |
 | `GET` | `/api/epics/:id` | Epic snapshot, frozen source sections, source impact, PlanVersion, and materialized runs |
-| `POST` | `/api/epics/plan` | Run a read-only Planner; optional `project_id`, `source_kind`, and `source_paths` freeze typed sources into the proposal |
+| `POST` | `/api/epics/plan` | Run a read-only Planner; `project_id`, typed `source_paths`, and bounded uploaded `source_documents` freeze exact requirement sources into the proposal |
 | `POST` | `/api/epics/:id/plan` | Validate an edited task contract and save a new immutable draft PlanVersion |
 | `POST` | `/api/epics/:id/refresh-sources` | Explicitly freeze current local source bytes before a new PlanVersion is reviewed |
 | `POST` | `/api/epics/:id/approve` | Validate and materialize a proposed task DAG |

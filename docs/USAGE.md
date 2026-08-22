@@ -344,6 +344,12 @@ From **Plans** in the web UI, enter a requirement and project; advanced agent
 and verification choices are optional. The Planner proposes the task graph;
 the equivalent CLI flow is:
 
+After choosing the repository, select any discovered ADRs under **Requirement
+sources**, or use **Upload documents** for an ADR, PRD, specification, finding,
+incident note, or other local text document. The composer shows every selected
+source before submission. Odysseus freezes those exact bytes into the proposed
+PlanVersion; the original repository and uploaded files remain untouched.
+
 Open **Review plan contract** to use Plan Studio. The frozen requirement is on
 the left and its task contracts are on the right. Select a task to highlight
 the clauses that justify it; select a clause to link or unlink it. You can edit

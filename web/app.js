@@ -21,6 +21,7 @@ const state = {
   assistantConversations: {}, config: null, resources: null, decisionDiff: null, decisionDiffRunId: "",
   assistantOpen: false, helpOpen: false, activityFocus: false, activityWide: true,
   selectedDecisionPaths: [],
+  planSourceDecisions: [], planUploadedSources: [], planSourceLoading: false, planSourceGeneration: 0,
   planStudio: null, planStudioTaskKey: "", planStudioDirty: false,
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
@@ -832,19 +833,117 @@ function renderProjectDecisions() {
   $$('[data-open-decision-plan]').forEach((button) => button.addEventListener("click", () => setView("epics")));
 }
 
+function selectedEpicRepositorySources() {
+  const selected = new Set(state.selectedDecisionPaths);
+  return state.planSourceDecisions.filter((item) => selected.has(item.path));
+}
+
+function renderEpicSourcePicker() {
+  const repositoryPanel = $("#epicRepositorySources");
+  const repositorySources = selectedEpicRepositorySources();
+  if (state.planSourceLoading) {
+    repositoryPanel.innerHTML = `<p>Looking for ADRs in this repository…</p>`;
+  } else if (state.planSourceDecisions.length) {
+    repositoryPanel.innerHTML = `<div class="epic-source-picker-heading"><strong>Repository ADRs</strong><small>${state.planSourceDecisions.length} discovered</small></div><div class="epic-source-options">${state.planSourceDecisions.map((item) => `<label><input type="checkbox" data-epic-source-path="${escapeHtml(item.path)}" ${state.selectedDecisionPaths.includes(item.path) ? "checked" : ""}><span><strong>${escapeHtml(item.title || item.path)}</strong><small>${escapeHtml(item.path)} · ${escapeHtml(String(item.sha256 || "").slice(0, 8))}</small></span></label>`).join("")}</div>`;
+  } else {
+    repositoryPanel.innerHTML = `<p>No ADRs found in this repository. You can upload an ADR, PRD or specification below.</p>`;
+  }
+
+  const uploadedPanel = $("#epicUploadedSources");
+  uploadedPanel.classList.toggle("hidden", !state.planUploadedSources.length);
+  uploadedPanel.innerHTML = state.planUploadedSources.map((item, index) => `<div><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(formatBytes(item.bytes))} · uploaded</small></span><button class="icon-button" data-remove-epic-upload="${index}" type="button" aria-label="Remove ${escapeHtml(item.title)}">×</button></div>`).join("");
+
+  const selectedSources = [
+    ...repositorySources.map((item) => ({title: item.title || item.path, detail: `${item.path} · ${String(item.sha256 || "").slice(0, 8)}`})),
+    ...state.planUploadedSources.map((item) => ({title: item.title, detail: "uploaded"})),
+  ];
+  const sourcePanel = $("#epicDecisionSources");
+  sourcePanel.classList.toggle("hidden", !selectedSources.length);
+  sourcePanel.innerHTML = selectedSources.length ? `<small>SELECTED SOURCES</small><strong>${selectedSources.length} document${selectedSources.length === 1 ? "" : "s"} will be frozen into this plan version</strong><div>${selectedSources.map((item) => `<span>${escapeHtml(item.title)} <code>${escapeHtml(item.detail)}</code></span>`).join("")}</div>` : "";
+
+  $$('[data-epic-source-path]').forEach((input) => input.addEventListener("change", () => {
+    const paths = new Set(state.selectedDecisionPaths);
+    if (input.checked) {
+      if (paths.size + state.planUploadedSources.length >= 20) {
+        input.checked = false;
+        toast("Choose at most 20 planning documents.", true);
+        return;
+      }
+      paths.add(input.dataset.epicSourcePath);
+    } else paths.delete(input.dataset.epicSourcePath);
+    state.selectedDecisionPaths = [...paths];
+    renderEpicSourcePicker();
+  }));
+  $$('[data-remove-epic-upload]').forEach((button) => button.addEventListener("click", () => {
+    state.planUploadedSources.splice(Number(button.dataset.removeEpicUpload), 1);
+    renderEpicSourcePicker();
+  }));
+}
+
+async function refreshEpicSourceChoices(projectId, {preserveSelection = false} = {}) {
+  const generation = ++state.planSourceGeneration;
+  if (!preserveSelection) state.selectedDecisionPaths = [];
+  state.planSourceDecisions = [];
+  if (!projectId || !projectById(projectId)) { state.planSourceLoading = false; renderEpicSourcePicker(); return; }
+  state.planSourceLoading = true;
+  renderEpicSourcePicker();
+  try {
+    const overview = activeProject()?.id === projectId && state.projectOverview
+      ? state.projectOverview
+      : await api(`/api/projects/${encodeURIComponent(projectId)}/overview`);
+    if (generation !== state.planSourceGeneration) return;
+    state.planSourceDecisions = overview.decisions || [];
+    const known = new Set(state.planSourceDecisions.map((item) => item.path));
+    state.selectedDecisionPaths = state.selectedDecisionPaths.filter((path) => known.has(path));
+  } catch (error) {
+    if (generation === state.planSourceGeneration) toast(`Could not list repository ADRs: ${error.message}`, true);
+  } finally {
+    if (generation === state.planSourceGeneration) { state.planSourceLoading = false; renderEpicSourcePicker(); }
+  }
+}
+
+async function addEpicUploadedSources(files) {
+  const candidates = [...files];
+  if (!candidates.length) return;
+  if (state.selectedDecisionPaths.length + state.planUploadedSources.length + candidates.length > 20) {
+    toast("Choose at most 20 planning documents.", true);
+    return;
+  }
+  const allowed = /\.(md|markdown|txt|rst|adoc|json|ya?ml)$/i;
+  const additions = [];
+  for (const file of candidates) {
+    if (!allowed.test(file.name)) { toast(`${file.name} is not a supported text document.`, true); return; }
+    if (file.size > 80000) { toast(`${file.name} exceeds the 80 KB document limit.`, true); return; }
+    const content = await file.text();
+    const bytes = new TextEncoder().encode(content).length;
+    if (!content.trim()) { toast(`${file.name} is empty.`, true); return; }
+    if (bytes > 80000) { toast(`${file.name} exceeds the 80 KB document limit.`, true); return; }
+    additions.push({title: file.name, path: `upload://${file.name}`, bytes, content});
+  }
+  const repositoryBytes = selectedEpicRepositorySources().reduce((total, item) => total + Number(item.bytes || 0), 0);
+  const uploadedBytes = [...state.planUploadedSources, ...additions].reduce((total, item) => total + Number(item.bytes || 0), 0);
+  if (repositoryBytes + uploadedBytes > 320000) { toast("Selected documents exceed the 320 KB planning limit.", true); return; }
+  state.planUploadedSources.push(...additions);
+  renderEpicSourcePicker();
+}
+
 function openEpicDialog(sourcePaths = []) {
   const form = $("#epicForm");
   form.reset();
   prepareProjectSelect($("#epicProjectSelect"), $("#epicCustomProject"));
   state.selectedDecisionPaths = [...sourcePaths];
+  state.planUploadedSources = [];
   const decisions = state.projectOverview?.decisions || [];
   const selected = decisions.filter((item) => state.selectedDecisionPaths.includes(item.path));
-  $("#epicProjectSelect").disabled = Boolean(selected.length);
-  const sourcePanel = $("#epicDecisionSources");
-  sourcePanel.classList.toggle("hidden", !selected.length);
-  sourcePanel.innerHTML = selected.length ? `<small>SELECTED DECISIONS</small><strong>${selected.length} ADR${selected.length === 1 ? "" : "s"} will be frozen into this plan</strong><div>${selected.map((item) => `<span>${escapeHtml(item.path)} <code>${escapeHtml(String(item.sha256 || "").slice(0, 8))}</code></span>`).join("")}</div>` : "";
-  if (selected.length) form.elements.requirement.value = `Implement the selected architecture decision${selected.length === 1 ? "" : "s"} as one coherent, verified change. Preserve the recorded constraints and show any ambiguity before implementation.`;
+  $("#epicProjectSelect").disabled = false;
+  state.planSourceDecisions = selected.length ? decisions : [];
+  if (selected.length) {
+    form.elements.source_kind.value = "adr";
+    form.elements.requirement.value = `Implement the selected architecture decision${selected.length === 1 ? "" : "s"} as one coherent, verified change. Preserve the recorded constraints and show any ambiguity before implementation.`;
+  }
+  renderEpicSourcePicker();
   $("#epicDialog").showModal();
+  refreshEpicSourceChoices($("#epicProjectSelect").value, {preserveSelection: Boolean(selected.length)}).catch((error) => toast(error.message, true));
 }
 
 function repositoryStatusLabel(run) {
@@ -3476,7 +3575,15 @@ function bindDialogs() {
   $("#environmentProfile").addEventListener("change", (event) => $("#environmentOptions").classList.toggle("hidden", event.currentTarget.value !== "docker"));
   $("#untrustedProject").addEventListener("change", (event) => { if (!event.currentTarget.checked) return; const select = $("#environmentProfile"); const docker = select.querySelector('option[value="docker"]'); if (docker?.disabled) { event.currentTarget.checked = false; toast("Install Docker before running an untrusted repository.", true); return; } select.value = "docker"; select.dispatchEvent(new Event("change")); });
   $("#variantsEnabled").addEventListener("change", (event) => $("#variantOptions").classList.toggle("hidden", !event.currentTarget.checked));
-  $("#epicProjectSelect").addEventListener("change", () => syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject")));
+  $("#epicProjectSelect").addEventListener("change", () => {
+    syncCustomProject($("#epicProjectSelect"), $("#epicCustomProject"));
+    refreshEpicSourceChoices($("#epicProjectSelect").value).catch((error) => toast(error.message, true));
+  });
+  $("#epicSourceUpload").addEventListener("change", async (event) => {
+    try { await addEpicUploadedSources(event.currentTarget.files || []); }
+    catch (error) { toast(`Could not read document: ${error.message}`, true); }
+    finally { event.currentTarget.value = ""; }
+  });
   $("#taskForm").addEventListener("submit", async (event) => {
     if (event.submitter?.value === "cancel") return;
     event.preventDefault();
@@ -3548,7 +3655,36 @@ function bindDialogs() {
   });
   [$("#newEpicButton"), $("#workPlanButton")].forEach((button) => button?.addEventListener("click", () => openEpicDialog()));
   $("#planSelectedDecisions").addEventListener("click", () => openEpicDialog(state.selectedDecisionPaths));
-  $("#epicForm").addEventListener("submit", async (event) => { if (event.submitter?.value === "cancel") return; event.preventDefault(); const submit = event.submitter; const data = new FormData(event.currentTarget); const project = projectById($("#epicProjectSelect").value); if (!project) { toast("Add a repository first.", true); return; } const payload = {requirement: data.get("requirement"), source_kind: data.get("source_kind"), project_id: project.id, project_path: project.path, source_paths: [...state.selectedDecisionPaths], planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"), checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean)}; try { submit.disabled = true; submit.textContent = "Reading repository…"; await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)}); $("#epicDialog").close(); event.currentTarget.reset(); state.selectedDecisionPaths = []; toast("Task graph proposed. Review it before approving any work."); await Promise.all([refreshEpics(), refreshProjectOverview()]); setView("epics"); } catch (error) { toast(error.message, true); } finally { submit.disabled = false; submit.textContent = "Generate task plan"; } });
+  $("#epicForm").addEventListener("submit", async (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    const submit = event.submitter;
+    const data = new FormData(event.currentTarget);
+    const project = projectById($("#epicProjectSelect").value);
+    if (!project) { toast("Add a repository first.", true); return; }
+    const sourceKind = String(data.get("source_kind") || "user_request");
+    const payload = {
+      requirement: data.get("requirement"), source_kind: sourceKind, project_id: project.id,
+      source_paths: [...state.selectedDecisionPaths],
+      source_documents: state.planUploadedSources.map((item) => ({kind: sourceKind, title: item.title, path: item.path, content: item.content})),
+      planner_lane: data.get("planner_lane"), lane: data.get("lane"), review_lane: data.get("review_lane"),
+      checks: String(data.get("checks") || "").split("\n").map((item) => item.trim()).filter(Boolean),
+    };
+    try {
+      submit.disabled = true;
+      submit.textContent = "Freezing sources…";
+      await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)});
+      $("#epicDialog").close();
+      event.currentTarget.reset();
+      state.selectedDecisionPaths = [];
+      state.planSourceDecisions = [];
+      state.planUploadedSources = [];
+      toast("Task graph proposed. Review the frozen sources and tasks before approving any work.");
+      await Promise.all([refreshEpics(), refreshProjectOverview()]);
+      setView("epics");
+    } catch (error) { toast(error.message, true); }
+    finally { submit.disabled = false; submit.textContent = "Generate task plan"; }
+  });
   $("#planStudioClose").addEventListener("click", () => $("#planStudioDialog").close());
   $("#planStudioEditor").addEventListener("input", updatePlanStudioTaskFromEditor);
   $("#planStudioEditor").addEventListener("change", updatePlanStudioTaskFromEditor);

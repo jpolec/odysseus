@@ -66,6 +66,9 @@ Completed, accepted, integrated, and delivered are separate states.
   dependencies, role separation, parallelism, and independent review nodes.
 - Discover and plan from `_ADR/` and conventional ADR directories while
   binding source content, status, size, path, and SHA-256 to the Epic.
+- Select discovered repository ADRs directly in the Plan composer or upload
+  bounded Markdown/text/JSON/YAML requirement documents, with an explicit list
+  of the sources that will be frozen before planning.
 - Review frozen sources and task contracts side by side, link requirement
   clauses bidirectionally to tasks, edit outcomes/prompts/evidence/profiles,
   and save each draft as a new immutable PlanVersion.

@@ -14,6 +14,9 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
+- Added explicit requirement-source intake to the Plan composer: operators can
+  select discovered repository ADRs or upload bounded local text documents and
+  review the exact source list before it is frozen into a PlanVersion.
 - Added a full-screen Plan Studio that turns ADRs, specifications, issues,
   incidents, findings, milestones, document sets, or direct requirements into
   versioned execution contracts before any implementation starts.

@@ -26,6 +26,19 @@ exact source bytes, content hash, and paragraph-level references such as `S1`
 and `S2`. Remote intake remains a redacted snapshot; local documents can be
 compared with their current bytes.
 
+In **Plans → New plan**, first choose a repository. The composer then lists
+ADRs discovered in `_ADR/` and the other supported ADR directories. Select one
+or more there, or choose **Upload documents** to attach Markdown, text, JSON,
+or YAML from outside the repository. Uploaded text is read locally by the web
+client and sent only to the local Odysseus server; files are limited to 80 KB
+each and all selected sources to 320 KB. The selected-source summary shows
+exactly what will be frozen before the Planner runs.
+
+The finished-outcome field remains required. A document says where the
+requirements came from; the outcome tells the Planner what this Plan is meant
+to deliver. Do not attach secrets because source contracts are durable audit
+records.
+
 ## Plan Studio
 
 Open a proposed Plan and choose **Review plan contract**. The full-screen

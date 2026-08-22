@@ -596,12 +596,6 @@
       <div class="dialog-head"><div><p class="eyebrow">PLAN ONLY · NOTHING RUNS YET</p><h2>Break work into agent tasks</h2></div><button class="icon-button" value="cancel" type="submit" aria-label="Close">×</button></div>
       <div class="dialog-intro"><strong>Planner proposes a task graph.</strong><p>Nothing runs before approval.</p></div>
       <div class="flow-preview" aria-label="Feature planning flow"><span><b>1</b> Requirement</span><i>→</i><span><b>2</b> Proposed task graph</span><i>→</i><span><b>3</b> Your approval</span><i>→</i><span><b>4</b> Agents run</span></div>
-      <section class="selected-decision-sources hidden" id="epicDecisionSources" aria-label="Selected architecture decisions"></section>
-      <label>What should the finished feature do?
-        <span class="field-help">End state and constraints.</span>
-        <textarea name="requirement" rows="6" required placeholder="Add passkey sign-in end to end. Keep password login working, include the schema migration, browser flow, integration tests, and a security review."></textarea>
-      </label>
-      <details class="prompt-example"><summary>When to use this</summary><p>Use a plan for dependent or parallel work.</p></details>
       <label>Repository
         <span class="field-help">The planner inspects this repository read-only.</span>
         <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
@@ -610,6 +604,22 @@
         <span class="field-help">The requirement is frozen as a versioned source contract.</span>
         <select name="source_kind"><option value="user_request">User request</option><option value="adr">ADR / architecture decision</option><option value="specification">PRD / specification</option><option value="github_issue">GitHub issue</option><option value="security_finding">Security finding</option><option value="incident">Incident</option><option value="milestone">Milestone</option><option value="document_set">Document set</option></select>
       </label>
+      <section class="epic-source-picker" aria-labelledby="epicSourcePickerTitle">
+        <header><div><strong id="epicSourcePickerTitle">Requirement sources</strong><span>optional</span></div><small>Choose ADRs from the repository or upload local documents. Exact contents are frozen into the plan version.</small></header>
+        <div class="epic-repository-sources" id="epicRepositorySources"><p>Choose a repository to see discovered ADRs.</p></div>
+        <div class="epic-source-upload-row">
+          <label class="ghost compact epic-source-upload" for="epicSourceUpload">Upload documents</label>
+          <input class="sr-only" id="epicSourceUpload" type="file" multiple accept=".md,.markdown,.txt,.rst,.adoc,.json,.yaml,.yml,text/plain,text/markdown,application/json">
+          <small>Markdown, text, JSON or YAML · max 80 KB each</small>
+        </div>
+        <div class="epic-uploaded-sources hidden" id="epicUploadedSources" aria-label="Uploaded planning documents"></div>
+        <section class="selected-decision-sources hidden" id="epicDecisionSources" aria-label="Selected requirement sources"></section>
+      </section>
+      <label>What should the finished feature do?
+        <span class="field-help">State the end result. The selected documents provide constraints and evidence lineage.</span>
+        <textarea name="requirement" rows="5" required placeholder="Add passkey sign-in end to end. Keep password login working, include the schema migration, browser flow, integration tests, and a security review."></textarea>
+      </label>
+      <details class="prompt-example"><summary>When to use this</summary><p>Use a plan for dependent or parallel work.</p></details>
       <details class="advanced"><summary>Advanced: choose agents and verification commands</summary>
         <div class="form-row"><label>Planning agent <select name="planner_lane" id="plannerLaneSelect"></select></label><label>Implementation agent <select name="lane" id="epicLaneSelect"></select></label></div>
         <label>Independent review agent <select name="review_lane" id="epicReviewLaneSelect"></select></label>

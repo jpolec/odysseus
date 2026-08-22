@@ -57,6 +57,21 @@ DIRECT_ASSISTANT_PROVIDER_ENV = {
     "anthropic": ("ANTHROPIC_API_KEY", "ODYSSEUS_ASSISTANT_ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"),
 }
 ASSISTANT_PROVIDERS = ("codex", "claude", "openai", "anthropic")
+PLAN_SOURCE_KINDS = frozenset(
+    {
+        "user_request",
+        "adr",
+        "specification",
+        "github_issue",
+        "security_finding",
+        "incident",
+        "milestone",
+        "document_set",
+    }
+)
+PLAN_SOURCE_FILE_LIMIT = 20
+PLAN_SOURCE_BYTES_PER_FILE = 80_000
+PLAN_SOURCE_BYTES_TOTAL = 320_000
 RUN_SUMMARY_FIELDS = (
     "id",
     "title",
@@ -138,6 +153,46 @@ def _epic_summary(epic: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(source, dict)
     ]
     return value
+
+
+def _uploaded_plan_sources(value: Any, *, default_kind: str) -> list[dict[str, Any]]:
+    """Validate browser-uploaded planning documents before they cross the durable boundary."""
+
+    if value in (None, []):
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError("source_documents must be a list of uploaded document objects")
+    if len(value) > PLAN_SOURCE_FILE_LIMIT:
+        raise ValueError(f"select at most {PLAN_SOURCE_FILE_LIMIT} planning documents")
+    sources: list[dict[str, Any]] = []
+    total_bytes = 0
+    for index, item in enumerate(value, start=1):
+        content = item.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(f"uploaded planning document {index} has no text content")
+        encoded = content.encode("utf-8")
+        if len(encoded) > PLAN_SOURCE_BYTES_PER_FILE:
+            raise ValueError(
+                f"uploaded planning document {index} exceeds the {PLAN_SOURCE_BYTES_PER_FILE} byte limit"
+            )
+        total_bytes += len(encoded)
+        if total_bytes > PLAN_SOURCE_BYTES_TOTAL:
+            raise ValueError(f"uploaded planning documents exceed the {PLAN_SOURCE_BYTES_TOTAL} byte limit")
+        kind = str(item.get("kind") or default_kind).strip()
+        if kind not in PLAN_SOURCE_KINDS:
+            raise ValueError(f"unsupported planning source type: {kind}")
+        supplied_name = str(item.get("title") or item.get("path") or f"Document {index}").strip()
+        name = Path(supplied_name.replace("\\", "/")).name[:200] or f"Document {index}"
+        sources.append(
+            {
+                "kind": kind,
+                "path": f"upload://{name}",
+                "title": name,
+                "status": "uploaded",
+                "content": content,
+            }
+        )
+    return sources
 
 
 class OdysseusApp:
@@ -607,19 +662,36 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/epics/plan":
                 requirement = str(body.get("requirement") or "")
-                project_path = str(body.get("project_path") or ".")
+                source_kind = str(body.get("source_kind") or "user_request")
+                if source_kind not in PLAN_SOURCE_KINDS:
+                    raise ValueError(f"unsupported planning source type: {source_kind}")
+                project_id = str(body.get("project_id") or "")
+                if project_id:
+                    project = self.server.app.store.projects.get(project_id)
+                    project_path = str(project["path"])
+                else:
+                    # Preserve the pre-Plan-Studio API for trusted local CLI
+                    # clients that identify a checkout by path only.
+                    project_path = str(body.get("project_path") or ".")
                 source_paths = body.get("source_paths") or []
                 if not isinstance(source_paths, list) or not all(isinstance(item, str) for item in source_paths):
                     raise ValueError("source_paths must be a list of decision paths")
                 source_documents = []
                 if source_paths:
-                    project_id = str(body.get("project_id") or "")
-                    project = self.server.app.store.projects.get(project_id)
-                    project_path = str(project["path"])
+                    if not project_id:
+                        raise ValueError("project_id is required when selecting repository ADRs")
                     source_documents = self.server.app.store.knowledge.decision_sources(project_id, source_paths)
-                    if not requirement.strip():
-                        titles = ", ".join(str(item.get("title") or item.get("path")) for item in source_documents)
-                        requirement = f"Implement the selected architecture decisions as one coherent, verified change: {titles}."
+                source_documents.extend(
+                    _uploaded_plan_sources(body.get("source_documents"), default_kind=source_kind)
+                )
+                if len(source_documents) > PLAN_SOURCE_FILE_LIMIT:
+                    raise ValueError(f"select at most {PLAN_SOURCE_FILE_LIMIT} planning documents")
+                total_source_bytes = sum(len(str(item.get("content") or "").encode("utf-8")) for item in source_documents)
+                if total_source_bytes > PLAN_SOURCE_BYTES_TOTAL:
+                    raise ValueError(f"planning documents exceed the {PLAN_SOURCE_BYTES_TOTAL} byte limit")
+                if source_documents and not requirement.strip():
+                    titles = ", ".join(str(item.get("title") or item.get("path")) for item in source_documents)
+                    requirement = f"Implement the selected requirements as one coherent, verified change: {titles}."
                 checks = body.get("checks") or []
                 if not isinstance(checks, list) or not all(isinstance(item, str) for item in checks):
                     raise ValueError("checks must be a list of commands")
@@ -632,7 +704,7 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     default_review_lane=str(body.get("review_lane") or ""),
                     checks=checks,
                     source_documents=source_documents,
-                    source_kind=str(body.get("source_kind") or "user_request"),
+                    source_kind=source_kind,
                 )
                 self._json(epic, HTTPStatus.CREATED)
                 return

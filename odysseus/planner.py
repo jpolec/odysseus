@@ -249,7 +249,7 @@ class EpicPlanner:
                     f"SHA256: {source.get('sha256') or ''}\n"
                     f"{rendered or str(source.get('content') or '')[:80_000]}"
                 )
-            source_context = "\n\nSelected architecture decisions (treat as auditable requirements):\n\n" + "\n\n".join(documents)
+            source_context = "\n\nFrozen requirement sources (treat as auditable requirements):\n\n" + "\n\n".join(documents)
         return (
             "You are the read-only Planner role in an Odysseus engineering workflow. "
             "Inspect the repository architecture but do not edit files and do not implement the requirement. "

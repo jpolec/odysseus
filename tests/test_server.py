@@ -279,6 +279,59 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
+    def test_plan_endpoint_accepts_bounded_uploaded_requirement_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                payload = {
+                    "project_id": registered["id"],
+                    "project_path": str(root / "forged-browser-path"),
+                    "source_kind": "specification",
+                    "requirement": "Implement the uploaded specification.",
+                    "source_documents": [
+                        {"title": "../PASSKEY-PRD.md", "path": "/tmp/ignored", "content": "# Passkeys\n\nKeep password login working."}
+                    ],
+                }
+                request = urllib.request.Request(
+                    f"{base}/api/epics/plan",
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan", return_value={"id": "epic-upload"}) as planner:
+                    with urllib.request.urlopen(request) as response:
+                        planned = json.load(response)
+                self.assertEqual(planned["id"], "epic-upload")
+                self.assertEqual(Path(planner.call_args.args[1]).resolve(), project.resolve())
+                source = planner.call_args.kwargs["source_documents"][0]
+                self.assertEqual(source["kind"], "specification")
+                self.assertEqual(source["path"], "upload://PASSKEY-PRD.md")
+                self.assertIn("password login", source["content"])
+
+                invalid = urllib.request.Request(
+                    f"{base}/api/epics/plan",
+                    data=json.dumps({**payload, "source_documents": [{"title": "huge.md", "content": "x" * 80_001}]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan") as planner:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(invalid)
+                self.assertEqual(caught.exception.code, 400)
+                caught.exception.close()
+                planner.assert_not_called()
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_run_summary_endpoint_omits_heavy_task_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -567,6 +620,10 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="projectDecisionList"', html)
                 self.assertIn('id="planSelectedDecisions"', html)
                 self.assertIn('id="epicDecisionSources"', html)
+                self.assertIn('id="epicRepositorySources"', html)
+                self.assertIn('id="epicSourceUpload"', html)
+                self.assertIn('id="epicUploadedSources"', html)
+                self.assertIn("Upload documents", html)
                 self.assertIn('id="taskSkillRecommendations"', html)
                 self.assertIn('id="environmentProfile"', html)
                 self.assertIn('id="environmentCard"', html)
@@ -614,6 +671,8 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("Open integration PR", app_js)
                 self.assertIn("Plan selected", app_js)
                 self.assertIn("source_paths", app_js)
+                self.assertIn("source_documents", app_js)
+                self.assertIn("refreshEpicSourceChoices", app_js)
                 self.assertIn('sessionScope: "repositories"', app_js)
                 self.assertIn("repositoryScopedSessions", app_js)
                 self.assertIn('$("#sessionNavCount").textContent = count || "";', app_js)
