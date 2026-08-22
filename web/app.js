@@ -23,7 +23,7 @@ const state = {
   selectedDecisionPaths: [],
   planSelectedSourcePaths: [], planRepositorySources: [], planUploadedSources: [], planGithubCatalog: [], planSelectedGithub: [], planUrlSources: [], planForcedSourcePaths: [],
   planSourceLoading: false, planGithubLoading: false, planSourceGeneration: 0, planSourceTab: "adr", planSourcePreviewKey: "", planFilter: "all", taskSourceFilter: "",
-  planStudio: null, planStudioTaskKey: "", planStudioDirty: false, planStudioSourceFilter: "all", planStudioTaskSort: "plan",
+  planStudio: null, planStudioTaskKey: "", planStudioDirty: false, planStudioSourceFilter: "all", planStudioTaskSort: "plan", planStudioPollTimer: null, planReadyId: "",
   workListScope: "", workListExpanded: true, portfolioLoading: false,
 };
 
@@ -950,7 +950,7 @@ function renderEpicSourcePicker() {
       ...state.planSelectedSourcePaths.map((path) => `repository:${path}`),
       ...state.planSelectedGithub.map((key) => `github:${key}`),
     ]);
-    preview = previewCandidates.find((item) => selectedKeys.has(item.key)) || previewCandidates[0];
+    preview = previewCandidates.find((item) => selectedKeys.has(item.key));
     state.planSourcePreviewKey = preview?.key || "";
   }
   $("#epicSourcePreview").innerHTML = preview
@@ -3220,6 +3220,67 @@ function updatePlanStudioTaskFromEditor() {
   $("#planStudioSave").textContent = "Save draft · unsaved";
 }
 
+function plannerActivityDetail(event) {
+  const data = event?.data && typeof event.data === "object" ? event.data : {};
+  const type = String(event?.type || "");
+  if (type === "planner.route_fallback") return `${data.requested_lane || "Planner"} could not start; continuing with ${data.selected_lane || "another configured planner"}.`;
+  if (type === "agent.session") return `${event.source || "Planner"} session started in read-only planning mode.`;
+  if (type === "agent.message") {
+    const text = String(data.text || "").replace(/\s+/g, " ").trim();
+    if (text.includes("ODYSSEUS_PLAN:")) return "Task proposal returned. Odysseus is validating dependencies and required fields.";
+    return truncateText(text || "Planner reported progress.", 240);
+  }
+  if (type === "agent.tool.started" || type === "agent.tool.completed") {
+    const tool = String(data.tool || data.kind || "repository tool");
+    let target = data.command || data.path || data.query || "";
+    if (!target && data.input && typeof data.input === "object") {
+      try { target = JSON.stringify(data.input); } catch { target = ""; }
+    }
+    target = String(target || "").replace(/\s+/g, " ").trim();
+    const completed = type.endsWith("completed");
+    const failed = data.error || Number(data.exit_code || 0) !== 0;
+    return `${tool}${target ? ` · ${truncateText(target, 180)}` : ""}${completed ? failed ? " · failed" : " · completed" : ""}`;
+  }
+  if (type === "agent.usage") return "Planner usage was recorded.";
+  return String(type || "Planner activity").replaceAll(".", " ");
+}
+
+function plannerActivityMarkup(epic) {
+  const events = (epic.planner_events || []).filter((event) => ["planner.route_fallback", "agent.session", "agent.message", "agent.tool.started", "agent.tool.completed", "agent.usage"].includes(event.type));
+  const latest = events.slice(-14);
+  const current = epic.planner_progress?.message || "Planner is starting.";
+  const rows = latest.map((event) => {
+    const kind = event.type === "planner.route_fallback" ? "route" : event.type.startsWith("agent.tool") ? "tool" : event.type === "agent.message" ? "message" : "system";
+    const label = kind === "route" ? "Routing" : kind === "tool" ? "Repository" : kind === "message" ? "Planner" : "System";
+    const time = event.occurred_at ? new Date(event.occurred_at).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "";
+    return `<li class="planner-activity-${kind}"><i></i><div><span><strong>${escapeHtml(label)}</strong>${time ? `<time>${escapeHtml(time)}</time>` : ""}</span><p>${escapeHtml(plannerActivityDetail(event))}</p></div></li>`;
+  }).join("");
+  return `<section class="planner-live-activity" aria-live="polite"><header><span class="planner-live-pulse"></span><div><strong>Planner is working</strong><p>${escapeHtml(current)}</p></div></header><ol>${rows || `<li class="planner-activity-system"><i></i><div><span><strong>System</strong></span><p>Preparing the read-only repository context.</p></div></li>`}</ol><footer>Implementation agents have not started. You can close this window and return later.</footer></section>`;
+}
+
+function stopPlanStudioPolling() {
+  if (state.planStudioPollTimer) window.clearInterval(state.planStudioPollTimer);
+  state.planStudioPollTimer = null;
+}
+
+function startPlanStudioPolling(epicId) {
+  stopPlanStudioPolling();
+  state.planStudioPollTimer = window.setInterval(async () => {
+    if (!$("#planStudioDialog").open || state.planStudio?.id !== epicId || state.planStudio?.status !== "planning") {
+      stopPlanStudioPolling();
+      return;
+    }
+    try {
+      state.planStudio = await api(`/api/epics/${encodeURIComponent(epicId)}`);
+      renderPlanStudio();
+      if (state.planStudio.status !== "planning") {
+        stopPlanStudioPolling();
+        toast(state.planStudio.status === "proposed" ? "Draft ready. Review it before approval." : "The planning attempt stopped. Review the preserved result.", state.planStudio.status !== "proposed");
+      }
+    } catch { /* The next poll can recover a transient local connection failure. */ }
+  }, 2000);
+}
+
 function renderPlanStudio() {
   const epic = state.planStudio;
   if (!epic) return;
@@ -3236,6 +3297,7 @@ function renderPlanStudio() {
   const planning = epic.status === "planning";
   const planningFailed = epic.status === "planning_failed";
   const editable = !locked && !planning;
+  $(".plan-studio-tasks").classList.toggle("planner-running", planning);
   const planSummary = String(epic.plan?.summary || "review tasks, sources, evidence and execution profiles").trim().replace(/[.\s]+$/, "");
   $("#planStudioTitle").textContent = planningFailed ? "Draft was not created" : planning ? "Creating plan draft" : epic.title || (locked ? "Approved plan" : "Review plan draft");
   $("#planStudioSummary").textContent = planningFailed
@@ -3266,7 +3328,7 @@ function renderPlanStudio() {
   $("#planStudioSourceFilter").innerHTML = `<option value="all">All sources</option>${sources.map((item) => `<option value="${escapeHtml(item.path)}" ${state.planStudioSourceFilter === item.path ? "selected" : ""}>${escapeHtml(planSourceKindLabel(item.kind))}: ${escapeHtml(item.title || item.path)}</option>`).join("")}`;
   $("#planStudioTaskSort").value = state.planStudioTaskSort;
   const originalOrder = new Map(tasks.map((task, index) => [task.task_key, index + 1]));
-  $("#planStudioTaskList").innerHTML = visibleTasks.length ? visibleTasks.map((task) => { const linkedSources = planStudioTaskSources(task, sources); return `<button class="plan-task-card ${task.task_key === state.planStudioTaskKey ? "active" : ""}" data-plan-task="${escapeHtml(task.task_key)}" type="button"><span>T${originalOrder.get(task.task_key)}</span><div><strong>${escapeHtml(task.title || task.task_key)}</strong><small>${escapeHtml(task.outcome || "Finished outcome not specified")}</small><em>${escapeHtml(task.execution_profile?.mode === "override" ? `${task.execution_profile.harness || "manual"} override` : `Auto · ${task.execution_profile?.reason || "routing at execution"}`)} · ${linkedSources.length ? linkedSources.map((item) => item.title || item.path).join(", ") : "no source linked"}</em></div><b>${planEstimateLabel(task)}</b></button>`; }).join("") : `<div class="empty-list">${planningFailed ? "No task proposals were produced. Click Add task to build the preserved source into an editable draft." : planning ? "The Planner has not produced task proposals yet." : "No tasks are linked to this source yet. Select a task under All sources, then link source paragraphs."}</div>`;
+  $("#planStudioTaskList").innerHTML = planning ? plannerActivityMarkup(epic) : visibleTasks.length ? visibleTasks.map((task) => { const linkedSources = planStudioTaskSources(task, sources); return `<button class="plan-task-card ${task.task_key === state.planStudioTaskKey ? "active" : ""}" data-plan-task="${escapeHtml(task.task_key)}" type="button"><span>T${originalOrder.get(task.task_key)}</span><div><strong>${escapeHtml(task.title || task.task_key)}</strong><small>${escapeHtml(task.outcome || "Finished outcome not specified")}</small><em>${escapeHtml(task.execution_profile?.mode === "override" ? `${task.execution_profile.harness || "manual"} override` : `Auto · ${task.execution_profile?.reason || "routing at execution"}`)} · ${linkedSources.length ? linkedSources.map((item) => item.title || item.path).join(", ") : "no source linked"}</em></div><b>${planEstimateLabel(task)}</b></button>`; }).join("") : `<div class="empty-list">${planningFailed ? "No task proposals were produced. Click Add task to build the preserved source into an editable draft." : "No tasks are linked to this source yet. Select a task under All sources, then link source paragraphs."}</div>`;
 
   const form = $("#planStudioEditor");
   form.classList.toggle("hidden", !selected);
@@ -3314,12 +3376,14 @@ function renderPlanStudio() {
 }
 
 async function openPlanStudio(epicId) {
+  state.planReadyId = "";
   state.planStudio = await api(`/api/epics/${encodeURIComponent(epicId)}`);
   state.planStudioTaskKey = state.planStudio.plan?.tasks?.[0]?.task_key || "";
   state.planStudioDirty = false; state.planStudioSourceFilter = "all"; state.planStudioTaskSort = "plan";
   $("#planStudioSave").textContent = "Save draft";
   renderPlanStudio();
   $("#planStudioDialog").showModal();
+  if (state.planStudio.status === "planning") startPlanStudioPolling(epicId); else stopPlanStudioPolling();
 }
 
 async function savePlanStudio() {
@@ -3395,7 +3459,8 @@ async function refreshEpics() {
     const dependencyCount = (linkedRuns.length ? linkedRuns : plannedTasks).reduce((total, item) => total + (item.dependency_keys || item.depends_on || []).length, 0);
     const sourceLine = sources.length ? `<div class="epic-source-line"><strong>Sources</strong>${sources.map((source) => `<button data-plan-filter="source:${escapeHtml(source.path)}" type="button" title="Filter plans and tasks by this source"><b>${escapeHtml(planSourceKindLabel(source.kind))}</b>${escapeHtml(source.title || source.path)} <code>${escapeHtml(String(source.sha256 || "").slice(0, 8))}</code>${source.repeat_authorized ? `<em>forced repeat</em>` : ""}</button>`).join("")}</div>` : "";
     const runButtons = (epic.run_ids || []).map((runId) => `<button class="ghost" data-open-run="${escapeHtml(runId)}" type="button">${escapeHtml(state.runs.find((run) => run.id === runId)?.task_key || "task")}</button>`).join("");
-    if (epic.status === "planning_failed") return `${groupHeading}<article class="stack-card epic-card epic-attempt-card epic-attempt-failed">
+    const newlyReady = state.planReadyId === epic.id ? " epic-card-new" : "";
+    if (epic.status === "planning_failed") return `${groupHeading}<article class="stack-card epic-card epic-attempt-card epic-attempt-failed${newlyReady}" data-epic-card="${escapeHtml(epic.id)}">
       <div class="card-row"><span class="mini-status status-failed">draft failed</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")} · ${escapeHtml(relativeTime(epic.updated_at))} ago</span></div>
       <h3>Draft was not created</h3>
       <p>${escapeHtml(plannerFailureSummary(epic))}</p>
@@ -3403,14 +3468,14 @@ async function refreshEpics() {
       <details class="epic-failure-detail"><summary>Technical details</summary><pre>${escapeHtml(plannerFailureDetail(epic))}</pre></details>
       <div class="card-actions">${epic.planner_recoverable ? `<button class="primary" data-recover-plan="${escapeHtml(epic.id)}" type="button">Recover returned draft</button><button class="ghost" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Inspect attempt</button><span>No new model run required.</span>` : `<button class="primary" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Review failed draft</button><span>The source is preserved. You can add tasks manually.</span>`}</div>
     </article>`;
-    if (epic.status === "planning") return `${groupHeading}<article class="stack-card epic-card epic-attempt-card">
+    if (epic.status === "planning") return `${groupHeading}<article class="stack-card epic-card epic-attempt-card${newlyReady}" data-epic-card="${escapeHtml(epic.id)}">
       <div class="card-row"><span class="mini-status status-running">creating draft</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")} · ${escapeHtml(relativeTime(epic.updated_at))} ago</span></div>
       <h3>Planner is creating the task draft</h3>
       <p>${escapeHtml(epic.planner_progress?.message || "Starting the read-only Planner. You can leave this page; no implementation runs before approval.")}</p>
       ${sourceLine}
-      <div class="card-actions"><button class="ghost" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Open planning attempt</button></div>
+      <div class="card-actions"><button class="ghost" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Show live activity</button><span>Read-only planning · implementation has not started</span></div>
     </article>`;
-    return `${groupHeading}<article class="stack-card epic-card">
+    return `${groupHeading}<article class="stack-card epic-card${newlyReady}" data-epic-card="${escapeHtml(epic.id)}">
       <div class="card-row"><span class="mini-status ${statusClass(epic.status)}">${escapeHtml(epic.status === "proposed" ? "draft" : epic.status)}</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")}</span></div>
       <h3>${escapeHtml(epic.title)}</h3>
       <p>${escapeHtml(epic.status === "proposed" ? "Editable draft. Review and change the tasks before approving this exact version." : epic.status === "active" ? "Odysseus is scheduling dependency-ready tasks." : epic.plan?.summary || epic.description || "Planning...")}</p>
@@ -3419,7 +3484,7 @@ async function refreshEpics() {
         <summary><span><strong>${epic.status === "proposed" ? "Review execution graph" : "Execution graph"}</strong><small>${dependencyCount} dependenc${dependencyCount === 1 ? "y" : "ies"} · ${intelligence.criticalStages || "—"} critical-path stages · up to ${intelligence.peakParallel || "—"} parallel</small></span><span>${epic.status === "proposed" ? "Approval required" : "Open graph"}</span></summary>
         <div class="epic-graph-content">${sourceLine}${graph}</div>
       </details>
-      <div class="card-actions"><button class="${epic.status === "proposed" ? "primary" : "ghost"}" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">${epic.status === "proposed" ? "Edit draft" : "Open plan contract"}</button>${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
+      <div class="card-actions"><button class="${epic.status === "proposed" ? "primary" : "ghost"}" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">${epic.status === "proposed" ? "Review draft" : "Open plan contract"}</button>${runButtons ? `<details class="card-more-actions"><summary>Open task${linkedRuns.length === 1 ? "" : "s"}</summary><div>${runButtons}</div></details>` : ""}</div>
     </article>`;
   }).join("") : `<div class="empty-card">No plans yet.</div>`;
   $$('[data-open-plan-studio]').forEach((button) => button.addEventListener("click", () => openPlanStudio(button.dataset.openPlanStudio).catch((error) => toast(error.message, true))));
@@ -4020,11 +4085,11 @@ function bindDialogs() {
       finally { window.clearInterval(planningPoll); }
       event.currentTarget.reset();
       state.planSelectedSourcePaths = []; state.planRepositorySources = []; state.planUploadedSources = []; state.planGithubCatalog = []; state.planSelectedGithub = []; state.planUrlSources = []; state.planForcedSourcePaths = [];
-      try {
-        await openPlanStudio(draft.id);
-        toast("Draft ready. Review, add, remove, or edit tasks before approval.");
-      } catch (openError) { toast(`Draft was created, but could not be opened: ${openError.message}`, true); }
-      Promise.all([refreshEpics(), refreshProjectOverview()]).catch((refreshError) => toast(`Draft is open, but the list could not refresh: ${refreshError.message}`, true));
+      state.planReadyId = draft.id;
+      await refreshEpics();
+      $("[data-epic-card=\"" + CSS.escape(draft.id) + "\"]")?.scrollIntoView({behavior: "smooth", block: "center"});
+      toast("Draft ready. Click Review draft to inspect or edit it.");
+      refreshProjectOverview().catch((refreshError) => toast(`Draft is ready, but repository context could not refresh: ${refreshError.message}`, true));
     } catch (error) {
       const failedEpic = error.payload?.epic;
       if (failedEpic?.id) {
@@ -4032,11 +4097,10 @@ function bindDialogs() {
         event.currentTarget.reset();
         state.planSelectedSourcePaths = []; state.planRepositorySources = []; state.planUploadedSources = []; state.planGithubCatalog = []; state.planSelectedGithub = []; state.planUrlSources = []; state.planForcedSourcePaths = [];
         setView("epics");
+        state.planReadyId = failedEpic.id;
         await refreshEpics().catch(() => {});
-        try {
-          await openPlanStudio(failedEpic.id);
-          toast("The Planner stopped. The source is preserved; review the failure or add the tasks manually.", true);
-        } catch (openError) { toast(`The planning attempt was preserved, but could not be opened: ${openError.message}`, true); }
+        $("[data-epic-card=\"" + CSS.escape(failedEpic.id) + "\"]")?.scrollIntoView({behavior: "smooth", block: "center"});
+        toast("The Planner stopped. Click Inspect attempt to review the preserved result.", true);
       } else {
         $("#epicDialog").showModal();
         toast(error.message, true);
@@ -4044,7 +4108,8 @@ function bindDialogs() {
     }
     finally { submit.disabled = false; submit.textContent = "Create draft"; }
   });
-  $("#planStudioClose").addEventListener("click", () => $("#planStudioDialog").close());
+  $("#planStudioClose").addEventListener("click", () => { stopPlanStudioPolling(); $("#planStudioDialog").close(); });
+  $("#planStudioDialog").addEventListener("close", stopPlanStudioPolling);
   $("#planStudioSourceFilter").addEventListener("change", (event) => {
     state.planStudioSourceFilter = event.currentTarget.value;
     const sourceIndex = (state.planStudio?.source_documents || []).findIndex((source) => source.path === state.planStudioSourceFilter);
@@ -4551,6 +4616,20 @@ async function runBrowserRegression() {
   assert($("#attentionView").textContent.includes("Answer these to continue work."), "Needs You concise header");
   setView("epics");
   assert($("#epicsView").textContent.includes("Approve a graph before agents start."), "Plans concise header");
+  assert(!$("#planStudioDialog").open, "opening Plans never opens a plan preview without an explicit selection");
+  const savedPlanSourceState = {
+    repository: state.planRepositorySources, selected: state.planSelectedSourcePaths, uploaded: state.planUploadedSources,
+    urls: state.planUrlSources, github: state.planGithubCatalog, selectedGithub: state.planSelectedGithub,
+    tab: state.planSourceTab, preview: state.planSourcePreviewKey,
+  };
+  state.planRepositorySources = [{path: "_ADR/preview-test.md", title: "Preview test", kind: "adr", preview: "Must remain hidden until selected."}];
+  state.planSelectedSourcePaths = []; state.planUploadedSources = []; state.planUrlSources = []; state.planGithubCatalog = []; state.planSelectedGithub = []; state.planSourceTab = "adr"; state.planSourcePreviewKey = "";
+  renderEpicSourcePicker();
+  assert($("#epicSourcePreview").textContent.includes("Select a source"), "Plan composer does not preview the first source before selection");
+  state.planRepositorySources = savedPlanSourceState.repository; state.planSelectedSourcePaths = savedPlanSourceState.selected; state.planUploadedSources = savedPlanSourceState.uploaded; state.planUrlSources = savedPlanSourceState.urls; state.planGithubCatalog = savedPlanSourceState.github; state.planSelectedGithub = savedPlanSourceState.selectedGithub; state.planSourceTab = savedPlanSourceState.tab; state.planSourcePreviewKey = savedPlanSourceState.preview;
+  renderEpicSourcePicker();
+  const plannerPreview = plannerActivityMarkup({planner_progress: {message: "Planner is inspecting the repository · 30s elapsed"}, planner_events: [{type: "agent.session", source: "codex", occurred_at: "2026-08-22T12:00:00Z", data: {}}, {type: "agent.tool.started", source: "codex", occurred_at: "2026-08-22T12:00:01Z", data: {tool: "shell", command: "git status --short"}}]});
+  assert(plannerPreview.includes("Planner is working") && plannerPreview.includes("git status --short") && plannerPreview.toLowerCase().includes("implementation agents have not started"), "planning attempt exposes safe live activity instead of a vague spinner");
   assert($$("#epicList .epic-card:not(.epic-attempt-card)").every((card) => card.querySelector(".epic-progress") && card.querySelector(".epic-graph-details")), "materialized Plans expose compact progress and a drill-down graph");
   const failedPlan = state.epics.find((epic) => epic.status === "planning_failed");
   if (failedPlan) {

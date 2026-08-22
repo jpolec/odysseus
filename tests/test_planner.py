@@ -84,6 +84,7 @@ class PlannerTests(unittest.TestCase):
             self.assertEqual(proposal["status"], "proposed")
             self.assertEqual(proposal["plan"]["summary"], "Recovered from final message")
             self.assertEqual(proposal["planner_progress"]["state"], "draft_ready")
+            self.assertTrue(proposal["planner_events"][0]["occurred_at"].endswith("Z"))
 
     def test_failed_attempt_can_recover_a_returned_draft_without_another_agent_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

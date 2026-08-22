@@ -94,7 +94,12 @@ class EpicPlanner:
         def emit(event_type: str, source: str, data: Mapping[str, Any]) -> None:
             if len(planner_events) < 500:
                 planner_events.append(
-                    {"type": event_type, "source": source, "data": dict(data)}
+                    {
+                        "type": event_type,
+                        "source": source,
+                        "occurred_at": now_iso(),
+                        "data": dict(data),
+                    }
                 )
             progress: dict[str, Any] | None = None
             if event_type == "agent.session":
@@ -143,6 +148,7 @@ class EpicPlanner:
                 {
                     "type": "planner.route_fallback",
                     "source": "odysseus",
+                    "occurred_at": now_iso(),
                     "data": {
                         "requested_lane": planner_lane,
                         "selected_lane": fallback_lane,
