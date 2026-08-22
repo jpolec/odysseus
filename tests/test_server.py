@@ -374,6 +374,51 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
+    def test_recover_plan_endpoint_uses_preserved_final_message(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            store = RunStore(root / "state")
+            failed = store.epics.create(
+                {"title": "Recover plan", "project_path": str(project), "status": "planning_failed"}
+            )
+            store.epics.update(
+                failed["id"],
+                planner_events=[
+                    {
+                        "type": "agent.message",
+                        "source": "claude",
+                        "data": {
+                            "text": 'ODYSSEUS_PLAN: {"summary":"Recovered","tasks":['
+                            '{"task_key":"docs","title":"Docs","task":"Update docs","depends_on":[]}]}',
+                        },
+                    }
+                ],
+            )
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://{host}:{port}"
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                with urllib.request.urlopen(f"{base}/api/epics") as response:
+                    listed = json.load(response)["epics"]
+                self.assertTrue(next(item for item in listed if item["id"] == failed["id"])["planner_recoverable"])
+                request = urllib.request.Request(
+                    f"{base}/api/epics/{failed['id']}/recover",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with urllib.request.urlopen(request) as response:
+                    recovered = json.load(response)
+                self.assertEqual(recovered["status"], "proposed")
+                self.assertEqual(recovered["plan"]["summary"], "Recovered")
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_completed_adr_requires_explicit_force_again_and_records_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

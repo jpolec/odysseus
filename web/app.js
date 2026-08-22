@@ -3401,12 +3401,12 @@ async function refreshEpics() {
       <p>${escapeHtml(plannerFailureSummary(epic))}</p>
       ${sourceLine}
       <details class="epic-failure-detail"><summary>Technical details</summary><pre>${escapeHtml(plannerFailureDetail(epic))}</pre></details>
-      <div class="card-actions"><button class="primary" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Review failed draft</button><span>The source is preserved. You can add tasks manually.</span></div>
+      <div class="card-actions">${epic.planner_recoverable ? `<button class="primary" data-recover-plan="${escapeHtml(epic.id)}" type="button">Recover returned draft</button><button class="ghost" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Inspect attempt</button><span>No new model run required.</span>` : `<button class="primary" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Review failed draft</button><span>The source is preserved. You can add tasks manually.</span>`}</div>
     </article>`;
     if (epic.status === "planning") return `${groupHeading}<article class="stack-card epic-card epic-attempt-card">
       <div class="card-row"><span class="mini-status status-running">creating draft</span><span class="run-id">${escapeHtml(epicProject ? projectName(epicProject) : "repository")} · ${escapeHtml(relativeTime(epic.updated_at))} ago</span></div>
       <h3>Planner is creating the task draft</h3>
-      <p>The selected source is preserved. No implementation agents run before you approve the proposed tasks.</p>
+      <p>${escapeHtml(epic.planner_progress?.message || "Starting the read-only Planner. You can leave this page; no implementation runs before approval.")}</p>
       ${sourceLine}
       <div class="card-actions"><button class="ghost" data-open-plan-studio="${escapeHtml(epic.id)}" type="button">Open planning attempt</button></div>
     </article>`;
@@ -3423,6 +3423,15 @@ async function refreshEpics() {
     </article>`;
   }).join("") : `<div class="empty-card">No plans yet.</div>`;
   $$('[data-open-plan-studio]').forEach((button) => button.addEventListener("click", () => openPlanStudio(button.dataset.openPlanStudio).catch((error) => toast(error.message, true))));
+  $$('[data-recover-plan]').forEach((button) => button.addEventListener("click", async () => {
+    const label = button.textContent; button.disabled = true; button.textContent = "Recovering…";
+    try {
+      const recovered = await api(`/api/epics/${encodeURIComponent(button.dataset.recoverPlan)}/recover`, {method: "POST", body: "{}"});
+      await refreshEpics();
+      await openPlanStudio(recovered.id);
+      toast("Draft recovered. Review and edit it before approval.");
+    } catch (error) { toast(error.message, true); button.disabled = false; button.textContent = label; }
+  }));
   $$('[data-open-run]').forEach((button) => button.addEventListener("click", () => selectRun(button.dataset.openRun)));
   $$('#epicList [data-plan-filter]').forEach((button) => button.addEventListener("click", () => setPlanFilter(button.dataset.planFilter)));
 }
@@ -3999,11 +4008,18 @@ function bindDialogs() {
     try {
       submit.disabled = true;
       submit.textContent = "Creating draft…";
-      const draft = await api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)});
+      const request = api("/api/epics/plan", {method: "POST", body: JSON.stringify(payload)});
       $("#epicDialog").close();
+      setView("epics");
+      toast("Planner started. You can follow progress in Plans.");
+      const planningPoll = window.setInterval(() => {
+        if (state.view === "epics") refreshEpics().catch(() => {});
+      }, 2000);
+      let draft;
+      try { draft = await request; }
+      finally { window.clearInterval(planningPoll); }
       event.currentTarget.reset();
       state.planSelectedSourcePaths = []; state.planRepositorySources = []; state.planUploadedSources = []; state.planGithubCatalog = []; state.planSelectedGithub = []; state.planUrlSources = []; state.planForcedSourcePaths = [];
-      setView("epics");
       try {
         await openPlanStudio(draft.id);
         toast("Draft ready. Review, add, remove, or edit tasks before approval.");
@@ -4021,7 +4037,10 @@ function bindDialogs() {
           await openPlanStudio(failedEpic.id);
           toast("The Planner stopped. The source is preserved; review the failure or add the tasks manually.", true);
         } catch (openError) { toast(`The planning attempt was preserved, but could not be opened: ${openError.message}`, true); }
-      } else toast(error.message, true);
+      } else {
+        $("#epicDialog").showModal();
+        toast(error.message, true);
+      }
     }
     finally { submit.disabled = false; submit.textContent = "Create draft"; }
   });
@@ -4352,6 +4371,20 @@ async function runBrowserRegression() {
     composerScroll.scrollTop = composerScroll.scrollHeight;
     const scrolledButtonRect = composerButton.getBoundingClientRect();
     assert(scrolledButtonRect.top >= dialogRect.top && scrolledButtonRect.bottom <= dialogRect.bottom, "Create draft remains visible while reviewing advanced Plan fields");
+    const realFetch = window.fetch;
+    window.fetch = async (resource, options) => {
+      if (String(resource).includes("/api/epics/plan")) {
+        await sleep(80);
+        return new Response(JSON.stringify({error: "simulated planner transport failure"}), {status: 500, headers: {"Content-Type": "application/json"}});
+      }
+      return realFetch(resource, options);
+    };
+    $("#epicForm").requestSubmit(composerButton);
+    await sleep(15);
+    assert(!$("#epicDialog").open && state.view === "epics", "Plan submission immediately leaves the composer for visible planning progress");
+    await sleep(110);
+    assert($("#epicDialog").open, "transport failure restores the unchanged Plan composer");
+    window.fetch = realFetch;
     $("#epicDialog").close();
   }
 

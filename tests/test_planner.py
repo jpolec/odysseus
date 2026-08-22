@@ -49,7 +49,79 @@ class CompatibilityFallbackPlannerRunner:
         )
 
 
+class VerbosePlannerRunner:
+    def run(self, lane, worktree, prompt, **kwargs):  # noqa: ANN001
+        kwargs["emit"](
+            "agent.message",
+            lane,
+            {
+                "text": 'ODYSSEUS_PLAN: {"summary":"Recovered from final message","tasks":['
+                '{"task_key":"docs","title":"Docs","task":"Update docs","depends_on":[]}]}',
+            },
+        )
+        return ProcessResult(
+            0,
+            'Earlier bounded output mentioning ODYSSEUS_PLAN: {"summary":',
+            301.0,
+            session_id="verbose-planner-thread",
+        )
+
+
 class PlannerTests(unittest.TestCase):
+    def test_final_agent_message_survives_a_truncated_raw_planner_buffer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+
+            proposal = EpicPlanner(store, agent_runner=VerbosePlannerRunner()).plan(
+                "Create a documentation plan",
+                project,
+                lane="claude",
+            )
+
+            self.assertEqual(proposal["status"], "proposed")
+            self.assertEqual(proposal["plan"]["summary"], "Recovered from final message")
+            self.assertEqual(proposal["planner_progress"]["state"], "draft_ready")
+
+    def test_failed_attempt_can_recover_a_returned_draft_without_another_agent_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "project"
+            project.mkdir()
+            store = RunStore(root / "state")
+            failed = store.epics.create(
+                {
+                    "title": "Recover me",
+                    "description": "Create docs",
+                    "project_path": str(project),
+                    "status": "planning_failed",
+                }
+            )
+            store.epics.update(
+                failed["id"],
+                planner_error="raw output was truncated",
+                planner_events=[
+                    {
+                        "type": "agent.message",
+                        "source": "claude",
+                        "data": {
+                            "text": 'ODYSSEUS_PLAN: {"summary":"Recovered","tasks":['
+                            '{"task_key":"docs","title":"Docs","task":"Update docs","depends_on":[]}]}',
+                        },
+                    }
+                ],
+            )
+            planner = EpicPlanner(store, agent_runner=FailingPlannerRunner())
+
+            recovered = planner.recover(failed["id"])
+
+            self.assertEqual(recovered["status"], "proposed")
+            self.assertEqual(recovered["plan"]["summary"], "Recovered")
+            self.assertEqual(recovered["planner_progress"]["state"], "draft_recovered")
+            self.assertEqual(len(recovered["planner_events"]), 1)
+
     def test_incompatible_planner_runtime_falls_back_to_an_installed_independent_lane(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

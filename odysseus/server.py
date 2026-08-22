@@ -52,7 +52,7 @@ PROJECT_ROUTER_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
 PROJECT_SKILL_LOCAL_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/local$")
 INBOX_ROUTE = re.compile(r"^/api/inbox/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>resolve|reopen|promote))?$")
-EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve|plan|refresh-sources))?$")
+EPIC_ROUTE = re.compile(r"^/api/epics/(?P<epic_id>[A-Za-z0-9_.-]+)(?:/(?P<action>approve|plan|recover|refresh-sources))?$")
 ATTENTION_ROUTE = re.compile(r"^/api/attention/(?P<item_id>[A-Za-z0-9_.-]+)(?:/(?P<action>respond|resolve))?$")
 COMMAND_ROUTE = re.compile(r"^/api/commands(?:/(?P<command_id>[0-9a-f-]{36}))?$")
 
@@ -162,6 +162,7 @@ def _epic_summary(epic: Mapping[str, Any]) -> dict[str, Any]:
     planner_events = epic.get("planner_events") if isinstance(epic.get("planner_events"), list) else []
     planner_error = str(epic.get("planner_error") or "")
     value["planner_event_count"] = len(planner_events)
+    value["planner_recoverable"] = bool(EpicPlanner.recoverable_messages(epic))
     value["planner_events"] = []
     value["planner_error"] = (
         planner_error
@@ -972,6 +973,11 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 epic_id = epic_match.group("epic_id")
                 saved = self.server.app.store.epics.save_plan(epic_id, plan)
                 self._json({**saved, "source_impact": self.server.app.store.epics.source_impact(epic_id)})
+                return
+            if epic_match and epic_match.group("action") == "recover":
+                epic_id = epic_match.group("epic_id")
+                recovered = self.server.app.planner.recover(epic_id)
+                self._json({**recovered, "source_impact": self.server.app.store.epics.source_impact(epic_id)})
                 return
             if epic_match and epic_match.group("action") == "approve":
                 self._json(self.server.app.planner.approve(epic_match.group("epic_id")))

@@ -81,6 +81,11 @@ class EpicPlanner:
                 "project_path": str(project),
                 "planner_lane": planner_lane,
                 "status": "planning",
+                "planner_progress": {
+                    "state": "starting",
+                    "message": f"Starting {planner_lane} Planner",
+                    "source": planner_lane,
+                },
                 "source_documents": sources,
             }
         )
@@ -91,6 +96,29 @@ class EpicPlanner:
                 planner_events.append(
                     {"type": event_type, "source": source, "data": dict(data)}
                 )
+            progress: dict[str, Any] | None = None
+            if event_type == "agent.session":
+                progress = {
+                    "state": "inspecting",
+                    "message": f"{source} Planner is inspecting the repository",
+                    "source": source,
+                }
+            elif event_type == "run.heartbeat":
+                elapsed = round(float(data.get("elapsed_seconds") or 0))
+                progress = {
+                    "state": "inspecting",
+                    "message": f"Planner is inspecting the repository · {elapsed}s elapsed",
+                    "source": source,
+                    "elapsed_seconds": elapsed,
+                }
+            elif event_type == "agent.message":
+                progress = {
+                    "state": "finalizing",
+                    "message": "Planner returned a proposal; validating the task graph",
+                    "source": source,
+                }
+            if progress:
+                self.epics.update(epic["id"], planner_progress=progress)
 
         prompt = self._prompt(
             requirement,
@@ -140,6 +168,11 @@ class EpicPlanner:
                     "to": fallback_lane,
                     "reason": "runtime_compatibility",
                 },
+                planner_progress={
+                    "state": "routing_fallback",
+                    "message": f"{planner_lane} is incompatible; continuing with {fallback_lane}",
+                    "source": "odysseus",
+                },
             )
         if result.returncode != 0:
             output = result.output
@@ -154,11 +187,34 @@ class EpicPlanner:
                 planner_error=output[-20_000:],
                 planner_events=planner_events,
                 planner_session_id=result.session_id,
+                planner_progress={
+                    "state": "failed",
+                    "message": "Planner stopped before producing a valid draft",
+                    "source": fallback_lane or planner_lane,
+                },
             )
             raise PlanningFailed(epic["id"], f"planner process exited with code {result.returncode}")
+        proposal_output = result.output
+        final_messages = [
+            str(event.get("data", {}).get("text") or "")
+            for event in planner_events
+            if event.get("type") == "agent.message" and isinstance(event.get("data"), Mapping)
+        ]
+        if final_messages:
+            # ProcessResult intentionally bounds raw output. A long repository
+            # inspection can push the final plan marker outside that buffer,
+            # while the normalized final agent message remains intact.
+            proposal_output = "\n".join([proposal_output, *final_messages])
         try:
             proposal = self.parse_proposal(
-                result,
+                ProcessResult(
+                    returncode=result.returncode,
+                    output=proposal_output,
+                    duration_seconds=result.duration_seconds,
+                    cancelled=result.cancelled,
+                    session_id=result.session_id,
+                    stop_reason=result.stop_reason,
+                ),
                 project_path=str(project),
                 default_lane=implementation_lane,
                 default_review_lane=reviewer_lane,
@@ -172,10 +228,23 @@ class EpicPlanner:
                 planner_error=detail[-20_000:],
                 planner_events=planner_events,
                 planner_session_id=result.session_id,
+                planner_progress={
+                    "state": "failed",
+                    "message": "Planner output could not be converted into a task draft",
+                    "source": fallback_lane or planner_lane,
+                },
             )
             raise PlanningFailed(epic["id"], str(exc)) from exc
         self.epics.update(
-            epic["id"], planner_session_id=result.session_id, planner_events=planner_events, planner_error=""
+            epic["id"],
+            planner_session_id=result.session_id,
+            planner_events=planner_events,
+            planner_error="",
+            planner_progress={
+                "state": "draft_ready",
+                "message": "Draft ready for review",
+                "source": fallback_lane or planner_lane,
+            },
         )
         return self.epics.save_plan(epic["id"], proposal)
 
@@ -246,6 +315,48 @@ class EpicPlanner:
             task_run_ids=mapping,
             plan_version={**version, "status": "approved", "approved_at": now_iso()},
         )
+
+    @staticmethod
+    def recoverable_messages(epic: Mapping[str, Any]) -> list[str]:
+        """Return normalized final messages that can outlive bounded raw output."""
+
+        events = epic.get("planner_events") if isinstance(epic.get("planner_events"), list) else []
+        return [
+            str(event.get("data", {}).get("text") or "")
+            for event in events
+            if isinstance(event, Mapping)
+            and event.get("type") == "agent.message"
+            and isinstance(event.get("data"), Mapping)
+            and PLAN_MARKER in str(event.get("data", {}).get("text") or "")
+        ]
+
+    def recover(self, epic_id: str) -> dict[str, Any]:
+        """Recover a valid draft returned before an output-buffer parse failure."""
+
+        epic = self.epics.get(epic_id)
+        if epic.get("status") != "planning_failed" or isinstance(epic.get("plan"), dict):
+            raise ValueError("only a failed planning attempt without a draft can be recovered")
+        messages = self.recoverable_messages(epic)
+        if not messages:
+            raise ValueError("the failed planning attempt has no recoverable task proposal")
+        config = self.store.config()
+        proposal = self.parse_proposal(
+            ProcessResult(0, "\n".join(messages), 0),
+            project_path=str(epic.get("project_path") or ""),
+            default_lane=str(config.get("default_lane") or "codex"),
+            default_review_lane=str(config.get("review_lane") or config.get("default_lane") or "codex"),
+            default_checks=[],
+        )
+        self.epics.update(
+            epic_id,
+            planner_error="",
+            planner_progress={
+                "state": "draft_recovered",
+                "message": "Draft recovered from the Planner's final message",
+                "source": "odysseus",
+            },
+        )
+        return self.epics.save_plan(epic_id, proposal)
 
     @classmethod
     def parse_proposal(
