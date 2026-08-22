@@ -20,24 +20,43 @@ honest estimate range.
 
 ## Supported sources
 
-The composer accepts a user request, ADR, PRD/specification, GitHub issue,
-security finding, incident, milestone, or document set. Odysseus freezes the
-exact source bytes, content hash, and paragraph-level references such as `S1`
-and `S2`. Remote intake remains a redacted snapshot; local documents can be
-compared with their current bytes.
+The composer accepts a user request, ADR, repository document,
+PRD/specification, GitHub Issue or pull request, security finding, incident,
+milestone, uploaded document set, or public HTTPS document. Odysseus freezes
+the exact source bytes, content hash, and paragraph-level references such as
+`S1` and `S2`. Remote intake remains a redacted snapshot; local documents can
+be compared with their current bytes.
 
-In **Plans → New plan**, first choose a repository. The composer then lists
-ADRs discovered in `_ADR/` and the other supported ADR directories. Select one
-or more there, or choose **Upload documents** to attach Markdown, text, JSON,
-or YAML from outside the repository. Uploaded text is read locally by the web
-client and sent only to the local Odysseus server; files are limited to 80 KB
-each and all selected sources to 320 KB. The selected-source summary shows
-exactly what will be frozen before the Planner runs.
+In **Plans → Plan feature**, first choose a repository. The composer discovers
+bounded text documents throughout the checkout and classifies ADRs,
+specifications, incidents, security findings, milestones, and other repository
+documents. Category tabs keep the catalog usable. **Load GitHub** reads open
+Issues and pull requests authoritatively through the authenticated `gh` CLI;
+the browser supplies only the selected kind and number. **Upload documents**
+supports drag/drop of Markdown, text, JSON, or YAML, with a per-document type
+and preview. A public HTTPS URL can be previewed and added when it resolves to
+a public address and returns a supported textual content type.
 
-The finished-outcome field remains required. A document says where the
-requirements came from; the outcome tells the Planner what this Plan is meant
-to deliver. Do not attach secrets because source contracts are durable audit
-records.
+Uploaded text is read locally by the web client and sent only to the local
+Odysseus server. Sources are limited to 80 KB each, 20 documents, and 320 KB in
+total. Duplicate content and likely secrets are rejected at the durable
+boundary. The selected-source summary shows exactly what will be frozen before
+the Planner runs.
+
+The one required question is **What should be true when this is done?** A
+document says where the requirements came from; the answer tells the Planner
+what this Plan must deliver. An optional success contract separates **Must
+work**, **Must not break**, and **Proof required** without making simple plans
+complete a long configuration form.
+
+## Implemented sources and explicit repeats
+
+When every linked Epic for a source is completed, the catalog shows that ADR
+or document as **Implemented**. It is unavailable for a new Plan by default.
+The operator may choose **Force again**, which selects the source and stores
+`repeat_authorized: true` in its immutable snapshot. The server enforces this
+rule; changing browser payloads cannot silently repeat completed work. The ADR
+file itself is never rewritten to track execution state.
 
 ## Plan Studio
 
@@ -50,6 +69,9 @@ studio keeps the frozen source on the left and task contracts on the right.
   acceptance criteria, required evidence, execution profile, and cost/time
   range.
 - The DAG remains visible below the editor.
+- Tasks can be filtered by one source/ADR and sorted by Plan order, source, or
+  dependency depth. Selecting a source tab applies the corresponding task
+  filter.
 - **Save draft** creates a new immutable `PlanVersion`; it never edits the
   preceding version in place.
 - **Approve & start** binds approval to the exact plan and source hashes, then
@@ -94,6 +116,11 @@ orchestration engine:
 Materialized runs copy these fields into their own durable snapshot so later
 plan edits cannot change the instruction or evidence contract of an active
 worker.
+
+The Plans page groups Plans into ADR, GitHub, specification,
+incident/security, and other source families. With a repository selected, the
+sidebar can filter Plans to an exact ADR or other frozen source; linked task
+history uses the same source path.
 
 ## Current boundary
 

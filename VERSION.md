@@ -69,6 +69,15 @@ Completed, accepted, integrated, and delivered are separate states.
 - Select discovered repository ADRs directly in the Plan composer or upload
   bounded Markdown/text/JSON/YAML requirement documents, with an explicit list
   of the sources that will be frozen before planning.
+- Discover and preview bounded ADRs, specifications, incidents, findings,
+  milestones, and other repository documents; ingest authoritative GitHub
+  Issues/PRs, drag-and-drop uploads with per-file types, or public HTTPS text.
+- Reject duplicate source content and likely secrets, mark completed ADRs and
+  documents as Implemented, and require an auditable **Force again** override
+  before planning the same completed source another time.
+- Group and filter Plans by ADR, GitHub, specification, incident/security, or
+  other source; filter the task list and Plan Studio task contracts to an exact
+  source and sort them by Plan, source, or dependency order.
 - Review frozen sources and task contracts side by side, link requirement
   clauses bidirectionally to tasks, edit outcomes/prompts/evidence/profiles,
   and save each draft as a new immutable PlanVersion.

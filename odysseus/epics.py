@@ -81,7 +81,10 @@ def _normalize_sources(raw_sources: list[Mapping[str, Any]]) -> list[dict[str, A
     for raw in raw_sources[:20]:
         source = {
             key: raw.get(key)
-            for key in ("kind", "path", "title", "status", "sha256", "bytes", "content", "frozen_at")
+            for key in (
+                "kind", "path", "title", "status", "sha256", "bytes", "content", "frozen_at",
+                "prior_implementation_state", "repeat_authorized", "source_url",
+            )
             if raw.get(key) is not None
         }
         content = str(source.get("content") or "")[:80_000]

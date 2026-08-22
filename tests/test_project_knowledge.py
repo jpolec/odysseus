@@ -84,6 +84,38 @@ class ProjectKnowledgeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "supported ADR directory"):
                 store.knowledge.decision_sources(registered["id"], ["random.md"])
 
+    def test_planning_source_catalog_classifies_documents_and_marks_completed_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = root / "service"
+            (project / "_ADR").mkdir(parents=True)
+            (project / "docs" / "specs").mkdir(parents=True)
+            (project / "node_modules" / "ignored").mkdir(parents=True)
+            adr = project / "_ADR" / "0002-events.md"
+            adr.write_text("# ADR-0002: Durable events\n\nStatus: Accepted\n\nAppend events before projection.\n", encoding="utf-8")
+            spec = project / "docs" / "specs" / "billing-prd.md"
+            spec.write_text("# Billing requirements\n\nInvoices remain idempotent.\n", encoding="utf-8")
+            (project / "node_modules" / "ignored" / "fake-spec.md").write_text("# Ignore me\n", encoding="utf-8")
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            sources = store.knowledge.planning_sources(registered["id"])
+
+            by_path = {item["path"]: item for item in sources}
+            self.assertEqual(by_path["_ADR/0002-events.md"]["kind"], "adr")
+            self.assertEqual(by_path["docs/specs/billing-prd.md"]["kind"], "specification")
+            self.assertNotIn("node_modules/ignored/fake-spec.md", by_path)
+            self.assertIn("Invoices remain idempotent", by_path["docs/specs/billing-prd.md"]["preview"])
+
+            frozen = store.knowledge.decision_sources(registered["id"], ["_ADR/0002-events.md"])
+            epic = store.epics.create({"title": "Durable events", "project_path": str(project), "status": "completed", "source_documents": frozen})
+            completed = {item["path"]: item for item in store.knowledge.planning_sources(registered["id"])}
+            self.assertEqual(completed["_ADR/0002-events.md"]["implementation"]["state"], "completed")
+            self.assertEqual(completed["_ADR/0002-events.md"]["epic_ids"], [epic["id"]])
+
+            selected = store.knowledge.planning_source_documents(registered["id"], ["docs/specs/billing-prd.md"])
+            self.assertEqual(selected[0]["kind"], "specification")
+            self.assertIn("Invoices remain idempotent", selected[0]["content"])
+
     def test_overview_discovers_docs_stack_commits_and_project_activity(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import html
+import ipaddress
 import json
 import mimetypes
 import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -19,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import parse_qs, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 from . import __version__
 from .ci import CIWatcher
@@ -32,7 +36,7 @@ from .runners import AgentRunner, _extract_text, _sanitize
 from .scheduler import ReviewActions, Scheduler
 from .search import search, statistics
 from .github import GitHubBridge
-from .intake import IntakeCoordinator, github_issue_signal
+from .intake import IntakeCoordinator, github_issue_signal, redacted_text
 from .lifecycle import ResourceLifecycle
 from .kernel import ConcurrencyConflict
 from .resources import resource_path
@@ -43,7 +47,7 @@ from .worktrees import WorktreeManager
 
 RUN_ROUTE = re.compile(r"^/api/runs/(?P<run_id>[A-Za-z0-9_.-]+)(?:/(?P<action>events|stream|diff|cancel|accept|apply|integration-candidates|integration|variants|send-back|resume|takeover|draft-pr|ci-poll))?$")
 TMUX_ROUTE = re.compile(r"^/api/tmux/sessions/(?P<name>[A-Za-z0-9_.-]+)(?:/(?P<action>adopt|takeover))?$")
-PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile|skills|knowledge))?$")
+PROJECT_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)(?:/(?P<action>overview|profile|skills|knowledge|planning-sources))?$")
 PROJECT_ROUTER_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/router(?:/(?P<action>recommend|backtest|delete))?$")
 PROJECT_SKILL_RECOMMEND_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/recommend$")
 PROJECT_SKILL_LOCAL_ROUTE = re.compile(r"^/api/projects/(?P<project_id>[A-Za-z0-9_.-]+)/skills/local$")
@@ -67,6 +71,9 @@ PLAN_SOURCE_KINDS = frozenset(
         "incident",
         "milestone",
         "document_set",
+        "repository_document",
+        "pull_request",
+        "url",
     }
 )
 PLAN_SOURCE_FILE_LIMIT = 20
@@ -137,6 +144,11 @@ def _run_summary(run: Mapping[str, Any]) -> dict[str, Any]:
         "environment": str(environment.get("profile") or "host"),
         "isolated": bool(run.get("worktree")),
     }
+    summary["source_paths"] = [
+        str(source.get("path") or "")
+        for source in run.get("source_documents") or []
+        if isinstance(source, Mapping) and str(source.get("path") or "")
+    ]
     summary["merge_analysis"] = {"risk": (run.get("merge_analysis") or {}).get("risk", "none")}
     summary["ci"] = {"status": (run.get("ci") or {}).get("status", "not_started")}
     summary["delivery"] = {"status": (run.get("delivery") or {}).get("status", "not_started")}
@@ -148,7 +160,13 @@ def _epic_summary(epic: Mapping[str, Any]) -> dict[str, Any]:
 
     value = dict(epic)
     value["source_documents"] = [
-        {key: source.get(key) for key in ("kind", "path", "title", "status", "sha256", "bytes")}
+        {
+            key: source.get(key)
+            for key in (
+                "kind", "path", "title", "status", "sha256", "bytes",
+                "prior_implementation_state", "repeat_authorized", "source_url",
+            )
+        }
         for source in epic.get("source_documents") or []
         if isinstance(source, dict)
     ]
@@ -193,6 +211,144 @@ def _uploaded_plan_sources(value: Any, *, default_kind: str) -> list[dict[str, A
             }
         )
     return sources
+
+
+def _public_https_url(value: Any) -> str:
+    url = str(value or "").strip()
+    if len(url) > 2_000:
+        raise ValueError("planning source URL is too long")
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("planning source URL must be public HTTPS without embedded credentials")
+    if parsed.port not in (None, 443):
+        raise ValueError("planning source URL may only use HTTPS port 443")
+    try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)}
+    except OSError as exc:
+        raise ValueError("planning source URL hostname could not be resolved") from exc
+    if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
+        raise ValueError("planning source URL must not resolve to a private or local address")
+    return url
+
+
+class _PublicHTTPSRedirectHandler(HTTPRedirectHandler):
+    """Reject redirects before urllib can contact a local or private target."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        _public_https_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _remote_plan_source(value: Any) -> dict[str, Any]:
+    url = _public_https_url(value)
+    request = Request(url, headers={"Accept": "text/plain,text/markdown,text/html,application/json,application/yaml", "User-Agent": "Odysseus-Plan-Source/1"})
+    try:
+        with build_opener(_PublicHTTPSRedirectHandler()).open(request, timeout=10) as response:
+            final_url = _public_https_url(response.geturl())
+            content_type = str(response.headers.get_content_type() or "").lower()
+            if not (content_type.startswith("text/") or content_type in {"application/json", "application/yaml", "application/x-yaml"}):
+                raise ValueError(f"planning source URL returned unsupported content type: {content_type or 'unknown'}")
+            raw = response.read(PLAN_SOURCE_BYTES_PER_FILE + 1)
+            if len(raw) > PLAN_SOURCE_BYTES_PER_FILE:
+                raise ValueError(f"planning source URL exceeds the {PLAN_SOURCE_BYTES_PER_FILE} byte limit")
+            charset = response.headers.get_content_charset() or "utf-8"
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"planning source URL could not be read: {exc}") from exc
+    content = raw.decode(charset, errors="replace")
+    if content_type == "text/html":
+        content = re.sub(r"(?is)<(?:script|style).*?>.*?</(?:script|style)>", " ", content)
+        content = html.unescape(re.sub(r"(?s)<[^>]+>", " ", content))
+        content = re.sub(r"[ \t]+", " ", content)
+        content = re.sub(r"\n\s*\n+", "\n\n", content).strip()
+    if not content.strip():
+        raise ValueError("planning source URL returned no readable text")
+    name = Path(urlparse(final_url).path).name[:200] or urlparse(final_url).hostname or "Web document"
+    return {"kind": "url", "path": final_url, "source_url": final_url, "title": name, "status": "fetched", "content": content}
+
+
+def _github_plan_sources(app: Any, project: Mapping[str, Any], value: Any) -> list[dict[str, Any]]:
+    if value in (None, []):
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError("github_sources must be a list of issue or pull-request references")
+    if len(value) > PLAN_SOURCE_FILE_LIMIT:
+        raise ValueError(f"select at most {PLAN_SOURCE_FILE_LIMIT} GitHub sources")
+    sources: list[dict[str, Any]] = []
+    for item in value:
+        kind = str(item.get("kind") or "")
+        number = item.get("number")
+        if kind == "github_issue":
+            record = app.github.issue(project["path"], number)
+            prefix = "issue"
+        elif kind == "pull_request":
+            record = app.github.pull_request(project["path"], number)
+            prefix = "pull"
+        else:
+            raise ValueError("GitHub planning source must be github_issue or pull_request")
+        record_number = int(record.get("number") or 0)
+        title = redacted_text(record.get("title"), limit=300).strip() or f"GitHub {prefix} {record_number}"
+        body = redacted_text(record.get("body"), limit=70_000)
+        url = str(record.get("url") or "")
+        metadata = ""
+        if kind == "pull_request":
+            metadata = f"\nBase: {record.get('baseRefName') or '?'}\nHead: {record.get('headRefName') or '?'}"
+        content = f"# {title}\n\nGitHub URL: {url}\nState: {record.get('state') or 'unknown'}{metadata}\n\n{body or '(no description)'}"
+        sources.append(
+            {
+                "kind": kind,
+                "path": f"github://{prefix}/{record_number}",
+                "source_url": url,
+                "title": title,
+                "status": str(record.get("state") or "unknown").lower(),
+                "content": content,
+            }
+        )
+    return sources
+
+
+def _guard_plan_sources(store: Any, project_id: str, sources: list[dict[str, Any]], forced_paths: Any) -> list[dict[str, Any]]:
+    if not isinstance(forced_paths, list) or not all(isinstance(item, str) for item in forced_paths):
+        raise ValueError("force_source_paths must be a list of source paths")
+    forced = set(forced_paths)
+    selected_paths = {str(source.get("path") or "") for source in sources}
+    if not forced.issubset(selected_paths):
+        raise ValueError("Force again may only reference selected planning sources")
+    seen_hashes: dict[str, str] = {}
+    completed_paths: set[str] = set()
+    completed_hashes: set[str] = set()
+    if project_id:
+        for epic in store.epics.list():
+            if str(epic.get("project_id") or "") != project_id or str(epic.get("status") or "") != "completed":
+                continue
+            for source in epic.get("source_documents") or []:
+                if not isinstance(source, Mapping):
+                    continue
+                completed_paths.add(str(source.get("path") or ""))
+                completed_hashes.add(str(source.get("sha256") or ""))
+    guarded: list[dict[str, Any]] = []
+    for source in sources:
+        value = dict(source)
+        content = str(value.get("content") or "")
+        redacted, receipt = DEFAULT_REDACTION_ENGINE.redact(content, boundary="plan_source")
+        if receipt.redacted_field_classes:
+            classes = ", ".join(receipt.redacted_field_classes)
+            raise ValueError(f"planning source {value.get('title') or value.get('path')} may contain secrets ({classes}); remove them before planning")
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        previous = seen_hashes.get(digest)
+        if previous:
+            raise ValueError(f"duplicate planning documents have identical content: {previous} and {value.get('title') or value.get('path')}")
+        seen_hashes[digest] = str(value.get("title") or value.get("path") or "document")
+        path = str(value.get("path") or "")
+        already_completed = path in completed_paths or digest in completed_hashes or str(value.get("prior_implementation_state") or "") == "completed"
+        if already_completed and path not in forced:
+            raise ValueError(f"planning source is already implemented: {path}; choose Force again to create another Plan")
+        if path in forced:
+            value["repeat_authorized"] = True
+        value["content"] = str(redacted)
+        guarded.append(value)
+    return guarded
 
 
 class OdysseusApp:
@@ -494,6 +650,16 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             except RuntimeError as exc:
                 self._json_error(HTTPStatus.BAD_GATEWAY, str(exc))
             return
+        if parsed.path == "/api/github/pulls":
+            query = parse_qs(parsed.query)
+            try:
+                project = self.server.app.store.projects.get(str(query.get("project_id", [""])[0]))
+                self._json({"pulls": self.server.app.github.pull_requests(project["path"]), "project": project})
+            except KeyError:
+                self._json_error(HTTPStatus.NOT_FOUND, "project not found")
+            except RuntimeError as exc:
+                self._json_error(HTTPStatus.BAD_GATEWAY, str(exc))
+            return
         router_match = PROJECT_ROUTER_ROUTE.fullmatch(parsed.path)
         if router_match:
             try:
@@ -546,6 +712,8 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                     self._json(self.server.app.store.skills.catalog(project_id))
                 elif action == "knowledge":
                     self._json(self.server.app.store.knowledge.items(project_id))
+                elif action == "planning-sources":
+                    self._json({"sources": self.server.app.store.knowledge.planning_sources(project_id)})
                 else:
                     self._json(self.server.app.store.projects.get(project_id))
             except KeyError:
@@ -660,6 +828,18 @@ class OdysseusHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/inbox":
                 self._json(self.server.app.store.inbox.create(body), HTTPStatus.CREATED)
                 return
+            if parsed.path == "/api/planning-sources/preview-url":
+                source = _remote_plan_source(body.get("url"))
+                redacted, receipt = DEFAULT_REDACTION_ENGINE.redact(source["content"], boundary="plan_source_preview")
+                if receipt.redacted_field_classes:
+                    classes = ", ".join(receipt.redacted_field_classes)
+                    raise ValueError(f"remote document may contain secrets ({classes}); use a sanitized source")
+                source["content"] = str(redacted)
+                source["bytes"] = len(source["content"].encode("utf-8"))
+                source["sha256"] = hashlib.sha256(source["content"].encode("utf-8")).hexdigest()
+                source["preview"] = source["content"][:2_000]
+                self._json(source)
+                return
             if parsed.path == "/api/epics/plan":
                 requirement = str(body.get("requirement") or "")
                 source_kind = str(body.get("source_kind") or "user_request")
@@ -676,19 +856,39 @@ class OdysseusHandler(BaseHTTPRequestHandler):
                 source_paths = body.get("source_paths") or []
                 if not isinstance(source_paths, list) or not all(isinstance(item, str) for item in source_paths):
                     raise ValueError("source_paths must be a list of decision paths")
+                repository_source_paths = body.get("repository_source_paths") or []
+                if not isinstance(repository_source_paths, list) or not all(isinstance(item, str) for item in repository_source_paths):
+                    raise ValueError("repository_source_paths must be a list of document paths")
                 source_documents = []
                 if source_paths:
                     if not project_id:
                         raise ValueError("project_id is required when selecting repository ADRs")
                     source_documents = self.server.app.store.knowledge.decision_sources(project_id, source_paths)
+                if repository_source_paths:
+                    if not project_id:
+                        raise ValueError("project_id is required when selecting repository documents")
+                    source_documents.extend(
+                        self.server.app.store.knowledge.planning_source_documents(project_id, repository_source_paths)
+                    )
                 source_documents.extend(
                     _uploaded_plan_sources(body.get("source_documents"), default_kind=source_kind)
                 )
+                if body.get("github_sources"):
+                    if not project_id:
+                        raise ValueError("project_id is required when selecting GitHub sources")
+                    source_documents.extend(_github_plan_sources(self.server.app, project, body.get("github_sources")))
+                url_sources = body.get("url_sources") or []
+                if not isinstance(url_sources, list) or not all(isinstance(item, str) for item in url_sources):
+                    raise ValueError("url_sources must be a list of HTTPS URLs")
+                source_documents.extend(_remote_plan_source(url) for url in url_sources)
                 if len(source_documents) > PLAN_SOURCE_FILE_LIMIT:
                     raise ValueError(f"select at most {PLAN_SOURCE_FILE_LIMIT} planning documents")
                 total_source_bytes = sum(len(str(item.get("content") or "").encode("utf-8")) for item in source_documents)
                 if total_source_bytes > PLAN_SOURCE_BYTES_TOTAL:
                     raise ValueError(f"planning documents exceed the {PLAN_SOURCE_BYTES_TOTAL} byte limit")
+                source_documents = _guard_plan_sources(
+                    self.server.app.store, project_id, source_documents, body.get("force_source_paths") or []
+                )
                 if source_documents and not requirement.strip():
                     titles = ", ".join(str(item.get("title") or item.get("path")) for item in source_documents)
                     requirement = f"Implement the selected requirements as one coherent, verified change: {titles}."

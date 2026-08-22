@@ -123,6 +123,7 @@ The default origin is `http://127.0.0.1:8741`.
 | `POST` | `/api/projects` | Register or refresh a project |
 | `DELETE` | `/api/projects/:id` | Remove a registry entry (does not delete files) |
 | `GET` | `/api/projects/:id/overview` | README/instruction/ADR/stack/commit/activity Project Overview |
+| `GET` | `/api/projects/:id/planning-sources` | Bounded classified repository documents with previews, hashes, and implementation state |
 | `GET/POST` | `/api/projects/:id/profile` | Read or update the private Project Brief |
 | `GET/POST` | `/api/projects/:id/skills` | Inspect catalog/effectiveness or update skill policies |
 | `POST` | `/api/projects/:id/skills/recommend` | Explain automatic skill ranking for `{ "task": "..." }` |
@@ -139,13 +140,15 @@ The default origin is `http://127.0.0.1:8741`.
 | `POST` | `/api/attention/:id/resolve` | Close a notification without inventing an answer |
 | `GET` | `/api/epics` | List Epic proposals and active graphs |
 | `GET` | `/api/epics/:id` | Epic snapshot, frozen source sections, source impact, PlanVersion, and materialized runs |
-| `POST` | `/api/epics/plan` | Run a read-only Planner; `project_id`, typed `source_paths`, and bounded uploaded `source_documents` freeze exact requirement sources into the proposal |
+| `POST` | `/api/epics/plan` | Run a read-only Planner; accepts ADR `source_paths`, `repository_source_paths`, bounded uploaded `source_documents`, authoritative `github_sources`, public `url_sources`, and explicit `force_source_paths` |
 | `POST` | `/api/epics/:id/plan` | Validate an edited task contract and save a new immutable draft PlanVersion |
 | `POST` | `/api/epics/:id/refresh-sources` | Explicitly freeze current local source bytes before a new PlanVersion is reviewed |
 | `POST` | `/api/epics/:id/approve` | Validate and materialize a proposed task DAG |
 | `GET` | `/api/commands?limit=N` | List recent durable command receipts |
 | `GET` | `/api/commands/:id` | Inspect one command envelope, outcome, and redaction receipts |
 | `GET` | `/api/github/issues?project_id=:id` | Open GitHub issues through authenticated `gh` |
+| `GET` | `/api/github/pulls?project_id=:id` | Open GitHub pull requests through authenticated `gh` |
+| `POST` | `/api/planning-sources/preview-url` | Validate and preview a public HTTPS text source; private/local redirects and likely secrets fail closed |
 | `POST` | `/api/github/import` | Turn the supplied issue into a queued run |
 
 Every `POST` and `DELETE` requires the token from `/api/bootstrap` in the

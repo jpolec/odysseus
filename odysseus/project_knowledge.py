@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import secrets
 import subprocess
@@ -24,6 +25,10 @@ DECISION_DIRECTORY_CANDIDATES = (
 )
 DECISION_FILE_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".rst", ".txt"})
 DECISION_IGNORED_STEMS = frozenset({"readme", "index", "template", "adr-template"})
+PLANNING_FILE_SUFFIXES = frozenset({".md", ".markdown", ".mdown", ".rst", ".txt", ".adoc", ".json", ".yaml", ".yml"})
+PLANNING_IGNORED_DIRECTORIES = frozenset(
+    {".git", ".odysseus", ".venv", "venv", "node_modules", "vendor", "dist", "build", "coverage", "backups"}
+)
 INSTRUCTION_CANDIDATES = (
     "AGENTS.md",
     "CLAUDE.md",
@@ -531,6 +536,124 @@ class ProjectKnowledge:
                     "sha256": _digest(content),
                     "bytes": len(content.encode("utf-8")),
                     "content": content,
+                    "prior_implementation_state": (item.get("implementation") or {}).get("state", "unplanned"),
+                }
+            )
+        return selected
+
+    @staticmethod
+    def _planning_kind(relative: str) -> str:
+        lowered = relative.lower()
+        parts = set(Path(lowered).parts)
+        if any(lowered == candidate.lower() or lowered.startswith(f"{candidate.lower()}/") for candidate in DECISION_DIRECTORY_CANDIDATES):
+            return "adr"
+        if any(token in lowered for token in ("incident", "postmortem", "post-mortem")):
+            return "incident"
+        if "security" in parts or any(token in lowered for token in ("security-finding", "vulnerability", "threat-model")):
+            return "security_finding"
+        if any(token in lowered for token in ("roadmap", "milestone")):
+            return "milestone"
+        if any(token in lowered for token in ("prd", "spec", "requirement", "rfc", "design")):
+            return "specification"
+        return "repository_document"
+
+    def planning_sources(self, project_id: str) -> list[dict[str, Any]]:
+        """Return a bounded catalog of text documents that may source a Plan."""
+
+        project = self.store.projects.get(project_id)
+        root = Path(str(project["path"])).resolve()
+        decisions = {item["path"]: item for item in self.decisions(project_id)}
+        project_epics = [epic for epic in self.store.epics.list() if str(epic.get("project_id") or "") == project_id]
+        runs_by_epic = {str(epic["id"]): self.store.epics.runs(str(epic["id"])) for epic in project_epics}
+        values: list[dict[str, Any]] = []
+        for directory, names, filenames in os.walk(root):
+            directory_path = Path(directory)
+            names[:] = sorted(
+                name
+                for name in names
+                if name not in PLANNING_IGNORED_DIRECTORIES and (not name.startswith(".") or name == ".github")
+            )
+            for filename in sorted(filenames):
+                path = directory_path / filename
+                if path.suffix.lower() not in PLANNING_FILE_SUFFIXES:
+                    continue
+                try:
+                    resolved = path.resolve(strict=True)
+                    resolved.relative_to(root)
+                except (OSError, ValueError):
+                    continue
+                relative = str(path.relative_to(root))
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                if size <= 0 or size > 80_000:
+                    continue
+                content = _read_text(path, limit=80_000)
+                if not content.strip():
+                    continue
+                linked = [
+                    epic
+                    for epic in project_epics
+                    if relative in {
+                        str(source.get("path") or "")
+                        for source in epic.get("source_documents") or []
+                        if isinstance(source, dict)
+                    }
+                ]
+                linked_runs = [run for epic in linked for run in runs_by_epic.get(str(epic["id"]), [])]
+                decision = decisions.get(relative)
+                kind = "adr" if decision else self._planning_kind(relative)
+                values.append(
+                    {
+                        "id": f"source-{_digest(relative)[:12]}",
+                        "kind": kind,
+                        "path": relative,
+                        "title": decision.get("title") if decision else _decision_title(content, path),
+                        "status": decision.get("status") if decision else "document",
+                        "summary": decision.get("summary") if decision else _summary(content, limit=320),
+                        "preview": content[:2_000],
+                        "sha256": _digest(content),
+                        "bytes": len(content.encode("utf-8")),
+                        "implementation": self._decision_progress(linked, linked_runs),
+                        "epic_ids": [str(epic["id"]) for epic in linked],
+                    }
+                )
+                if len(values) >= 400:
+                    break
+            if len(values) >= 400:
+                break
+        order = {"adr": 0, "specification": 1, "security_finding": 2, "incident": 3, "milestone": 4, "repository_document": 5}
+        return sorted(values, key=lambda item: (order.get(str(item["kind"]), 9), str(item["path"])))
+
+    def planning_source_documents(self, project_id: str, paths: list[str]) -> list[dict[str, Any]]:
+        if not paths or len(paths) > 20:
+            raise ValueError("select between 1 and 20 repository documents")
+        project = self.store.projects.get(project_id)
+        root = Path(str(project["path"])).resolve()
+        discovered = {item["path"]: item for item in self.planning_sources(project_id)}
+        selected: list[dict[str, Any]] = []
+        total_bytes = 0
+        for relative in dict.fromkeys(str(value) for value in paths):
+            item = discovered.get(relative)
+            if not item:
+                raise ValueError(f"document is not in the bounded repository source catalog: {relative}")
+            path = (root / relative).resolve(strict=True)
+            path.relative_to(root)
+            content = _read_text(path, limit=80_000)
+            total_bytes += len(content.encode("utf-8"))
+            if total_bytes > 320_000:
+                raise ValueError("selected repository documents exceed the 320000 byte planning limit")
+            selected.append(
+                {
+                    "kind": item["kind"],
+                    "path": relative,
+                    "title": item["title"],
+                    "status": item["status"],
+                    "sha256": _digest(content),
+                    "bytes": len(content.encode("utf-8")),
+                    "content": content,
+                    "prior_implementation_state": (item.get("implementation") or {}).get("state", "unplanned"),
                 }
             )
         return selected

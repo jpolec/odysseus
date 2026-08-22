@@ -100,6 +100,44 @@ class GitHubBridge:
         return value
 
     @classmethod
+    def pull_requests(cls, project_path: Path | str, *, limit: int = 50) -> list[dict[str, Any]]:
+        raw = cls._gh(
+            [
+                "pr", "list", "--limit", str(max(1, min(limit, 100))), "--state", "open",
+                "--json", "number,title,url,state,body,baseRefName,headRefName,updatedAt,labels,author",
+            ],
+            project_path,
+        )
+        try:
+            value = json.loads(raw or "[]")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("GitHub CLI returned invalid pull-request JSON") from exc
+        return value if isinstance(value, list) else []
+
+    @classmethod
+    def pull_request(cls, project_path: Path | str, number: Any) -> dict[str, Any]:
+        try:
+            pull_number = int(number)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("GitHub pull-request number is required") from exc
+        if pull_number < 1:
+            raise ValueError("GitHub pull-request number must be positive")
+        raw = cls._gh(
+            [
+                "pr", "view", str(pull_number),
+                "--json", "number,title,url,state,body,baseRefName,headRefName,updatedAt,labels,author",
+            ],
+            project_path,
+        )
+        try:
+            value = json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("GitHub CLI returned invalid pull-request JSON") from exc
+        if not isinstance(value, dict) or int(value.get("number") or 0) != pull_number:
+            raise RuntimeError("GitHub CLI returned the wrong pull request")
+        return value
+
+    @classmethod
     def checks(cls, pull_request_url: str, project_path: Path | str) -> dict[str, Any]:
         """Return a normalized pull-request check state and best-effort failed logs."""
 

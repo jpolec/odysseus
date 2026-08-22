@@ -40,6 +40,7 @@
         <nav class="sidebar-primary" aria-label="Odysseus views">
           <button class="sidebar-primary-link" data-view="attention" type="button"><span>!</span><strong>Needs You</strong><small id="sidebarPrimaryAttentionCount"></small></button>
           <button class="sidebar-primary-link" data-view="epics" type="button"><span>◇</span><strong>Plans</strong><small id="epicNavCount"></small></button>
+          <div class="sidebar-plan-sources hidden" id="planSourceNav" aria-label="Filter plans by source"></div>
           <button class="sidebar-primary-link" data-view="insights" type="button"><span>↗</span><strong>Outcomes</strong></button>
         </nav>
         <button class="workspace-link selected" id="allWorkButton" type="button"><span class="workspace-icon">⌂</span><strong>All repositories</strong><span id="allWorkCount">0</span></button>
@@ -60,6 +61,7 @@
             <button class="filter filter-dot" data-filter="needs" type="button" aria-label="Show tasks that need action" title="Needs you"><span class="task-state-dot status-needs-action" aria-hidden="true"></span></button>
             <button class="filter filter-dot" data-filter="done" type="button" aria-label="Show completed tasks" title="Done"><span class="task-state-dot status-done" aria-hidden="true"></span></button>
           </div>
+          <div class="task-source-filter hidden" id="taskSourceFilterChip"></div>
           <div class="task-list" id="taskList" aria-live="polite"></div>
         </section>
         <section class="explorer-section explorer-tools">
@@ -206,6 +208,7 @@
 
         <section class="view-panel collection-view" id="epicsView">
           <div class="page-head"><div><h1>Plans</h1><p>Approve a graph before agents start.</p></div><button class="primary" id="newEpicButton" type="button">Plan feature</button></div>
+          <div class="plan-filter-bar" id="planFilters" role="group" aria-label="Filter plans by source"></div>
           <div class="stack-list" id="epicList"></div>
         </section>
 
@@ -600,25 +603,33 @@
         <span class="field-help">The planner inspects this repository read-only.</span>
         <select name="project_id" id="epicProjectSelect" required><option value="">Add a repository first</option></select>
       </label>
-      <label>Source type
-        <span class="field-help">The requirement is frozen as a versioned source contract.</span>
-        <select name="source_kind"><option value="user_request">User request</option><option value="adr">ADR / architecture decision</option><option value="specification">PRD / specification</option><option value="github_issue">GitHub issue</option><option value="security_finding">Security finding</option><option value="incident">Incident</option><option value="milestone">Milestone</option><option value="document_set">Document set</option></select>
-      </label>
-      <section class="epic-source-picker" aria-labelledby="epicSourcePickerTitle">
-        <header><div><strong id="epicSourcePickerTitle">Requirement sources</strong><span>optional</span></div><small>Choose ADRs from the repository or upload local documents. Exact contents are frozen into the plan version.</small></header>
+      <section class="epic-source-picker" id="epicSourceDropzone" aria-labelledby="epicSourcePickerTitle">
+        <header><div><strong id="epicSourcePickerTitle">Requirement sources</strong><span>optional</span></div><small>Choose repository documents, GitHub work, uploads, or a public URL. Exact contents are frozen into the plan version.</small></header>
+        <div class="plan-source-categories" role="group" aria-label="Source category">
+          <button class="active" data-plan-source-tab="all" type="button">All</button><button data-plan-source-tab="adr" type="button">ADR</button><button data-plan-source-tab="specification" type="button">Specs</button><button data-plan-source-tab="incident" type="button">Incidents</button><button data-plan-source-tab="repository" type="button">Repository</button><button data-plan-source-tab="github" type="button">GitHub</button>
+        </div>
         <div class="epic-repository-sources" id="epicRepositorySources"><p>Choose a repository to see discovered ADRs.</p></div>
+        <div class="epic-repository-sources hidden" id="epicGithubSources"></div>
         <div class="epic-source-upload-row">
           <label class="ghost compact epic-source-upload" for="epicSourceUpload">Upload documents</label>
           <input class="sr-only" id="epicSourceUpload" type="file" multiple accept=".md,.markdown,.txt,.rst,.adoc,.json,.yaml,.yml,text/plain,text/markdown,application/json">
-          <small>Markdown, text, JSON or YAML · max 80 KB each</small>
+          <button class="ghost compact" id="epicLoadGithub" type="button">Load GitHub</button>
+          <label class="source-default-kind">Default upload type<select name="source_kind"><option value="user_request">User request</option><option value="adr">ADR</option><option value="specification">Specification</option><option value="security_finding">Security finding</option><option value="incident">Incident</option><option value="milestone">Milestone</option><option value="document_set">Document set</option><option value="repository_document">Repository document</option></select></label>
         </div>
+        <div class="epic-source-url-row"><input id="epicSourceUrl" type="url" placeholder="https://… public specification or document" aria-label="Public HTTPS planning source"><button class="ghost compact" id="epicAddSourceUrl" type="button">Preview &amp; add</button></div>
+        <p class="epic-drop-hint">Drop Markdown, text, JSON, or YAML here · max 80 KB each · secrets are rejected</p>
         <div class="epic-uploaded-sources hidden" id="epicUploadedSources" aria-label="Uploaded planning documents"></div>
         <section class="selected-decision-sources hidden" id="epicDecisionSources" aria-label="Selected requirement sources"></section>
       </section>
-      <label>What should the finished feature do?
-        <span class="field-help">State the end result. The selected documents provide constraints and evidence lineage.</span>
+      <label>What should be true when this is done?
+        <span class="field-help">Describe the result, not implementation steps. Selected documents provide constraints and evidence lineage.</span>
         <textarea name="requirement" rows="5" required placeholder="Add passkey sign-in end to end. Keep password login working, include the schema migration, browser flow, integration tests, and a security review."></textarea>
       </label>
+      <details class="plan-success-contract"><summary>Define success <span>optional</span></summary>
+        <label>Must work<textarea name="required_behavior" rows="2" placeholder="Users can register and use a passkey."></textarea></label>
+        <label>Must not break<textarea name="forbidden_regressions" rows="2" placeholder="Existing password login and sessions remain compatible."></textarea></label>
+        <label>Proof required<textarea name="required_evidence" rows="2" placeholder="Browser flow, migration rollback, integration tests, security review."></textarea></label>
+      </details>
       <details class="prompt-example"><summary>When to use this</summary><p>Use a plan for dependent or parallel work.</p></details>
       <details class="advanced"><summary>Advanced: choose agents and verification commands</summary>
         <div class="form-row"><label>Planning agent <select name="planner_lane" id="plannerLaneSelect"></select></label><label>Implementation agent <select name="lane" id="epicLaneSelect"></select></label></div>
@@ -644,6 +655,7 @@
           </section>
           <section class="plan-studio-tasks" aria-label="Task contracts">
             <header><div><small>EXECUTION PLAN</small><h3>What agents will deliver</h3></div><span id="planStudioEstimate"></span></header>
+            <div class="plan-task-controls"><label>Source<select id="planStudioSourceFilter"><option value="all">All sources</option></select></label><label>Sort<select id="planStudioTaskSort"><option value="plan">Plan order</option><option value="source">Source / ADR</option><option value="dependency">Dependency order</option></select></label></div>
             <div class="plan-task-list" id="planStudioTaskList"></div>
             <form class="plan-task-editor" id="planStudioEditor">
               <div class="form-row"><label>Task title<input name="title" required></label><label>Task key<input name="task_key" readonly></label></div>

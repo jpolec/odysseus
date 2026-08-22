@@ -14,6 +14,19 @@ Git; this file records observable operator and product changes.
 
 ## Unreleased
 
+- Expanded Plan sources from ADR/upload-only intake to a classified repository
+  catalog, GitHub Issues and pull requests, drag-and-drop uploads with per-file
+  types and previews, and public HTTPS documents with private-address guards.
+- Added source duplicate/secret rejection, an Implemented state for completed
+  ADRs and documents, and an explicit persisted **Force again** authorization
+  before a completed source can be planned again.
+- Grouped Plans by ADR, GitHub, specification, incident/security, and other
+  sources; added exact-source filters in the Plans sidebar and task history,
+  plus source filtering and sorting inside Plan Studio.
+- Replaced the ambiguous finished-feature prompt with one outcome question and
+  an optional success contract: Must work, Must not break, and Proof required.
+- Added a real Odysseus ADR for versioned Plan sources and deterministic ADR
+  and GitHub source examples to the offline product demo.
 - Added explicit requirement-source intake to the Plan composer: operators can
   select discovered repository ADRs or upload bounded local text documents and
   review the exact source list before it is frozen into a PlanVersion.

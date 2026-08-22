@@ -285,6 +285,11 @@ repository, and **Agent: Auto**. Runtime and budget overrides stay collapsed.
 
 Plans keep proposed graphs open for review. Active plans collapse the graph
 behind a compact progress summary until an operator needs the dependency view.
+ADRs, specifications, GitHub Issues and pull requests, incident notes, uploaded
+documents, and public HTTPS text can be frozen as versioned Plan sources.
+Odysseus maps each source clause to its task contract, marks completed sources
+as **Implemented**, and requires an explicit **Force again** to repeat them.
+See [Versioned Plan Studio](docs/features/12-versioned-plan-studio.md).
 
 ![Odysseus Plans](docs/screenshots/web-plans.png)
 

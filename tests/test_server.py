@@ -332,6 +332,139 @@ class ServerTests(unittest.TestCase):
                 app.stop()
                 thread.join(timeout=2)
 
+    def test_completed_adr_requires_explicit_force_again_and_records_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            (project / "_ADR").mkdir()
+            (project / "_ADR" / "0003-ledger.md").write_text(
+                "# ADR-0003: Outcome ledger\n\nStatus: Accepted\n\nRecord delivery outcomes.\n", encoding="utf-8"
+            )
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            sources = store.knowledge.decision_sources(registered["id"], ["_ADR/0003-ledger.md"])
+            store.epics.create({"title": "Outcome ledger", "project_path": str(project), "status": "completed", "source_documents": sources})
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                payload = {"project_id": registered["id"], "source_paths": ["_ADR/0003-ledger.md"], "requirement": "Run the ADR again."}
+                blocked = urllib.request.Request(
+                    f"{base}/api/epics/plan", data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan") as planner:
+                    with self.assertRaises(urllib.error.HTTPError) as caught:
+                        urllib.request.urlopen(blocked)
+                self.assertEqual(caught.exception.code, 400)
+                self.assertIn("Force again", caught.exception.read().decode())
+                caught.exception.close()
+                planner.assert_not_called()
+
+                forced = urllib.request.Request(
+                    f"{base}/api/epics/plan", data=json.dumps({**payload, "force_source_paths": ["_ADR/0003-ledger.md"]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan", return_value={"id": "epic-repeat"}) as planner:
+                    with urllib.request.urlopen(forced) as response:
+                        self.assertEqual(json.load(response)["id"], "epic-repeat")
+                self.assertTrue(planner.call_args.kwargs["source_documents"][0]["repeat_authorized"])
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
+    def test_plan_sources_reject_duplicates_secrets_and_private_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+
+                def post(path: str, payload: dict[str, object]) -> urllib.request.Request:
+                    return urllib.request.Request(
+                        f"{base}{path}", data=json.dumps(payload).encode(),
+                        headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                    )
+
+                duplicate = post("/api/epics/plan", {
+                    "project_id": registered["id"], "requirement": "Duplicate sources",
+                    "source_documents": [{"title": "one.md", "content": "same requirement"}, {"title": "two.md", "content": "same requirement"}],
+                })
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(duplicate)
+                self.assertEqual(caught.exception.code, 400)
+                self.assertIn("identical content", caught.exception.read().decode())
+                caught.exception.close()
+
+                secret = post("/api/epics/plan", {
+                    "project_id": registered["id"], "requirement": "Secret source",
+                    "source_documents": [{"title": "unsafe.md", "content": "OPENAI_API_KEY=sk-abcdefghijklmnop"}],
+                })
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(secret)
+                self.assertEqual(caught.exception.code, 400)
+                self.assertIn("may contain secrets", caught.exception.read().decode())
+                caught.exception.close()
+
+                private_url = post("/api/planning-sources/preview-url", {"url": "https://127.0.0.1/internal"})
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(private_url)
+                self.assertEqual(caught.exception.code, 400)
+                self.assertIn("private or local", caught.exception.read().decode())
+                caught.exception.close()
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
+    def test_github_pull_request_can_be_frozen_as_authoritative_plan_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            project = self._git_repo(root)
+            store = RunStore(root / "state")
+            registered = store.projects.upsert(project)
+            app = OdysseusApp(store, host="127.0.0.1", port=0, scheduler=DummyScheduler())
+            app.github = mock.Mock()
+            pull = {"number": 12, "title": "Add passkeys", "url": "https://github.com/acme/repo/pull/12", "state": "OPEN", "body": "Preserve password login.", "baseRefName": "main", "headRefName": "passkeys"}
+            app.github.pull_requests.return_value = [pull]
+            app.github.pull_request.return_value = pull
+            host, port = app.start()
+            thread = threading.Thread(target=app.httpd.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://{host}:{port}"
+            try:
+                with urllib.request.urlopen(f"{base}/api/bootstrap") as response:
+                    token = json.load(response)["token"]
+                with urllib.request.urlopen(f"{base}/api/github/pulls?project_id={registered['id']}") as response:
+                    self.assertEqual(json.load(response)["pulls"][0]["number"], 12)
+                request = urllib.request.Request(
+                    f"{base}/api/epics/plan",
+                    data=json.dumps({"project_id": registered["id"], "requirement": "Implement PR requirements", "github_sources": [{"kind": "pull_request", "number": 12}]}).encode(),
+                    headers={"Content-Type": "application/json", "X-Odysseus-Token": token},
+                )
+                with mock.patch.object(app.planner, "plan", return_value={"id": "epic-pr"}) as planner:
+                    with urllib.request.urlopen(request) as response:
+                        self.assertEqual(json.load(response)["id"], "epic-pr")
+                source = planner.call_args.kwargs["source_documents"][0]
+                self.assertEqual(source["kind"], "pull_request")
+                self.assertEqual(source["path"], "github://pull/12")
+                self.assertIn("Preserve password login", source["content"])
+                app.github.pull_request.assert_called_once_with(str(project.resolve()), 12)
+            finally:
+                app.stop()
+                thread.join(timeout=2)
+
     def test_run_summary_endpoint_omits_heavy_task_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -623,6 +756,13 @@ class ServerTests(unittest.TestCase):
                 self.assertIn('id="epicRepositorySources"', html)
                 self.assertIn('id="epicSourceUpload"', html)
                 self.assertIn('id="epicUploadedSources"', html)
+                self.assertIn('id="epicGithubSources"', html)
+                self.assertIn('id="epicSourceUrl"', html)
+                self.assertIn('id="planFilters"', html)
+                self.assertIn('id="planSourceNav"', html)
+                self.assertIn('id="planStudioSourceFilter"', html)
+                self.assertIn("What should be true when this is done?", html)
+                self.assertIn("Must not break", html)
                 self.assertIn("Upload documents", html)
                 self.assertIn('id="taskSkillRecommendations"', html)
                 self.assertIn('id="environmentProfile"', html)
@@ -673,6 +813,10 @@ class ServerTests(unittest.TestCase):
                 self.assertIn("source_paths", app_js)
                 self.assertIn("source_documents", app_js)
                 self.assertIn("refreshEpicSourceChoices", app_js)
+                self.assertIn("Force again", app_js)
+                self.assertIn("repository_source_paths", app_js)
+                self.assertIn("github_sources", app_js)
+                self.assertIn("force_source_paths", app_js)
                 self.assertIn('sessionScope: "repositories"', app_js)
                 self.assertIn("repositoryScopedSessions", app_js)
                 self.assertIn('$("#sessionNavCount").textContent = count || "";', app_js)

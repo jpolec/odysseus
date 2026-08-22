@@ -490,6 +490,57 @@ def seed(state_dir: Path, project: Path) -> RunStore:
                 ],
         }
     )
+    adr_path = project / "_ADR" / "0002-versioned-plan-sources.md"
+    adr_content = adr_path.read_text(encoding="utf-8") if adr_path.is_file() else "# ADR: Versioned Plan sources\n\nBind every task to an immutable requirement source."
+    source_examples = [
+        (
+            "ADR source contract",
+            {"kind": "adr", "path": "_ADR/0002-versioned-plan-sources.md", "title": "Bind plans to versioned requirement sources", "content": adr_content},
+            "Map ADR requirements to task contracts",
+        ),
+        (
+            "GitHub issue intake",
+            {"kind": "github_issue", "path": "github://issue/42", "source_url": "https://github.com/jpolec/odysseus/issues/42", "title": "Issue #42 · Preserve source lineage", "content": "# Preserve source lineage\n\nA task created from GitHub must retain the issue number, immutable text digest, and required evidence."},
+            "Freeze an authoritative GitHub issue",
+        ),
+    ]
+    for title, source, task_title in source_examples:
+        example = store.epics.create(
+            {
+                "title": title,
+                "description": source["content"].splitlines()[-1],
+                "project_path": str(project),
+                "status": "planning",
+                "evidence_class": "demo",
+                "source_documents": [source],
+            }
+        )
+        store.epics.save_plan(
+            example["id"],
+            {
+                "summary": f"Demonstrate {title.lower()} without starting an agent.",
+                "tasks": [
+                    {
+                        "task_key": f"demo-{source['kind'].replace('_', '-')}",
+                        "title": task_title,
+                        "task": task_title,
+                        "outcome": "The frozen source is linked to an explicit, independently reviewable task contract.",
+                        "role": "implementer",
+                        "depends_on": [],
+                        "parallelizable": True,
+                        "lane": "codex",
+                        "review_lane": "claude",
+                        "project_path": str(project),
+                        "source_refs": ["S1"],
+                        "acceptance_criteria": ["Source path and digest remain visible", "Nothing executes before approval"],
+                        "required_evidence": ["Plan source receipt", "Independent review"],
+                        "execution_profile": {"mode": "auto", "harness": "auto", "environment": "isolated_worktree", "policy": "standard", "reason": "Demo of source-aware Auto routing"},
+                        "estimate": {"cost_usd_min": 0.5, "cost_usd_max": 2, "duration_minutes_min": 4, "duration_minutes_max": 12, "confidence": "low", "basis": "Illustrative demo range, not calibrated"},
+                    }
+                ],
+            },
+        )
+        store.epics.update(example["id"], status="proposed")
     return store
 
 
